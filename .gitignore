@@ -1,5 +1,28 @@
+# Rust build output
 /target/
 
-# Rust generated files
+# Backup files
 **/*.rs.bk
-*.pdb
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Local config / scratch
+tmp/
+temp/
+.cache/
+
+# Generated docs
+/doc/
