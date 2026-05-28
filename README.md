@@ -8,6 +8,8 @@ visible JSON index under `$HOME/.nt`.
 
 There is no database, daemon, embeddings, vector store, or RAG.
 
+See [docs/usage.md](docs/usage.md) for a compact usage guide.
+
 ## Goals
 
 - Capture notes quickly.
@@ -32,6 +34,12 @@ nt tags
 nt rebuild
 nt rm <id>
 nt completion <shell>
+nt skill install
+nt skill list
+nt skill show <name>
+nt config show
+nt config agent-output <hidden|format|full>
+nt agent <prompt...>
 ```
 
 Core commands use positional arguments, stdin, stdout, and `$EDITOR` instead of
@@ -49,6 +57,8 @@ nt find storage
 nt edit NT20260528T143012
 nt rebuild
 nt completion zsh
+nt skill install
+nt agent note this decision about metadata outside markdown
 ```
 
 ## Note Files
@@ -217,6 +227,38 @@ nt completion fish
 
 Note id completion should be dynamic and backed by the JSON index. The generated
 completion script can call `nt ids` to complete note ids without a daemon.
+
+## Codex Agent
+
+`nt agent <prompt...>` is a thin Codex launcher. It loads nt skills from
+`$HOME/.nt/skills`, builds a prompt, and runs `codex exec`.
+
+Install the default skills first:
+
+```sh
+nt skill install
+nt skill list
+nt skill show nt-note
+```
+
+The default skills are:
+
+- `nt-note`: capture context with `nt add`.
+- `nt-recall`: retrieve with `nt list`, `nt find`, and `nt show`.
+- `nt-maintain`: inspect and repair with `nt ids`, `nt tags`, and `nt rebuild`.
+
+Agent output is configured in `$HOME/.nt/config.json`:
+
+```sh
+nt config agent-output hidden
+nt config agent-output format
+nt config agent-output full
+nt config show
+```
+
+`format` is the default. It hides Codex session metadata and prints the extracted
+assistant answer. `full` streams the complete Codex output. `hidden` prints only
+status lines.
 
 ## Design
 

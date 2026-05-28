@@ -39,6 +39,12 @@ Start with this compact surface:
 - `nt rebuild`
 - `nt rm <id>`
 - `nt completion <shell>`
+- `nt skill install`
+- `nt skill list`
+- `nt skill show <name>`
+- `nt config show`
+- `nt config agent-output <hidden|format|full>`
+- `nt agent <prompt...>`
 
 Prefer positional arguments, stdin, stdout, and `$EDITOR` over flags.
 
@@ -85,6 +91,25 @@ Agents should retrieve notes through cheap, visible operations:
 - Compose command output with normal Unix tools when helpful.
 
 No command should require hidden retrieval, embeddings, or external services.
+
+`nt agent <prompt...>` is a thin Codex launcher. It must rely on nt skills from
+`$HOME/.nt/skills` and shell out to `codex exec`; it must not implement natural
+language retrieval itself.
+
+Use `nt skill install` to create the default self-referential nt skills:
+
+- `nt-note`
+- `nt-recall`
+- `nt-maintain`
+
+These skills describe how an agent should navigate `nt` commands. They are
+editable Markdown files and should stay agent-agnostic where possible.
+
+Agent output is controlled by `$HOME/.nt/config.json`:
+
+- `hidden`: print status only.
+- `format`: print the extracted Codex answer.
+- `full`: print the full Codex output.
 
 ## Terminal UX
 
