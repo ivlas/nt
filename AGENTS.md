@@ -2,44 +2,58 @@
 
 ## Project
 
-`nt` is a minimal repo-local command layer for developers and agents.
+`nt` is a small note-taking CLI for humans and agents.
 
-It is a Git-backed command-tree runtime. It exposes project capabilities,
-tools, context, memory, decisions, artifacts, and traces through the same
-plain command interface for developers and agents.
+Notes are Markdown files. Commands should feel like normal Unix tools: read
+stdin when useful, write stdout, use `$EDITOR`, and keep state visible on disk.
 
-## Architectural rules
+## Rules
 
 - The binary name is `nt`.
-- Git is required.
-- Runtime state is repo-local.
-- Markdown and plain files remain the source of truth.
-- There is no hidden agent-only behavior.
-- There is no hidden retrieval layer, vector database, embeddings, or RAG.
-- Mutating commands must append an event to `.nt/events.jsonl`.
-- Tool execution is a core feature.
-- All durable state must be inspectable as plain files.
+- The tool is flagless for core workflows.
+- Notes are plain Markdown files.
+- Plain files are the source of truth.
+- Durable state must be inspectable without `nt`.
+- Do not add a database, daemon, hidden index, embeddings, vector store, or RAG.
+- Do not add hidden agent-only behavior.
+- Use `clap` for command parsing.
+- Use `thiserror` for application errors.
 
-## Coding style
+## Commands
+
+Start with this compact surface:
+
+- `nt init`
+- `nt add`
+- `nt list`
+- `nt show <id>`
+- `nt edit <id>`
+- `nt find <query>`
+- `nt rm <id>`
+
+Prefer positional arguments, stdin, stdout, and `$EDITOR` over flags.
+
+## Storage
+
+- Store notes under a visible `notes/` directory by default.
+- Use stable ids that can be derived from filenames.
+- Keep metadata visible in the note file when metadata is needed.
+- Agents should use `nt` commands when they exist.
+- Direct file edits are acceptable only when no command exists yet.
+
+## Coding Style
 
 - Keep modules small.
 - Prefer explicit control flow.
 - Prefer standard library APIs.
 - Avoid clever abstractions.
 - Avoid dependencies unless they clearly simplify stable core behavior.
-- Keep plain text command output readable for developers and agents.
+- Keep terminal output readable.
+- Keep error messages actionable.
 
-## Testing expectations
+## Testing
 
 - Run `cargo fmt` before finishing Rust changes.
 - Run `cargo test` when behavior changes.
 - Run `cargo run -- help` for a basic command smoke test.
-- Add focused tests for parsing and command routing.
-
-## Agent constraints
-
-- Agents must not mutate `.nt/` or `nt/` directly when an `nt` command exists.
-- Agents must use the same commands available to developers.
-- Agents must not add hidden state or hidden retrieval behavior.
-- Agents must preserve Markdown and plain files as source of truth.
-- Agents must keep workspace mutations visible and logged through `nt`.
+- Add focused tests for command routing, note ids, parsing, and storage.

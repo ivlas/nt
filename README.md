@@ -1,70 +1,94 @@
 # nt
 
-`nt` is a repo-local, Git-backed command-tree runtime
-for developers and agents.
+`nt` is a small note-taking CLI for humans and agents.
 
-It gives a project one plain Unix-like interface for commands, tools, context,
-memory, decisions, artifacts, and traces. Developers and agents use the same
-commands, and all durable state is visible as files in the repository.
+It uses a natural Unix-like flow: commands read plain files, write plain files,
+and print plain text. Notes are Markdown. There is no database, daemon, hidden
+index, embeddings, vector store, or expensive retrieval layer.
 
-## Design principles
+## Goals
 
-- Git is required.
-- Repo-local only.
-- Markdown and plain files are the permanent source of truth.
-- No hidden agent-only behavior.
-- No hidden retrieval layer, vector database, embeddings, or RAG.
-- No hidden state.
-- No flags for core flows.
-- Tool execution is a core feature.
-- Agents mutate workspace state through `nt` commands.
-- Every mutating command appends to `.nt/events.jsonl`.
-- Fewer dependencies are better.
+- Capture notes quickly.
+- Keep notes readable and editable without `nt`.
+- Make agent use boring and inspectable.
+- Stay flagless for core workflows.
+- Use `clap` for commands and `thiserror` for errors.
 
 ## Commands
 
 ```sh
 nt init
-nt tree
-nt help
-nt check
-nt log
-nt tool list
-nt tool run basic
+nt add
+nt list
+nt show <id>
+nt edit <id>
+nt find <query>
+nt rm <id>
 ```
 
-## Workspace layout
+Core commands should use positional arguments, stdin, stdout, and `$EDITOR`
+instead of flags.
 
-`nt init` creates runtime state in `.nt/` and visible project knowledge in
-`nt/`:
+Examples:
+
+```sh
+nt add
+echo "Remember the storage shape" | nt add
+nt list
+nt show 20260528-143012
+nt find storage
+nt edit 20260528-143012
+nt rm 20260528-143012
+```
+
+## Storage
+
+Default storage is a visible local directory:
 
 ```text
-.nt/
-  config.toml
-  events.jsonl
-  tools/
-  traces/
-
-nt/
-  docs/
-  context/
-  memory/
-  decisions/
-  sessions/
-  sources/
-  artifacts/
+notes/
+  2026/
+    05/
+      20260528-143012.md
 ```
 
-## Extension model
+Each note is Markdown with optional plain front matter:
 
-Tools are plain TOML files in `.nt/tools/`. A minimal manifest looks like:
+```markdown
+---
+id: 20260528-143012
+created: 2026-05-28T14:30:12+02:00
+---
 
-```toml
-name = "basic"
-command = "echo hello from nt"
-risk = "low"
-description = "Example tool"
+# Storage shape
+
+Keep the note format simple.
 ```
 
-`nt tool run <name>` executes the command, writes a trace to `.nt/traces/`, and
-logs an event.
+The file tree is the source of truth. If `nt` breaks, the notes are still just
+files.
+
+## Design
+
+- Keep modules small.
+- Prefer explicit control flow.
+- Prefer standard library APIs.
+- Keep output readable.
+- Keep errors actionable.
+- Avoid dependencies unless they simplify stable core behavior.
+
+Suggested Rust shape:
+
+- CLI parsing in `main.rs`.
+- Command handlers in a command module.
+- Note parsing and formatting in a note module.
+- File layout and reads/writes in a storage module.
+- Application errors with `thiserror`.
+
+## Development
+
+```sh
+cargo fmt
+cargo test
+cargo run -- help
+```
