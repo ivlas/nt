@@ -4,7 +4,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::fs::{atomic_write, config_path};
+use crate::fs::{atomic_write, nt_home};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -59,4 +59,8 @@ impl Config {
         println!("{text}");
         Ok(())
     }
+}
+
+fn config_path() -> Result<std::path::PathBuf> {
+    Ok(nt_home()?.join("config.json"))
 }

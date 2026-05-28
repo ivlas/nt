@@ -62,7 +62,7 @@ pub enum Shell {
     Elvish,
     Fish,
     #[value(name = "powershell", alias = "power-shell")]
-    PowerShell,
+    Power,
     Zsh,
 }
 

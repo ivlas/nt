@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NtError, Result};
-use crate::fs::{atomic_write, relative_to_cwd, skills_dir};
+use crate::fs::{atomic_write, nt_home, relative_to_cwd};
 
 pub const REQUIRED_AGENT_SKILLS: &[&str] = &["nt-note", "nt-recall", "nt-maintain"];
 
@@ -91,6 +91,10 @@ fn skill_body(name: &str) -> Result<String> {
 
 fn installed_skill_path(name: &str) -> Result<PathBuf> {
     Ok(skills_dir()?.join(name).join("SKILL.md"))
+}
+
+fn skills_dir() -> Result<PathBuf> {
+    Ok(nt_home()?.join("skills"))
 }
 
 const NT_NOTE: &str = r#"---

@@ -26,14 +26,6 @@ pub fn index_path() -> Result<PathBuf> {
     Ok(nt_home()?.join("index.json"))
 }
 
-pub fn config_path() -> Result<PathBuf> {
-    Ok(nt_home()?.join("config.json"))
-}
-
-pub fn skills_dir() -> Result<PathBuf> {
-    Ok(nt_home()?.join("skills"))
-}
-
 pub fn absolute_path(path: &Path) -> Result<PathBuf> {
     if path.is_absolute() {
         return Ok(path.to_path_buf());

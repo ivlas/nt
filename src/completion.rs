@@ -8,7 +8,7 @@ pub fn print_completion(shell: Shell) {
         Shell::Bash => ClapShell::Bash,
         Shell::Elvish => ClapShell::Elvish,
         Shell::Fish => ClapShell::Fish,
-        Shell::PowerShell => ClapShell::PowerShell,
+        Shell::Power => ClapShell::PowerShell,
         Shell::Zsh => ClapShell::Zsh,
     };
 
