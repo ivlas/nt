@@ -3,8 +3,9 @@ use std::io::{self, IsTerminal, Read};
 use std::path::Path;
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, ConfigCommand, SkillCommand};
 use crate::completion::print_completion;
+use crate::config::Config;
 use crate::error::{NtError, Result};
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta, NotebookMeta};
@@ -29,6 +30,9 @@ pub fn run(cli: Cli) -> Result<()> {
             print_completion(shell);
             Ok(())
         }
+        Command::Skill { command } => skill(command),
+        Command::Config { command } => config(command),
+        Command::Agent { prompt } => crate::agent::run(&prompt),
     }
 }
 
@@ -243,6 +247,38 @@ fn rm(id: &str) -> Result<()> {
 
     println!("removed {id}");
     Ok(())
+}
+
+fn skill(command: SkillCommand) -> Result<()> {
+    match command {
+        SkillCommand::Install => crate::skills::install(),
+        SkillCommand::List => {
+            crate::skills::list();
+            Ok(())
+        }
+        SkillCommand::Show { name } => crate::skills::show(&name),
+    }
+}
+
+fn config(command: ConfigCommand) -> Result<()> {
+    match command {
+        ConfigCommand::Show => Config::load()?.print(),
+        ConfigCommand::AgentOutput { mode } => {
+            let mut config = Config::load()?;
+            config.agent.output = mode;
+            config.save()?;
+            println!("configured agent-output {}", agent_output_name(mode));
+            Ok(())
+        }
+    }
+}
+
+fn agent_output_name(mode: crate::config::AgentOutputMode) -> &'static str {
+    match mode {
+        crate::config::AgentOutputMode::Hidden => "hidden",
+        crate::config::AgentOutputMode::Format => "format",
+        crate::config::AgentOutputMode::Full => "full",
+    }
 }
 
 fn read_note_body_for_add(notes_dir: &Path) -> Result<String> {
