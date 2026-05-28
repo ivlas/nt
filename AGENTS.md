@@ -127,3 +127,17 @@ Suggested TTY colors:
 - Run `cargo run -- help` for a basic command smoke test.
 - Add focused tests for command routing, note ids, atomic writes, index updates,
   completion, parsing, and storage.
+
+## Commits
+
+Use concise conventional commit prefixes:
+
+- `fix: ...`
+- `refactor: ...`
+- `chore: ...`
+- `docs: ...`
+- `test: ...`
+
+Keep each commit focused on one kind of change. Do not mix documentation-only
+changes, behavior changes, refactors, chores, and tests unless they are tightly
+coupled.
