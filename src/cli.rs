@@ -8,7 +8,7 @@ use crate::config::AgentOutputMode;
 #[command(
     name = "nt",
     version,
-    about = "Small note-taking CLI",
+    about = "Small CLI note organizer and research workspace",
     disable_help_flag = true,
     disable_version_flag = true
 )]

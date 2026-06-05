@@ -1,7 +1,8 @@
 # nt Usage Guide
 
-`nt` is a small note-taking CLI. Notes are plain Markdown files, while metadata
-lives in `$HOME/.nt/index.json`.
+`nt` is a small note organizer and CLI research workspace for humans and
+agents. Notes are plain Markdown files, while metadata lives in
+`$HOME/.nt/index.json`.
 
 ## Setup
 
@@ -75,6 +76,30 @@ Print known tags:
 nt tags
 ```
 
+## Agent Research Flow
+
+Agents use the same visible commands as humans. Start with stable, cheap
+retrieval:
+
+```sh
+nt find qemu
+nt show NT20260528T143012
+```
+
+Then answer from the retrieved Markdown and cite the supporting note ids. For
+agent-assisted work, launch Codex through `nt agent`:
+
+```sh
+nt agent "what did I previously decide about Firecracker vs QEMU?"
+nt agent "research this topic and save a compact note"
+```
+
+`nt agent` shells out to `codex exec` and gives Codex visible nt skills from
+`$HOME/.nt/skills`. `nt` itself does not implement hidden natural-language
+retrieval, embeddings, RAG, or external memory. If an answer depends on notes,
+the agent should retrieve them with commands such as `nt find`, `nt list`,
+`nt tags`, and `nt show`.
+
 ## Edit And Remove
 
 Edit a note with `$EDITOR`:
@@ -115,7 +140,7 @@ Note id completion should be backed by:
 nt ids
 ```
 
-## Codex Agent Flow
+## Codex Agent
 
 Install nt skills:
 
@@ -145,8 +170,7 @@ nt agent note this decision about metadata outside markdown
 nt agent what did I note about storage?
 ```
 
-`nt agent` shells out to `codex exec`. It does not implement natural language
-retrieval itself.
+`nt agent` is a launcher, not an agent framework or retrieval layer.
 
 Configure Codex output:
 

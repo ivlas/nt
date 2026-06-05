@@ -1,24 +1,61 @@
 # nt
 
-`nt` is a small note-taking CLI for humans and agents.
+`nt` is a small note organizer and CLI research workspace for humans and
+agents.
 
-It uses a Unix-like flow: read stdin, write stdout, use `$EDITOR`, store plain
-files, and keep retrieval cheap. Notes are atomic Markdown files. Metadata is a
-visible JSON index under `$HOME/.nt`.
+Its primary design target is agent use: plain-text knowledge, visible commands,
+deterministic retrieval, editable Markdown, and no hidden memory layer. Humans
+use the same Unix-like interface: read stdin, write stdout, use `$EDITOR`, store
+plain files, and compose with shell tools.
 
-There is no database, daemon, embeddings, vector store, or RAG.
+In spirit, `nt` is org-mode for agents, but smaller and CLI-native. It is a
+knowledge substrate, note organizer, and "from CLI" research assistant layer. It
+is not an agent framework, RAG system, vector database, daemon, server, browser
+runtime, microVM orchestrator, or Hermes replacement.
 
-See [docs/usage.md](docs/usage.md) for a compact usage guide.
+Notes are atomic Markdown files. Metadata is a visible JSON index under
+`$HOME/.nt`. There is no database, daemon, embeddings, vector store, hidden
+retrieval, or RAG.
+
+See [docs/usage.md](docs/usage.md) for a compact usage guide and
+[docs/design.md](docs/design.md) for the project boundaries.
 
 ## Goals
 
 - Capture notes quickly.
+- Make agent recall explicit, inspectable, and reproducible.
 - Retrieve a note by id in one direct path lookup.
 - Keep notes readable and editable without `nt`.
 - Keep metadata simple, visible, and rebuildable where possible.
-- Make agent use predictable with plain text output.
+- Make agent use predictable with plain, grep-friendly output.
 - Stay flagless for core workflows.
 - Provide shell completion for commands and note ids.
+
+## Design Loop
+
+The core loop is:
+
+```text
+capture -> organize -> retrieve -> inspect -> revise -> rebuild
+```
+
+`nt` keeps that loop visible:
+
+```sh
+nt add
+nt list
+nt find <query>
+nt show <id>
+nt edit <id>
+nt tags
+nt rebuild
+nt agent <prompt...>
+```
+
+Agents should use the same commands humans use. For example, an agent can find
+candidate notes with `nt find qemu`, inspect exact Markdown with
+`nt show NT20260528T143012`, revise a note with `nt edit <id>`, and rebuild the
+index with `nt rebuild` if metadata gets stale.
 
 ## Commands
 
@@ -230,8 +267,10 @@ completion script can call `nt ids` to complete note ids without a daemon.
 
 ## Codex Agent
 
-`nt agent <prompt...>` is a thin Codex launcher. It loads nt skills from
-`$HOME/.nt/skills`, builds a prompt, and runs `codex exec`.
+`nt agent <prompt...>` is a thin Codex launcher. It loads visible nt skills from
+`$HOME/.nt/skills`, builds a prompt, and runs `codex exec`. `nt` does not
+implement natural-language retrieval itself; the agent is expected to call
+explicit commands such as `nt find`, `nt list`, and `nt show`.
 
 Install the default skills first:
 
@@ -243,9 +282,11 @@ nt skill show nt-note
 
 The default skills are:
 
-- `nt-note`: capture context with `nt add`.
-- `nt-recall`: retrieve with `nt list`, `nt find`, and `nt show`.
-- `nt-maintain`: inspect and repair with `nt ids`, `nt tags`, and `nt rebuild`.
+- `nt-note`: capture compact research, context, and decisions with `nt add`.
+- `nt-recall`: retrieve with visible `nt list`, `nt find`, and `nt show`
+  commands, then cite note ids.
+- `nt-maintain`: inspect and repair the notebook/index with `nt ids`,
+  `nt tags`, and `nt rebuild`.
 
 Agent output is configured in `$HOME/.nt/config.json`:
 
