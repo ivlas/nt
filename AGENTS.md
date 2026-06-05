@@ -2,51 +2,117 @@
 
 ## Project
 
-`nt` is a small note-taking CLI for humans and agents.
+`nt` is a small CLI-native note organizer and research workspace for humans and
+agents. The primary design target is coding agents: visible commands,
+deterministic retrieval, editable CommonMark notes, and no hidden memory layer.
 
-Notes are atomic Markdown files. Metadata is stored as visible JSON under
-`$HOME/.nt`. Commands should feel like Unix tools: read stdin, write stdout, use
-`$EDITOR`, and compose with grep, awk, pipes, and shell completion.
+Humans use the same Unix-like interface. Commands should read stdin, write
+stdout, use `$EDITOR`, and compose with grep, awk, pipes, and shell completion.
+
+`nt` is not an agent framework, RAG system, vector database, daemon, server,
+browser/runtime orchestrator, microVM orchestrator, workflow engine, or Hermes
+replacement.
 
 ## Rules
 
 - The binary name is `nt`.
-- The tool is flagless for core workflows.
+- Core workflows are flagless.
+- Prefer positional arguments, stdin, stdout, and `$EDITOR`.
 - Note ids use `NTYYYYMMDDTHHmmss`.
 - Note filenames use `<id>.md`.
-- The notes directory contains only atomic `.md` note files.
+- The notes directory is flat and contains only atomic `.md` note files.
+- Notes are plain CommonMark Markdown.
 - Do not store metadata in Markdown front matter.
+- Do not add wiki-link syntax or nt-specific note-body markup.
 - Store metadata in `$HOME/.nt/index.json`.
 - Write notes and indexes atomically with temp-file-and-rename.
-- Do not add a database, daemon, embeddings, vector store, or RAG.
+- Do not add a database, daemon, embeddings, vector store, RAG, or hidden
+  retrieval layer.
 - Do not add hidden agent-only behavior.
 - Provide command and note id completion.
 - Use `clap` and `clap_complete` for CLI behavior.
+- Use `serde` and `serde_json` for JSON.
 - Use `thiserror` for application errors.
 
 ## Commands
 
-Start with this compact surface:
+Recommended command surface:
 
 - `nt init <notes-dir>`
 - `nt add`
 - `nt list`
+- `nt find <query...>`
 - `nt show <id>`
 - `nt edit <id>`
-- `nt find <query>`
+- `nt discuss <id>`
+- `nt discuss <id> <prompt...>`
+- `nt rm <id>`
+- `nt rebuild`
 - `nt ids`
 - `nt tags`
-- `nt rebuild`
-- `nt rm <id>`
-- `nt completion <shell>`
+- `nt collections`
+- `nt collection <name>`
+- `nt collect <id> <collection>`
+- `nt uncollect <id> <collection>`
+- `nt kind <id> <kind>`
+- `nt status`
+- `nt status <id> <status>`
+- `nt link <from-id> <to-id>`
+- `nt unlink <from-id> <to-id>`
+- `nt links <id>`
+- `nt backlinks <id>`
+- `nt agent <prompt...>`
 - `nt skill install`
 - `nt skill list`
 - `nt skill show <name>`
 - `nt config show`
 - `nt config agent-output <hidden|format|full>`
-- `nt agent <prompt...>`
+- `nt completion <shell>`
 
-Prefer positional arguments, stdin, stdout, and `$EDITOR` over flags.
+Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
+`browse`, workflow orchestration, or runtime management until real usage proves
+they are necessary.
+
+## Query Syntax
+
+`nt find` uses trailing positional query tokens:
+
+```sh
+nt find qemu firecracker
+nt find tag:decision qemu
+nt find kind:meeting
+nt find status:open
+nt find collection:meetings
+nt find link:NT20260528T143012
+nt find ref:firecracker
+nt find text:"microvm jailer"
+nt find not:tag:draft qemu
+```
+
+Rules:
+
+- Space means `AND`.
+- Search is case-insensitive.
+- Bare words search indexed metadata first, then stream note bodies if needed.
+- `#tag` is shorthand for `tag:<tag>`.
+- Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
+  default.
+
+Initial query fields:
+
+- `id:<id>`
+- `tag:<tag>`
+- `title:<term>`
+- `day:<YYYY-MM-DD>`
+- `after:<YYYY-MM-DD>`
+- `before:<YYYY-MM-DD>`
+- `kind:<kind>`
+- `status:<status>`
+- `collection:<name>`
+- `link:<id>`
+- `ref:<term>`
+- `text:<term>`
+- `not:<expr>`
 
 ## Storage
 
@@ -55,30 +121,66 @@ Prefer positional arguments, stdin, stdout, and `$EDITOR` over flags.
 - The id is the filename stem.
 - Store metadata under `$HOME/.nt/index.json`.
 - Use a metadata map keyed by note id for direct lookup.
-- Keep simple secondary indexes for common filters, such as recent ids, tags,
-  and days.
-- Support `nt rebuild` to recover derived metadata from the notes directory.
-- Agents should use `nt` commands when they exist.
-- Direct file edits are acceptable only when no command exists yet.
+- Keep derived maps for fast lookup.
+- Support `nt rebuild` to recover rebuildable metadata.
+- Do not store note bodies in the index.
 
-## Metadata
-
-Metadata should stay small and useful for filtering:
+Primary note metadata should stay small:
 
 - `id`
 - `path`
 - `created`
 - `updated`
 - `title`
+- `kind`
+- `status`
 - `tags`
+- `collections`
+- `links`
+- `refs`
+- `words`
 
-The index may include derived maps such as `recent`, `tags`, and `days` when
-they make filtering faster. Derived maps must be rebuildable from the primary
-note metadata.
+Derived maps may include:
 
-Do not store note bodies in the index. For large notebooks, `nt find <query>`
-should check metadata first and stream Markdown files only when body search is
-needed.
+- `recent`
+- `kinds`
+- `statuses`
+- `tags`
+- `collections`
+- `days`
+- `backlinks`
+- `terms`
+
+Derived maps must be rebuildable from primary metadata and, where useful, from
+CommonMark note bodies.
+
+Metadata fields that cannot be derived from CommonMark must be updated through
+explicit commands such as `nt collect`, `nt kind`, `nt status`, and `nt link`.
+Do not edit `$HOME/.nt/index.json` directly unless no command exists and the
+repair cannot be done with `nt rebuild`.
+
+## Metadata Model
+
+Use distinct fields instead of overloading tags:
+
+- `kind`: the structural form of a note, such as `note`, `todo`, `meeting`,
+  `decision`, `source`, `research`, or `project`.
+- `status`: agenda state, such as `open`, `waiting`, `done`, or `dropped`.
+- `collection`: where a note belongs, such as `todos`, `meetings`,
+  `projects/nt`, or `research/qemu`.
+- `tag`: sparse topics or entities.
+- `link`: exact note-to-note relationships stored in JSON metadata.
+- `ref`: external source references.
+
+Tags should stay sparse. Agents should run `nt tags` before choosing tags,
+prefer existing tags, use one to three tags by default, and create a new tag
+only when the concept is likely to recur.
+
+Collections are workspace-like groups. Collection names should be lowercase and
+may use `/` as a naming convention, not nested file storage.
+
+Note-to-note links live in JSON metadata. Do not require special Markdown link
+syntax for note links.
 
 ## Agent Flow
 
@@ -86,15 +188,34 @@ Agents should retrieve notes through cheap, visible operations:
 
 - Use `nt ids` for completion and direct id lists.
 - Use `nt list` for recent note summaries.
-- Use `nt find <query>` for simple indexed/body search.
+- Use `nt tags` and `nt collections` before choosing metadata.
+- Use `nt find <query...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
+- Use `nt links <id>` and `nt backlinks <id>` for explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
 
-No command should require hidden retrieval, embeddings, or external services.
+When answering from notes, cite supporting note ids.
+
+No command should require hidden retrieval, embeddings, external services, or
+private agent memory.
 
 `nt agent <prompt...>` is a thin Codex launcher. It must rely on nt skills from
 `$HOME/.nt/skills` and shell out to `codex exec`; it must not implement natural
 language retrieval itself.
+
+`nt discuss <id>` is the interactive counterpart. It should open Codex with
+`nt show <id>` output and visible metadata as context so the user can continue a
+discussion from a specific note.
+
+Agent-driven writes require approval before mutation:
+
+- New notes: produce a CommonMark draft and ask before saving with `nt add`.
+- Note edits: produce a proposed replacement or patch, then open `$EDITOR`
+  before saving.
+- Metadata updates: show planned commands such as `nt collect`, `nt link`,
+  `nt kind`, or `nt status` before running them.
+
+Rejection must leave notes and metadata unchanged.
 
 Use `nt skill install` to create the default self-referential nt skills:
 
@@ -113,19 +234,19 @@ Agent output is controlled by `$HOME/.nt/config.json`:
 
 ## Terminal UX
 
-`nt` output should be minimal, fast, and predictable:
+`nt` output should be minimal, fast, predictable, and grep-friendly:
 
 - Successful mutations print one short line, such as `saved <id>`.
 - Lists use aligned columns: id, date, tags, title.
-- `show` prints note identity, path, then the Markdown body.
+- `show` prints note identity and metadata before the CommonMark body.
 - Prefer lowercase verbs in status output.
 - Keep ids visually dominant.
 - Keep paths relative when possible.
 - Avoid decorative boxes, banners, spinners, and progress bars.
 - Use ANSI color only when stdout is a TTY.
 - Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing commands such as `ids`, `find`, and `tags` must stay stable
-  and one-record-per-line.
+- Machine-facing commands such as `ids`, `find`, `tags`, `collections`,
+  `links`, and `backlinks` must stay stable and one-record-per-line.
 
 Suggested TTY colors:
 
@@ -151,7 +272,7 @@ Suggested TTY colors:
 - Run `cargo test` when behavior changes.
 - Run `cargo run -- help` for a basic command smoke test.
 - Add focused tests for command routing, note ids, atomic writes, index updates,
-  completion, parsing, and storage.
+  completion, parsing, query syntax, metadata mutation commands, and storage.
 
 ## Commits
 

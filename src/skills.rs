@@ -100,21 +100,23 @@ fn skills_dir() -> Result<PathBuf> {
 const NT_NOTE: &str = r#"---
 name: nt-note
 description: >-
-  Use when the user asks to note, remember, save, capture, or persist
-  information with nt.
+  Capture useful research, context, decisions, and durable observations as
+  compact Markdown notes with nt.
 ---
 
 # nt-note
 
-Use `nt` as the note system. Do not create notes by editing files directly
-unless an `nt` command is unavailable.
+Use `nt` as the visible note system. Capture information with explicit `nt`
+commands so humans and other agents can inspect the same record later. Do not
+create notes by editing files directly unless an `nt` command is unavailable.
 
 Workflow:
 
 1. Extract the useful context from the user request or current conversation.
-2. Write a compact Markdown note with a clear title.
+2. Write a compact Markdown note with a clear title, the decision or fact, and
+   enough context to make it useful later.
 3. Add simple inline tags when useful, such as `#meeting`, `#decision`,
-   `#todo`, `#project`, or a concrete topic tag.
+   `#todo`, `#research`, `#project`, or a concrete topic tag.
 4. Pipe the Markdown body to `nt add`.
 5. Report the saved note id.
 
@@ -129,7 +131,8 @@ Concise note body.
 ```
 
 Do not store metadata in Markdown front matter. Do not edit
-`$HOME/.nt/index.json` directly.
+`$HOME/.nt/index.json` directly. Do not rely on hidden memory, embeddings, RAG,
+or external retrieval unless the user explicitly asks for that outside `nt`.
 "#;
 
 const NT_RECALL: &str = r#"---
@@ -147,8 +150,9 @@ Workflow:
 
 1. Start broad with `nt list`, `nt tags`, or `nt find <query>`.
 2. Use `nt show <id>` for each note that may answer the question.
-3. Answer from retrieved note contents, not from memory.
-4. Mention the note ids that support the answer.
+3. Answer from retrieved note contents, not from hidden memory.
+4. Cite the note ids that support the answer.
+5. If the notes do not contain the answer, say so before using any other source.
 
 Useful commands:
 
@@ -160,7 +164,8 @@ nt show NT20260528T143012
 ```
 
 For time words such as yesterday or last week, inspect note ids and list dates.
-Do not use embeddings, hidden retrieval, or external services.
+Do not use embeddings, hidden retrieval, RAG, or external services unless the
+user explicitly asks for outside research.
 "#;
 
 const NT_MAINTAIN: &str = r#"---
@@ -172,7 +177,7 @@ description: >-
 
 # nt-maintain
 
-Use `nt` commands first.
+Use visible `nt` commands first to inspect and repair the notebook or index.
 
 Workflow:
 
@@ -180,8 +185,11 @@ Workflow:
 2. Use `nt rebuild` when the index looks stale or missing entries.
 3. Use `nt show <id>` to verify exact note contents.
 4. Only inspect `$HOME/.nt/index.json` when command output is insufficient.
+5. Report what changed and cite affected note ids when relevant.
 
 Do not manually edit `$HOME/.nt/index.json` unless no `nt` command can perform
 the needed repair. Keep the notes directory flat and limited to atomic
-`NTYYYYMMDDTHHmmss.md` files.
+`NTYYYYMMDDTHHmmss.md` files. Do not introduce hidden metadata stores,
+embeddings, daemon state, databases, or external retrieval as maintenance
+shortcuts.
 "#;
