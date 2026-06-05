@@ -71,9 +71,6 @@ nt tags
 nt rebuild
 nt rm <id>
 nt completion <shell>
-nt skill install
-nt skill list
-nt skill show <name>
 nt config show
 nt config agent-output <hidden|format|full>
 nt agent <prompt...>
@@ -94,7 +91,6 @@ nt find storage
 nt edit NT20260528T143012
 nt rebuild
 nt completion zsh
-nt skill install
 nt agent note this decision about metadata outside markdown
 ```
 
@@ -182,7 +178,7 @@ For 10k to 100k notes, avoid loading note bodies into the index. Keep the index
 small enough to rewrite atomically, and keep full-text search as a streaming file
 operation unless a plain, rebuildable on-disk index becomes necessary.
 
-For large notebooks, commands should avoid pretty output internally and expose
+For large vaults, commands should avoid pretty output internally and expose
 agent-friendly streams:
 
 ```sh
@@ -268,25 +264,22 @@ completion script can call `nt ids` to complete note ids without a daemon.
 ## Codex Agent
 
 `nt agent <prompt...>` is a thin Codex launcher. It loads visible nt skills from
-`$HOME/.nt/skills`, builds a prompt, and runs `codex exec`. `nt` does not
+the active vault, builds a prompt, and runs `codex exec`. `nt` does not
 implement natural-language retrieval itself; the agent is expected to call
 explicit commands such as `nt find`, `nt list`, and `nt show`.
 
-Install the default skills first:
-
-```sh
-nt skill install
-nt skill list
-nt skill show nt-note
-```
+Default skills are created by `nt init` and are editable Markdown files. Use
+`nt config show` to see the active vault, agent workspace, and available
+skills.
 
 The default skills are:
 
 - `nt-note`: capture compact research, context, and decisions with `nt add`.
 - `nt-recall`: retrieve with visible `nt list`, `nt find`, and `nt show`
   commands, then cite note ids.
-- `nt-maintain`: inspect and repair the notebook/index with `nt ids`,
+- `nt-maintain`: inspect and repair the vault/index with `nt ids`,
   `nt tags`, and `nt rebuild`.
+- `nt-skill-builder`: help create or refine custom nt skills for the vault.
 
 Agent output is configured in `$HOME/.nt/config.json`:
 

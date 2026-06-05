@@ -79,9 +79,6 @@ nt unlink <from-id> <to-id>
 nt links <id>
 nt backlinks <id>
 nt agent <prompt...>
-nt skill install
-nt skill list
-nt skill show <name>
 nt config show
 nt config agent-output <hidden|format|full>
 nt completion <shell>
@@ -155,11 +152,36 @@ default. If `OR` becomes necessary, prefer an explicit token form later, such as
 ## Agent model
 
 Agents should retrieve and cite notes through visible commands. `nt agent` is a
-thin Codex launcher that provides editable nt skills from `$HOME/.nt/skills` and
-shells out to `codex exec` for one-shot agent work. `nt discuss <id>` is the
+thin Codex launcher that provides editable nt skills from the active vault
+and shells out to `codex exec` for one-shot agent work. `nt discuss <id>` is the
 interactive counterpart: it should open Codex with a specific note and its
 visible metadata as context. `nt` itself does not implement natural-language
 retrieval.
+
+Default nt skills should be created automatically during `nt init`; there should
+not be a separate `nt skill install`, `nt skill list`, or `nt skill show`
+command group. `nt config show` should print the active config, active vault,
+agent workspace, and available skill names/paths.
+
+Preferred vault layout:
+
+```text
+<vault>/
+  metadata.json
+  notes/
+    NT20260605T101500.md
+  skills/
+    nt-note.md
+    nt-recall.md
+    nt-maintain.md
+    nt-skill-builder.md
+  workspace/
+```
+
+`workspace/` is the agent working directory. Skills are durable vault
+instructions, so they live beside `workspace/`, not inside it. When `nt agent`
+or `nt discuss` runs, `nt` should set the process cwd to `<vault>/workspace`
+and pass the active skills as context.
 
 When answering from notes, agents should inspect exact note bodies with
 `nt show <id>` and cite the supporting note ids.
@@ -177,6 +199,18 @@ be explicit:
 
 Approval should result in normal mutation output such as `saved <id>` or
 `linked <from-id> <to-id>`. Rejection should leave notes and metadata unchanged.
+
+Default skills:
+
+- `nt-note`: capture useful research, context, decisions, and observations.
+- `nt-recall`: retrieve with visible nt commands and cite note ids.
+- `nt-maintain`: inspect and repair metadata with visible nt commands.
+- `nt-skill-builder`: help the user create or refine custom nt skills for their
+  vault.
+
+Custom skills are plain editable Markdown files in `<vault>/skills`. Agents
+should use `nt-skill-builder` when the user asks to create a new custom skill or
+adapt an existing one.
 
 ## Storage model
 
@@ -247,7 +281,7 @@ Search should use three tiers:
 The `terms` map is a rebuildable inverted index from normalized words to note
 ids. Start with words from titles, kinds, statuses, tags, collections, note ids,
 links, headings, references, and possibly the first paragraph. Indexing every
-body word can wait until real notebook size requires it.
+body word can wait until real vault size requires it.
 
 Metadata fields that cannot be derived from CommonMark should be updated through
 commands such as `nt collect`, `nt kind`, `nt status`, and `nt link`, not by
@@ -452,7 +486,7 @@ Conservative extensions that fit the project:
 - Better tags.
 - Note links.
 - Backlinks.
-- Project or notebook organization beyond simple collections.
+- Project or vault organization beyond simple collections.
 - Research queues.
 - Saved source references.
 - Import and export.

@@ -62,9 +62,6 @@ Recommended command surface:
 - `nt links <id>`
 - `nt backlinks <id>`
 - `nt agent <prompt...>`
-- `nt skill install`
-- `nt skill list`
-- `nt skill show <name>`
 - `nt config show`
 - `nt config agent-output <hidden|format|full>`
 - `nt completion <shell>`
@@ -200,7 +197,7 @@ No command should require hidden retrieval, embeddings, external services, or
 private agent memory.
 
 `nt agent <prompt...>` is a thin Codex launcher. It must rely on nt skills from
-`$HOME/.nt/skills` and shell out to `codex exec`; it must not implement natural
+the active vault and shell out to `codex exec`; it must not implement natural
 language retrieval itself.
 
 `nt discuss <id>` is the interactive counterpart. It should open Codex with
@@ -217,14 +214,23 @@ Agent-driven writes require approval before mutation:
 
 Rejection must leave notes and metadata unchanged.
 
-Use `nt skill install` to create the default self-referential nt skills:
+Default nt skills should be created automatically by `nt init`; there should be
+no separate skill install/list/show command group. `nt config show` should show
+the active vault, agent workspace, and available skill names/paths.
+
+Default self-referential nt skills:
 
 - `nt-note`
 - `nt-recall`
 - `nt-maintain`
+- `nt-skill-builder`
 
 These skills describe how an agent should navigate `nt` commands. They are
 editable Markdown files and should stay agent-agnostic where possible.
+
+`nt-skill-builder` helps the user create or refine custom nt skills for the
+current vault. Custom skills are plain editable Markdown files in the active
+vault's skills directory.
 
 Agent output is controlled by `$HOME/.nt/config.json`:
 

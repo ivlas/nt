@@ -12,7 +12,7 @@ Create or select a notes directory:
 nt init notes
 ```
 
-This creates the notes directory and configures it as the active notebook.
+This creates the notes directory and configures it as the active vault.
 
 ## Add Notes
 
@@ -94,8 +94,8 @@ nt agent "what did I previously decide about Firecracker vs QEMU?"
 nt agent "research this topic and save a compact note"
 ```
 
-`nt agent` shells out to `codex exec` and gives Codex visible nt skills from
-`$HOME/.nt/skills`. `nt` itself does not implement hidden natural-language
+`nt agent` shells out to `codex exec` and gives Codex visible nt skills from the
+active vault. `nt` itself does not implement hidden natural-language
 retrieval, embeddings, RAG, or external memory. If an answer depends on notes,
 the agent should retrieve them with commands such as `nt find`, `nt list`,
 `nt tags`, and `nt show`.
@@ -142,25 +142,11 @@ nt ids
 
 ## Codex Agent
 
-Install nt skills:
+Default nt skills are created by `nt init`. Show the active config and available
+skills:
 
 ```sh
-nt skill install
-```
-
-This creates editable skills under:
-
-```text
-$HOME/.nt/skills
-```
-
-List or inspect them:
-
-```sh
-nt skill list
-nt skill show nt-note
-nt skill show nt-recall
-nt skill show nt-maintain
+nt config show
 ```
 
 Use `nt agent <prompt...>` to launch Codex with those skills:
