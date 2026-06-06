@@ -22,6 +22,7 @@ fn add_show_rebuild_show_uses_visible_storage() {
     let notes = root.join("notes");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
+    assert!(home.join(".nt/skills/nt-skill-builder/SKILL.md").exists());
 
     let saved = run_nt_with_stdin(
         &home,
@@ -45,6 +46,67 @@ fn add_show_rebuild_show_uses_visible_storage() {
     let index: serde_json::Value = serde_json::from_str(&index).unwrap();
     let term_ids = index["terms"]["bodyonlyterm"].as_array().unwrap();
     assert!(term_ids.iter().any(|value| value.as_str() == Some(id)));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn metadata_commands_route_through_visible_index() {
+    let root = temp_dir("metadata-routes");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nbody two.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+
+    run_nt(&home, &["collect", first_id, "projects/nt"]);
+    run_nt(&home, &["kind", first_id, "decision"]);
+    run_nt(&home, &["status", first_id, "open"]);
+    run_nt(&home, &["link", first_id, second_id]);
+
+    let collections = run_nt(&home, &["collections"]);
+    assert!(collections.contains("projects/nt\t1"));
+
+    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    assert!(collection.contains(first_id));
+
+    let status = run_nt(&home, &["status"]);
+    assert!(status.contains(first_id));
+
+    let links = run_nt(&home, &["links", first_id]);
+    assert_eq!(links.trim(), second_id);
+
+    let backlinks = run_nt(&home, &["backlinks", second_id]);
+    assert_eq!(backlinks.trim(), first_id);
+
+    let found = run_nt(
+        &home,
+        &[
+            "find",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+            &format!("link:{second_id}"),
+        ],
+    );
+    assert!(found.contains(first_id));
+
+    let backlink_found = run_nt(&home, &["find", &format!("backlink:{second_id}")]);
+    assert!(backlink_found.contains(first_id));
+    assert!(!backlink_found.contains(second_id));
+
+    run_nt(&home, &["unlink", first_id, second_id]);
+    run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+
+    let links = run_nt(&home, &["links", first_id]);
+    assert!(links.trim().is_empty());
+
+    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    assert!(collection.trim().is_empty());
 
     let _ = fs::remove_dir_all(root);
 }

@@ -7,6 +7,7 @@ mod error;
 mod fs;
 mod index;
 mod note;
+mod query;
 mod skills;
 
 use clap::Parser;

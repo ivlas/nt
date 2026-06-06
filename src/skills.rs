@@ -2,9 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NtError, Result};
-use crate::fs::{atomic_write, nt_home, relative_to_cwd};
+use crate::fs::{atomic_write, nt_home};
 
-pub const REQUIRED_AGENT_SKILLS: &[&str] = &["nt-note", "nt-recall", "nt-maintain"];
+pub const REQUIRED_AGENT_SKILLS: &[&str] =
+    &["nt-note", "nt-recall", "nt-maintain", "nt-skill-builder"];
 
 pub struct BuiltinSkill {
     pub name: &'static str,
@@ -24,9 +25,13 @@ pub const BUILTIN_SKILLS: &[BuiltinSkill] = &[
         name: "nt-maintain",
         body: NT_MAINTAIN,
     },
+    BuiltinSkill {
+        name: "nt-skill-builder",
+        body: NT_SKILL_BUILDER,
+    },
 ];
 
-pub fn install() -> Result<()> {
+pub fn ensure_defaults() -> Result<()> {
     let dir = skills_dir()?;
     fs::create_dir_all(&dir)?;
 
@@ -35,27 +40,13 @@ pub fn install() -> Result<()> {
         let skill_path = skill_dir.join("SKILL.md");
 
         if skill_path.exists() {
-            println!("kept {}", relative_to_cwd(&skill_path).display());
             continue;
         }
 
         fs::create_dir_all(&skill_dir)?;
         atomic_write(&skill_path, skill.body.as_bytes())?;
-        println!("installed {}", relative_to_cwd(&skill_path).display());
     }
 
-    Ok(())
-}
-
-pub fn list() {
-    for skill in BUILTIN_SKILLS {
-        println!("{}", skill.name);
-    }
-}
-
-pub fn show(name: &str) -> Result<()> {
-    let body = skill_body(name)?;
-    print!("{body}");
     Ok(())
 }
 
@@ -66,7 +57,7 @@ pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
         let path = installed_skill_path(name)?;
         if !path.exists() {
             return Err(NtError::Message(format!(
-                "missing skill {name}; run `nt skill install`"
+                "missing skill {name}; run `nt init <notes-dir>`"
             )));
         }
 
@@ -76,17 +67,14 @@ pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
     Ok(bodies)
 }
 
-fn skill_body(name: &str) -> Result<String> {
-    let path = installed_skill_path(name)?;
-    if path.exists() {
-        return Ok(fs::read_to_string(path)?);
+pub fn available_skill_paths() -> Result<Vec<(String, PathBuf)>> {
+    let mut paths = Vec::new();
+
+    for skill in BUILTIN_SKILLS {
+        paths.push((skill.name.to_string(), installed_skill_path(skill.name)?));
     }
 
-    BUILTIN_SKILLS
-        .iter()
-        .find(|skill| skill.name == name)
-        .map(|skill| skill.body.to_string())
-        .ok_or_else(|| NtError::Message(format!("unknown skill: {name}")))
+    Ok(paths)
 }
 
 fn installed_skill_path(name: &str) -> Result<PathBuf> {
@@ -192,4 +180,28 @@ the needed repair. Keep the notes directory flat and limited to atomic
 `NTYYYYMMDDTHHmmss.md` files. Do not introduce hidden metadata stores,
 embeddings, daemon state, databases, or external retrieval as maintenance
 shortcuts.
+"#;
+
+const NT_SKILL_BUILDER: &str = r#"---
+name: nt-skill-builder
+description: >-
+  Help the user create or refine custom nt skills for the current workspace.
+---
+
+# nt-skill-builder
+
+Use this when the user wants to add or improve an nt skill.
+
+Workflow:
+
+1. Inspect the active nt config and existing skills with visible filesystem or
+   `nt config show` output.
+2. Draft a compact Markdown skill with a clear name, description, trigger
+   guidance, workflow, and constraints.
+3. Ask before creating or replacing a skill file.
+4. Keep skills agent-agnostic where possible and avoid hidden retrieval,
+   background state, or external service requirements.
+
+Custom skills are plain editable Markdown files in the active nt skills
+directory. Do not add a separate skill install/list/show command group.
 "#;

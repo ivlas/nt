@@ -56,7 +56,10 @@ impl Config {
 
     pub fn print(&self) -> Result<()> {
         let text = toml::to_string_pretty(self)?;
-        println!("{text}");
+        print!("{text}");
+        if !text.ends_with('\n') {
+            println!();
+        }
         Ok(())
     }
 }

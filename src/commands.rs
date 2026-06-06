@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{Cli, Command, ConfigCommand, SkillCommand};
+use crate::cli::{Cli, Command, ConfigCommand};
 use crate::completion::print_completion;
 use crate::config::Config;
 use crate::error::{NtError, Result};
@@ -14,26 +14,37 @@ use crate::note::{
     generate_unique_id, note_path, timestamp_from_id, timestamp_from_system_time, title_from_body,
     validate_id,
 };
+use crate::query::Query;
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Init { notes_dir } => init(&notes_dir),
         Command::Add => add(),
         Command::List => list(),
+        Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
         Command::Edit { id } => edit(&id),
-        Command::Find { query } => find(&query),
+        Command::Discuss { id, prompt } => discuss(&id, &prompt),
+        Command::Rm { id } => rm(&id),
+        Command::Rebuild => rebuild(),
         Command::Ids => ids(),
         Command::Tags => tags(),
-        Command::Rebuild => rebuild(),
-        Command::Rm { id } => rm(&id),
+        Command::Collections => collections(),
+        Command::Collection { name } => collection(&name),
+        Command::Collect { id, collection } => collect(&id, &collection),
+        Command::Uncollect { id, collection } => uncollect(&id, &collection),
+        Command::Kind { id, kind } => set_kind(&id, &kind),
+        Command::Status { args } => route_status(&args),
+        Command::Link { from_id, to_id } => link(&from_id, &to_id),
+        Command::Unlink { from_id, to_id } => unlink(&from_id, &to_id),
+        Command::Links { id } => links(&id),
+        Command::Backlinks { id } => backlinks(&id),
+        Command::Agent { prompt } => crate::agent::run(&prompt),
+        Command::Config { command } => config(command),
         Command::Completion { shell } => {
             print_completion(shell);
             Ok(())
         }
-        Command::Skill { command } => skill(command),
-        Command::Config { command } => config(command),
-        Command::Agent { prompt } => crate::agent::run(&prompt),
     }
 }
 
@@ -53,6 +64,7 @@ fn init(notes_dir: &Path) -> Result<()> {
         });
     refresh_derived_from_note_files(&mut index)?;
     index.save()?;
+    crate::skills::ensure_defaults()?;
 
     println!("initialized {}", relative_to_cwd(&notes_dir).display());
     Ok(())
@@ -162,16 +174,28 @@ fn edit(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn find(query: &str) -> Result<()> {
+fn discuss(id: &str, _prompt: &[String]) -> Result<()> {
+    validate_id(id)?;
     let index = Index::load()?;
-    let needle = query.to_ascii_lowercase();
+    if !index.notes.contains_key(id) {
+        return Err(NtError::NoteNotFound(id.to_string()));
+    }
+
+    Err(NtError::Message(
+        "discuss is not implemented yet".to_string(),
+    ))
+}
+
+fn find(exprs: &[String]) -> Result<()> {
+    let index = Index::load()?;
+    let query = Query::parse(exprs)?;
 
     for id in &index.recent {
         let Some(note) = index.notes.get(id) else {
             continue;
         };
 
-        if matches_metadata(note, &needle) || matches_body(note, &needle) {
+        if query.matches(&index, note) {
             println!("{}", summary_line(note));
         }
     }
@@ -192,6 +216,29 @@ fn tags() -> Result<()> {
     for (tag, ids) in &index.tags {
         println!("{tag}\t{}", ids.len());
     }
+    Ok(())
+}
+
+fn collections() -> Result<()> {
+    let index = Index::load()?;
+    for (collection, ids) in &index.collections {
+        println!("{collection}\t{}", ids.len());
+    }
+    Ok(())
+}
+
+fn collection(name: &str) -> Result<()> {
+    let index = Index::load()?;
+    let Some(ids) = index.collections.get(name) else {
+        return Ok(());
+    };
+
+    for id in ids {
+        if let Some(note) = index.notes.get(id) {
+            println!("{}", summary_line(note));
+        }
+    }
+
     Ok(())
 }
 
@@ -277,20 +324,133 @@ fn rm(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn skill(command: SkillCommand) -> Result<()> {
-    match command {
-        SkillCommand::Install => crate::skills::install(),
-        SkillCommand::List => {
-            crate::skills::list();
-            Ok(())
-        }
-        SkillCommand::Show { name } => crate::skills::show(&name),
+fn collect(id: &str, collection: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        push_unique_sorted(&mut note.collections, collection.to_string());
+        Ok(())
+    })?;
+
+    println!("collected {id} {collection}");
+    Ok(())
+}
+
+fn uncollect(id: &str, collection: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        note.collections.retain(|value| value != collection);
+        Ok(())
+    })?;
+
+    println!("uncollected {id} {collection}");
+    Ok(())
+}
+
+fn set_kind(id: &str, kind: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        note.kind = kind.to_string();
+        Ok(())
+    })?;
+
+    println!("kind {id} {kind}");
+    Ok(())
+}
+
+fn route_status(args: &[String]) -> Result<()> {
+    match args {
+        [] => print_status(),
+        [id, status] => set_status(id, status),
+        _ => Err(NtError::Message(
+            "usage: nt status [<id> <status>]".to_string(),
+        )),
     }
+}
+
+fn print_status() -> Result<()> {
+    let index = Index::load()?;
+
+    for wanted in ["open", "waiting"] {
+        let Some(ids) = index.statuses.get(wanted) else {
+            continue;
+        };
+
+        for id in ids {
+            if let Some(note) = index.notes.get(id) {
+                println!("{}", summary_line(note));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn set_status(id: &str, status: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        note.status = Some(status.to_string());
+        Ok(())
+    })?;
+
+    println!("status {id} {status}");
+    Ok(())
+}
+
+fn link(from_id: &str, to_id: &str) -> Result<()> {
+    validate_id(from_id)?;
+    validate_id(to_id)?;
+    mutate_index(|index| {
+        ensure_note_exists(index, to_id)?;
+        let from = note_mut(index, from_id)?;
+        push_unique_sorted(&mut from.links, to_id.to_string());
+        Ok(())
+    })?;
+
+    println!("linked {from_id} {to_id}");
+    Ok(())
+}
+
+fn unlink(from_id: &str, to_id: &str) -> Result<()> {
+    validate_id(from_id)?;
+    validate_id(to_id)?;
+    mutate_index(|index| {
+        let from = note_mut(index, from_id)?;
+        from.links.retain(|value| value != to_id);
+        Ok(())
+    })?;
+
+    println!("unlinked {from_id} {to_id}");
+    Ok(())
+}
+
+fn links(id: &str) -> Result<()> {
+    validate_id(id)?;
+    let index = Index::load()?;
+    let note = index
+        .notes
+        .get(id)
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+
+    for link in &note.links {
+        println!("{link}");
+    }
+
+    Ok(())
+}
+
+fn backlinks(id: &str) -> Result<()> {
+    validate_id(id)?;
+    let index = Index::load()?;
+    ensure_note_exists(&index, id)?;
+
+    if let Some(ids) = index.backlinks.get(id) {
+        for backlink in ids {
+            println!("{backlink}");
+        }
+    }
+
+    Ok(())
 }
 
 fn config(command: ConfigCommand) -> Result<()> {
     match command {
-        ConfigCommand::Show => Config::load()?.print(),
+        ConfigCommand::Show => config_show(),
         ConfigCommand::AgentOutput { mode } => {
             let mut config = Config::load()?;
             config.agent.output = mode;
@@ -299,6 +459,26 @@ fn config(command: ConfigCommand) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn config_show() -> Result<()> {
+    Config::load()?.print()?;
+
+    let index = Index::load()?;
+    let notes_dir = index
+        .active_notes_dir()
+        .map(relative_to_cwd)
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let skills = crate::skills::available_skill_paths()?;
+
+    println!("notes_dir {notes_dir}");
+    println!("agent_workspace {}", relative_to_cwd(&nt_home()?).display());
+    for (name, path) in skills {
+        println!("skill {name} {}", relative_to_cwd(&path).display());
+    }
+
+    Ok(())
 }
 
 fn agent_output_name(mode: crate::config::AgentOutputMode) -> &'static str {
@@ -381,6 +561,46 @@ fn active_notes_dir(index: &Index) -> Result<&Path> {
     index.active_notes_dir().ok_or(NtError::MissingNotebook)
 }
 
+fn mutate_index<F>(mutate: F) -> Result<()>
+where
+    F: FnOnce(&mut Index) -> Result<()>,
+{
+    let mut index = Index::load()?;
+    mutate(&mut index)?;
+    refresh_derived_from_note_files(&mut index)?;
+    index.save()
+}
+
+fn mutate_note<F>(id: &str, mutate: F) -> Result<()>
+where
+    F: FnOnce(&mut NoteMeta) -> Result<()>,
+{
+    validate_id(id)?;
+    mutate_index(|index| mutate(note_mut(index, id)?))
+}
+
+fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
+    index
+        .notes
+        .get_mut(id)
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
+}
+
+fn ensure_note_exists(index: &Index, id: &str) -> Result<()> {
+    if index.notes.contains_key(id) {
+        Ok(())
+    } else {
+        Err(NtError::NoteNotFound(id.to_string()))
+    }
+}
+
+fn push_unique_sorted(values: &mut Vec<String>, value: String) {
+    if !values.contains(&value) {
+        values.push(value);
+        values.sort();
+    }
+}
+
 fn summary_line(note: &NoteMeta) -> String {
     let day = note.created.get(0..10).unwrap_or("unknown");
     let tags = joined_or_dash(&note.tags);
@@ -394,40 +614,6 @@ fn joined_or_dash(values: &[String]) -> String {
     } else {
         values.join(",")
     }
-}
-
-fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
-    note.id.to_ascii_lowercase().contains(needle)
-        || note.title.to_ascii_lowercase().contains(needle)
-        || note.kind.to_ascii_lowercase().contains(needle)
-        || note
-            .status
-            .as_deref()
-            .is_some_and(|status| status.to_ascii_lowercase().contains(needle))
-        || note
-            .tags
-            .iter()
-            .any(|tag| tag.to_ascii_lowercase().contains(needle))
-        || note
-            .collections
-            .iter()
-            .any(|collection| collection.to_ascii_lowercase().contains(needle))
-        || note
-            .links
-            .iter()
-            .any(|link| link.to_ascii_lowercase().contains(needle))
-        || note
-            .refs
-            .iter()
-            .any(|reference| reference.to_ascii_lowercase().contains(needle))
-}
-
-fn matches_body(note: &NoteMeta, needle: &str) -> bool {
-    let Ok(body) = fs::read_to_string(&note.path) else {
-        return false;
-    };
-
-    body.to_ascii_lowercase().contains(needle)
 }
 
 fn file_updated_iso(path: &Path) -> Result<Option<String>> {
