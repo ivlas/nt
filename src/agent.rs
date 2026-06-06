@@ -2,6 +2,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use crate::config::{AgentOutputMode, Config};
 use crate::error::{NtError, Result};
+use crate::fs::nt_home;
 use crate::skills;
 
 pub fn run(prompt: &[String]) -> Result<()> {
@@ -27,9 +28,11 @@ pub fn run(prompt: &[String]) -> Result<()> {
 }
 
 fn run_full(prompt: &str) -> Result<()> {
+    let workspace = nt_home()?;
     let status = ProcessCommand::new("codex")
         .arg("exec")
         .arg(prompt)
+        .current_dir(workspace)
         .status()?;
 
     if !status.success() {
@@ -77,9 +80,11 @@ fn run_hidden(prompt: &str) -> Result<()> {
 }
 
 fn codex_output(prompt: &str) -> Result<std::process::Output> {
+    let workspace = nt_home()?;
     Ok(ProcessCommand::new("codex")
         .arg("exec")
         .arg(prompt)
+        .current_dir(workspace)
         .stdin(Stdio::null())
         .output()?)
 }

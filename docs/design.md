@@ -236,17 +236,18 @@ Tag rules:
 ## Agent Model
 
 Agents should retrieve and cite notes through visible commands. `nt agent
-<prompt...>` is a thin Codex launcher that shells out to `codex exec`; it must
-not implement natural-language retrieval itself.
+<prompt...>` is a thin Codex launcher that shells out to `codex exec` from the
+`$HOME/.nt` agent workspace; it must not implement natural-language retrieval
+itself.
 
 `nt discuss <id>` is the interactive counterpart. It should open Codex with
 `nt show <id>` output and visible metadata as context so the user can continue a
 discussion from a specific note.
 
-Default nt skills should be created automatically during `nt init`; there should
-not be a separate skill install/list/show command group. `nt config show` should
-print the active config, active notes directory, agent workspace, and available
-skill names/paths.
+Default `AGENTS.md` and nt skills should be created automatically during
+`nt init`; there should not be a separate skill install/list/show command group.
+`nt config show` should print the active config, active notes directory, agent
+workspace, `AGENTS.md`, and available skill names/paths.
 
 Default skills:
 

@@ -32,6 +32,8 @@ pub const BUILTIN_SKILLS: &[BuiltinSkill] = &[
 ];
 
 pub fn ensure_defaults() -> Result<()> {
+    ensure_agents_md()?;
+
     let dir = skills_dir()?;
     fs::create_dir_all(&dir)?;
 
@@ -48,6 +50,10 @@ pub fn ensure_defaults() -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn agents_md_path() -> Result<PathBuf> {
+    Ok(nt_home()?.join("AGENTS.md"))
 }
 
 pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
@@ -84,6 +90,92 @@ fn installed_skill_path(name: &str) -> Result<PathBuf> {
 fn skills_dir() -> Result<PathBuf> {
     Ok(nt_home()?.join("skills"))
 }
+
+fn ensure_agents_md() -> Result<()> {
+    let path = agents_md_path()?;
+    if path.exists() {
+        return Ok(());
+    }
+
+    atomic_write(&path, NT_AGENTS.as_bytes())
+}
+
+const NT_AGENTS: &str = r#"# AGENTS.md
+
+## nt workspace
+
+This is the visible agent workspace for `nt`. Use the `nt` CLI as the source of
+truth for notes and metadata. Do not rely on hidden memory, embeddings, a vector
+store, a daemon, or direct edits to `$HOME/.nt/index.json`.
+
+## Core commands
+
+```sh
+nt init <notes-dir>
+nt add
+nt list
+nt find <expr...>
+nt show <id>
+nt edit <id>
+nt discuss <id>
+nt discuss <id> <prompt...>
+nt rm <id>
+nt rebuild
+nt ids
+nt tags
+nt collections
+nt collection <name>
+nt collect <id> <collection>
+nt uncollect <id> <collection>
+nt kind <id> <kind>
+nt status
+nt status <id> <status>
+nt link <from-id> <to-id>
+nt unlink <from-id> <to-id>
+nt links <id>
+nt backlinks <id>
+nt agent <prompt...>
+nt config show
+nt config agent-output <hidden|format|full>
+nt completion <shell>
+```
+
+## Find syntax
+
+`nt find` takes trailing positional query expressions. Expressions are combined
+with `AND`; order does not matter; search is case-insensitive.
+
+```sh
+nt find qemu firecracker
+nt find tag:decision qemu
+nt find since:2026-05-01 before:2026-06-01 collection:projects/nt
+nt find kind:meeting status:open
+nt find link:NT20260528T143012
+nt find backlink:NT20260528T143012
+nt find body:'microvm jailer'
+nt find not:tag:draft qemu
+```
+
+Fields: `id`, `tag`, `title`, `day`, `since`, `before`, `kind`, `status`,
+`collection`, `link`, `backlink`, `ref`, `body`, and `not:<expr>`. `#tag` is
+shorthand for `tag:<tag>`. Unknown fields are errors.
+
+## Usage flow
+
+Retrieve with visible commands first:
+
+```sh
+nt list
+nt tags
+nt collections
+nt find <expr...>
+nt show <id>
+```
+
+When writing notes, draft concise CommonMark Markdown and save through `nt add`.
+When changing metadata, use explicit commands such as `nt collect`, `nt kind`,
+`nt status`, and `nt link`. Use `nt rebuild` when the JSON index appears stale.
+"#;
 
 const NT_NOTE: &str = r#"---
 name: nt-note

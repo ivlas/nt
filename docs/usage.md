@@ -179,14 +179,15 @@ nt ids
 
 ## Codex Agent
 
-Default nt skills are created by `nt init`. Show the active config and available
-skills:
+Default `AGENTS.md` and nt skills are created by `nt init` in `$HOME/.nt`.
+Show the active config, agent workspace, `AGENTS.md`, and available skills:
 
 ```sh
 nt config show
 ```
 
-Use `nt agent <prompt...>` to launch Codex with those skills:
+Use `nt agent <prompt...>` to launch Codex from that agent workspace with those
+skills:
 
 ```sh
 nt agent note this decision about metadata outside markdown

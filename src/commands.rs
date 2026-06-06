@@ -474,6 +474,10 @@ fn config_show() -> Result<()> {
 
     println!("notes_dir {notes_dir}");
     println!("agent_workspace {}", relative_to_cwd(&nt_home()?).display());
+    println!(
+        "agents_md {}",
+        relative_to_cwd(&crate::skills::agents_md_path()?).display()
+    );
     for (name, path) in skills {
         println!("skill {name} {}", relative_to_cwd(&path).display());
     }

@@ -22,6 +22,7 @@ fn add_show_rebuild_show_uses_visible_storage() {
     let notes = root.join("notes");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
+    assert!(home.join(".nt/AGENTS.md").exists());
     assert!(home.join(".nt/skills/nt-skill-builder/SKILL.md").exists());
 
     let saved = run_nt_with_stdin(
@@ -46,6 +47,25 @@ fn add_show_rebuild_show_uses_visible_storage() {
     let index: serde_json::Value = serde_json::from_str(&index).unwrap();
     let term_ids = index["terms"]["bodyonlyterm"].as_array().unwrap();
     assert!(term_ids.iter().any(|value| value.as_str() == Some(id)));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_show_prints_agent_workspace_files() {
+    let root = temp_dir("config-agent-workspace");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let shown = run_nt(&home, &["config", "show"]);
+
+    assert!(shown.contains("[agent]"));
+    assert!(shown.contains("agent_workspace"));
+    assert!(shown.contains("agents_md"));
+    assert!(shown.contains("AGENTS.md"));
+    assert!(shown.contains("skill nt-skill-builder"));
 
     let _ = fs::remove_dir_all(root);
 }

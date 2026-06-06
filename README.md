@@ -292,14 +292,15 @@ completion script can call `nt ids` to complete note ids without a daemon.
 
 ## Codex Agent
 
-`nt agent <prompt...>` is a thin Codex launcher. It loads visible nt skills from
-the active workspace, builds a prompt, and runs `codex exec`. `nt` does not
+`nt agent <prompt...>` is a thin Codex launcher. It runs Codex from the
+`$HOME/.nt` agent workspace, loads visible nt skills, builds a prompt, and runs
+`codex exec`. `nt` does not
 implement natural-language retrieval itself; the agent is expected to call
 explicit commands such as `nt find`, `nt list`, and `nt show`.
 
-Default skills are created by `nt init` and are editable Markdown files. Use
-`nt config show` to see the active notes directory, agent workspace, and
-available skills.
+Default `AGENTS.md` and skill files are created by `nt init` and are editable
+Markdown files. Use `nt config show` to see the active notes directory, agent
+workspace, `AGENTS.md`, and available skills.
 
 The default skills are:
 
