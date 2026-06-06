@@ -78,6 +78,39 @@ Print known tags:
 nt tags
 ```
 
+## Organize Metadata
+
+List and inspect collections:
+
+```sh
+nt collections
+nt collection projects/nt
+```
+
+Update visible JSON metadata with explicit commands:
+
+```sh
+nt collect NT20260528T143012 projects/nt
+nt uncollect NT20260528T143012 projects/nt
+nt kind NT20260528T143012 decision
+nt status NT20260528T143012 open
+nt link NT20260528T143012 NT20260527T120000
+nt unlink NT20260528T143012 NT20260527T120000
+```
+
+Print note links for scripts and agents:
+
+```sh
+nt links NT20260528T143012
+nt backlinks NT20260527T120000
+```
+
+Show actionable open and waiting notes:
+
+```sh
+nt status
+```
+
 ## Agent Research Flow
 
 Agents use the same visible commands as humans. Start with stable, cheap

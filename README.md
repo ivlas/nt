@@ -64,17 +64,30 @@ index with `nt rebuild` if metadata gets stale.
 nt init <notes-dir>
 nt add
 nt list
+nt find <expr...>
 nt show <id>
 nt edit <id>
-nt find <expr...>
+nt discuss <id>
+nt discuss <id> <prompt...>
+nt rm <id>
+nt rebuild
 nt ids
 nt tags
-nt rebuild
-nt rm <id>
-nt completion <shell>
+nt collections
+nt collection <name>
+nt collect <id> <collection>
+nt uncollect <id> <collection>
+nt kind <id> <kind>
+nt status
+nt status <id> <status>
+nt link <from-id> <to-id>
+nt unlink <from-id> <to-id>
+nt links <id>
+nt backlinks <id>
+nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>
-nt agent <prompt...>
+nt completion <shell>
 ```
 
 Core commands use positional arguments, stdin, stdout, and `$EDITOR` instead of
@@ -323,5 +336,5 @@ prints only status lines.
 ```sh
 cargo fmt
 cargo test
-cargo run -- help
+cargo run -- --help
 ```

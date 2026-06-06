@@ -296,8 +296,6 @@ Output should be plain, stable, grep-friendly, and fast.
 Conservative extensions that fit the project:
 
 - Better tags.
-- Note links.
-- Backlinks.
 - Project or workspace organization beyond simple collections.
 - Research queues.
 - Saved source references.
