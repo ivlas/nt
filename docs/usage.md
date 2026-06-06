@@ -24,9 +24,7 @@ Add a note from stdin:
 ```sh
 printf '%s\n' '# Storage decision
 
-Keep note metadata outside Markdown.
-
-#decision #nt' | nt add
+Keep note metadata outside Markdown.' | nt add
 ```
 
 If stdin is a terminal, `nt add` opens `$EDITOR`:
@@ -126,7 +124,10 @@ If the metadata index is stale, rebuild it from the active notes directory:
 nt rebuild
 ```
 
-`nt rebuild` scans `NTYYYYMMDDTHHmmss.md` files and recreates derived metadata.
+`nt rebuild` scans `NTYYYYMMDDTHHmmss.md` files and recreates derived metadata,
+including cheap term indexes from headings, Markdown links, and the first
+paragraph. For known note ids, it preserves explicit metadata that cannot be
+derived from Markdown, such as kind, status, tags, collections, links, and refs.
 
 ## Shell Completion
 

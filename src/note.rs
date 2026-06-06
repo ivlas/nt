@@ -100,41 +100,6 @@ pub fn title_from_body(body: &str) -> String {
     "(untitled)".to_string()
 }
 
-pub fn tags_from_body(body: &str) -> Vec<String> {
-    let mut tags = Vec::new();
-
-    for line in body.lines() {
-        if line.trim_start().starts_with("# ") {
-            continue;
-        }
-
-        for word in line.split_whitespace() {
-            let Some(tag) = clean_tag(word) else {
-                continue;
-            };
-
-            if !tags.contains(&tag) {
-                tags.push(tag);
-            }
-        }
-    }
-
-    tags
-}
-
-fn clean_tag(word: &str) -> Option<String> {
-    let tag = word
-        .strip_prefix('#')?
-        .trim_matches(|char: char| !char.is_ascii_alphanumeric() && char != '-' && char != '_')
-        .to_ascii_lowercase();
-
-    if tag.is_empty() || tag.chars().all(|char| char.is_ascii_digit()) {
-        return None;
-    }
-
-    Some(tag)
-}
-
 fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
     let days = seconds.div_euclid(SECONDS_PER_DAY);
     let second_of_day = seconds.rem_euclid(SECONDS_PER_DAY);
@@ -169,7 +134,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{tags_from_body, timestamp_from_system_time, title_from_body, validate_id};
+    use super::{timestamp_from_system_time, title_from_body, validate_id};
 
     #[test]
     fn validates_note_id_shape() {
@@ -189,13 +154,5 @@ mod tests {
     #[test]
     fn extracts_title_from_markdown_heading() {
         assert_eq!(title_from_body("\n# Hello\nbody"), "Hello");
-    }
-
-    #[test]
-    fn extracts_inline_tags() {
-        assert_eq!(
-            tags_from_body("# Title\nShip #Rust and #cli."),
-            vec!["rust".to_string(), "cli".to_string()]
-        );
     }
 }

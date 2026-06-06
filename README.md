@@ -166,9 +166,11 @@ note bodies.
 
 The index should be written atomically the same way as notes. `nt rebuild`
 scans the active notes directory and recreates metadata that can be derived from
-filenames and Markdown content. Metadata that cannot be derived from CommonMark
-should be updated through explicit commands such as `nt collect`, `nt kind`,
-`nt status`, and `nt link`.
+filenames and Markdown content, including cheap term indexes from headings,
+Markdown links, and the first paragraph. For notes already known to the index,
+`nt rebuild` preserves visible metadata that cannot be derived from CommonMark.
+That metadata should be updated through explicit commands such as `nt collect`,
+`nt kind`, `nt status`, and `nt link`.
 
 ## Retrieval And Scale
 
@@ -221,6 +223,14 @@ Use direct note output for `show`:
 ```text
 NT20260528T143012  Storage shape
 path notes/NT20260528T143012.md
+created 2026-05-28T14:30:12Z
+updated 2026-05-28T14:30:12Z
+kind note
+status -
+tags design
+collections -
+links -
+refs -
 
 # Storage shape
 
