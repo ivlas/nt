@@ -169,6 +169,14 @@ nt config agent-output format
 nt config agent-output full
 ```
 
+This writes `$HOME/.nt/config.toml`:
+
+```toml
+[agent]
+backend = "codex"
+output = "format"
+```
+
 Modes:
 
 - `hidden`: show status only.

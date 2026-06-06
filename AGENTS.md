@@ -32,6 +32,7 @@ replacement.
 - Provide command and note id completion.
 - Use `clap` and `clap_complete` for CLI behavior.
 - Use `serde` and `serde_json` for JSON.
+- Use `toml` for `$HOME/.nt/config.toml`.
 - Use `thiserror` for application errors.
 
 ## Commands
@@ -243,7 +244,7 @@ editable Markdown files and should stay agent-agnostic where possible.
 current workspace. Custom skills are plain editable Markdown files in the active
 nt skills directory.
 
-Agent output is controlled by `$HOME/.nt/config.json`:
+Agent output is controlled by `$HOME/.nt/config.toml`:
 
 - `hidden`: print status only.
 - `format`: print the extracted Codex answer.

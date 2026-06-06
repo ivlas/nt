@@ -43,24 +43,43 @@ impl Config {
             return Ok(Self::default());
         }
 
-        let bytes = fs::read(path)?;
-        Ok(serde_json::from_slice(&bytes)?)
+        let text = fs::read_to_string(path)?;
+        Ok(toml::from_str(&text)?)
     }
 
     pub fn save(&self) -> Result<()> {
         let path = config_path()?;
-        let mut bytes = serde_json::to_vec_pretty(self)?;
-        bytes.push(b'\n');
-        atomic_write(&path, &bytes)
+        let mut text = toml::to_string_pretty(self)?;
+        text.push('\n');
+        atomic_write(&path, text.as_bytes())
     }
 
     pub fn print(&self) -> Result<()> {
-        let text = serde_json::to_string_pretty(self)?;
+        let text = toml::to_string_pretty(self)?;
         println!("{text}");
         Ok(())
     }
 }
 
 fn config_path() -> Result<std::path::PathBuf> {
-    Ok(nt_home()?.join("config.json"))
+    Ok(nt_home()?.join("config.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentOutputMode, Config};
+
+    #[test]
+    fn config_serializes_as_toml() {
+        let config = Config::default();
+        let text = toml::to_string_pretty(&config).unwrap();
+
+        assert!(text.contains("[agent]"));
+        assert!(text.contains("backend = \"codex\""));
+        assert!(text.contains("output = \"format\""));
+
+        let parsed: Config = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.agent.backend, "codex");
+        assert_eq!(parsed.agent.output, AgentOutputMode::Format);
+    }
 }

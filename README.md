@@ -287,7 +287,7 @@ The default skills are:
   `nt tags`, and `nt rebuild`.
 - `nt-skill-builder`: help create or refine custom nt skills for the workspace.
 
-Agent output is configured in `$HOME/.nt/config.json`:
+Agent output is configured in `$HOME/.nt/config.toml`:
 
 ```sh
 nt config agent-output hidden
@@ -296,9 +296,17 @@ nt config agent-output full
 nt config show
 ```
 
-`format` is the default. It hides Codex session metadata and prints the extracted
-assistant answer. `full` streams the complete Codex output. `hidden` prints only
-status lines.
+The config file is TOML:
+
+```toml
+[agent]
+backend = "codex"
+output = "format"
+```
+
+`format` is the default. It hides Codex session metadata and prints the
+extracted assistant answer. `full` streams the complete Codex output. `hidden`
+prints only status lines.
 
 ## Development
 

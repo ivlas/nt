@@ -265,13 +265,15 @@ Agent-driven writes require approval before mutation:
 
 Rejection must leave notes and metadata unchanged.
 
-Agent output is controlled by `$HOME/.nt/config.json`:
+Agent output is controlled by `$HOME/.nt/config.toml`:
 
 ```text
 hidden
 format
 full
 ```
+
+The config file is human-editable TOML. The metadata index remains JSON.
 
 ## Output Model
 
