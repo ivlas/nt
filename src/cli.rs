@@ -59,10 +59,6 @@ pub enum Command {
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Shell {
     Bash,
-    Elvish,
-    Fish,
-    #[value(name = "powershell", alias = "power-shell")]
-    Power,
     Zsh,
 }
 

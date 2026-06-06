@@ -148,7 +148,7 @@ Retrieve notes through visible `nt` commands before answering.
 
 Workflow:
 
-1. Start broad with `nt list`, `nt tags`, or `nt find <query>`.
+1. Start broad with `nt list`, `nt tags`, or `nt find <expr...>`.
 2. Use `nt show <id>` for each note that may answer the question.
 3. Answer from retrieved note contents, not from hidden memory.
 4. Cite the note ids that support the answer.

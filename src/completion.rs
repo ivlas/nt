@@ -6,9 +6,6 @@ use crate::cli::{Cli, Shell};
 pub fn print_completion(shell: Shell) {
     let shell = match shell {
         Shell::Bash => ClapShell::Bash,
-        Shell::Elvish => ClapShell::Elvish,
-        Shell::Fish => ClapShell::Fish,
-        Shell::Power => ClapShell::PowerShell,
         Shell::Zsh => ClapShell::Zsh,
     };
 

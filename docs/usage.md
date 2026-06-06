@@ -4,6 +4,9 @@
 agents. Notes are plain Markdown files, while metadata lives in
 `$HOME/.nt/index.json`.
 
+See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact CLI command and
+query syntax contract.
+
 ## Setup
 
 Create or select a notes directory:
@@ -12,7 +15,7 @@ Create or select a notes directory:
 nt init notes
 ```
 
-This creates the notes directory and configures it as the active vault.
+This creates the notes directory and configures it as active.
 
 ## Add Notes
 
@@ -56,6 +59,7 @@ Search metadata and note bodies:
 
 ```sh
 nt find storage
+nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
 ```
 
 Show one exact note:
@@ -95,7 +99,7 @@ nt agent "research this topic and save a compact note"
 ```
 
 `nt agent` shells out to `codex exec` and gives Codex visible nt skills from the
-active vault. `nt` itself does not implement hidden natural-language
+active workspace. `nt` itself does not implement hidden natural-language
 retrieval, embeddings, RAG, or external memory. If an answer depends on notes,
 the agent should retrieve them with commands such as `nt find`, `nt list`,
 `nt tags`, and `nt show`.
@@ -131,7 +135,6 @@ Generate completion scripts with `clap_complete`:
 ```sh
 nt completion zsh
 nt completion bash
-nt completion fish
 ```
 
 Note id completion should be backed by:

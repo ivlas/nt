@@ -41,7 +41,7 @@ Recommended command surface:
 - `nt init <notes-dir>`
 - `nt add`
 - `nt list`
-- `nt find <query...>`
+- `nt find <expr...>`
 - `nt show <id>`
 - `nt edit <id>`
 - `nt discuss <id>`
@@ -72,26 +72,35 @@ they are necessary.
 
 ## Query Syntax
 
-`nt find` uses trailing positional query tokens:
+The canonical CLI command and query syntax lives in `docs/cli-syntax-spec.md`.
+Agents should follow that file when constructing commands.
+
+`nt find` uses trailing positional query expressions:
 
 ```sh
 nt find qemu firecracker
 nt find tag:decision qemu
+nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
 nt find kind:meeting
 nt find status:open
 nt find collection:meetings
 nt find link:NT20260528T143012
+nt find backlink:NT20260528T143012
 nt find ref:firecracker
-nt find text:"microvm jailer"
+nt find body:'microvm jailer'
 nt find not:tag:draft qemu
 ```
 
 Rules:
 
-- Space means `AND`.
+- Each positional argument is one query expression.
+- All expressions are combined with `AND`.
+- Expression order does not matter.
 - Search is case-insensitive.
-- Bare words search indexed metadata first, then stream note bodies if needed.
+- Bare words match searchable metadata or note bodies.
 - `#tag` is shorthand for `tag:<tag>`.
+- Quoted values rely on normal shell quoting, not separate nt query syntax.
+- Unknown fields are errors, not bare-word searches.
 - Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
   default.
 
@@ -101,15 +110,18 @@ Initial query fields:
 - `tag:<tag>`
 - `title:<term>`
 - `day:<YYYY-MM-DD>`
-- `after:<YYYY-MM-DD>`
+- `since:<YYYY-MM-DD>`
 - `before:<YYYY-MM-DD>`
 - `kind:<kind>`
 - `status:<status>`
 - `collection:<name>`
 - `link:<id>`
+- `backlink:<id>`
 - `ref:<term>`
-- `text:<term>`
+- `body:<term>`
 - `not:<expr>`
+
+Use `docs/cli-syntax-spec.md` as the source of truth if this summary drifts.
 
 ## Storage
 
@@ -135,7 +147,6 @@ Primary note metadata should stay small:
 - `collections`
 - `links`
 - `refs`
-- `words`
 
 Derived maps may include:
 
@@ -186,7 +197,7 @@ Agents should retrieve notes through cheap, visible operations:
 - Use `nt ids` for completion and direct id lists.
 - Use `nt list` for recent note summaries.
 - Use `nt tags` and `nt collections` before choosing metadata.
-- Use `nt find <query...>` for indexed/body search.
+- Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
 - Use `nt links <id>` and `nt backlinks <id>` for explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
@@ -197,7 +208,7 @@ No command should require hidden retrieval, embeddings, external services, or
 private agent memory.
 
 `nt agent <prompt...>` is a thin Codex launcher. It must rely on nt skills from
-the active vault and shell out to `codex exec`; it must not implement natural
+the active workspace and shell out to `codex exec`; it must not implement natural
 language retrieval itself.
 
 `nt discuss <id>` is the interactive counterpart. It should open Codex with
@@ -216,7 +227,7 @@ Rejection must leave notes and metadata unchanged.
 
 Default nt skills should be created automatically by `nt init`; there should be
 no separate skill install/list/show command group. `nt config show` should show
-the active vault, agent workspace, and available skill names/paths.
+the active notes directory, agent workspace, and available skill names/paths.
 
 Default self-referential nt skills:
 
@@ -229,8 +240,8 @@ These skills describe how an agent should navigate `nt` commands. They are
 editable Markdown files and should stay agent-agnostic where possible.
 
 `nt-skill-builder` helps the user create or refine custom nt skills for the
-current vault. Custom skills are plain editable Markdown files in the active
-vault's skills directory.
+current workspace. Custom skills are plain editable Markdown files in the active
+nt skills directory.
 
 Agent output is controlled by `$HOME/.nt/config.json`:
 
