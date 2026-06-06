@@ -16,6 +16,7 @@ Use this procedure when grouping or preparing `nt` commits:
 3. Include untracked files in the grouping; `git diff` does not show them.
 4. Group files by one primary reason for change.
 5. Use one of these commit prefixes:
+   - `feat: ...`
    - `fix: ...`
    - `refactor: ...`
    - `chore: ...`
@@ -27,6 +28,7 @@ Use this procedure when grouping or preparing `nt` commits:
 
 Prefer these meanings:
 
+- `feat`: new feature, functionality, or improvement.
 - `fix`: correct broken behavior.
 - `refactor`: restructure code without changing behavior.
 - `chore`: scaffolding, dependency, build, maintenance, or initial implementation work.
