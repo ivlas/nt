@@ -16,7 +16,7 @@ Rules:
 - Multiword query values use normal shell quoting.
 - Note ids use `NTYYYYMMDDTHHmmss`.
 - Note filenames use `<id>.md`.
-- Machine-facing commands print one record per line.
+- Machine-facing commands print stable records, one record per line.
 - Mutations print one short lowercase status line.
 
 ## Commands
@@ -72,6 +72,8 @@ all                    graph walk through inbound and outbound links
 
 `out` and `in` print one note id per line. `self` prints direct neighbors with a
 direction prefix. `all` prints a deduplicated walk with distance and direction.
+For `all`, direction is relative to the note expanded at the previous distance,
+not always relative to the starting id.
 
 Examples:
 
@@ -160,6 +162,12 @@ nt add link:NT20260605T101500,NT20260605T103000
 nt add link:NT20260605T101500 link:NT20260605T103000
 ```
 
+Repeat `source:` for multiple source references:
+
+```sh
+nt add source:https://a.example/spec source:https://b.example/spec
+```
+
 ## Find
 
 ```text
@@ -232,7 +240,7 @@ need a separate quoting syntax.
 Unknown fields are errors, not bare-word searches:
 
 ```text
-error: unknown query field `collectiom`; did you mean `collection`?
+error: unknown query field `collectiom`
 ```
 
 Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
