@@ -3,6 +3,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn nt_bin() -> PathBuf {
     if let Some(path) = std::env::var_os("CARGO_BIN_EXE_nt") {
         return PathBuf::from(path);
@@ -26,10 +29,224 @@ fn config_show_prints_agent_workspace_files() {
     let shown = run_nt(&home, &["config", "show"]);
 
     assert!(shown.contains("[agent]"));
+    assert!(shown.contains("output = \"format\""));
+    assert!(!shown.contains("backend"));
+    assert!(shown.contains("notes_dir"));
     assert!(shown.contains("agent_workspace"));
+    assert!(shown.contains("skills_dir"));
     assert!(shown.contains("agents_md"));
+    assert!(shown.contains("agent_output format"));
     assert!(shown.contains("AGENTS.md"));
+    assert!(shown.contains("skill nt-maintain"));
+    assert!(shown.contains("skill nt-note"));
+    assert!(shown.contains("skill nt-recall"));
     assert!(shown.contains("skill nt-skill-builder"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_installs_default_editable_skills() {
+    let root = temp_dir("init-installs-skills");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let agents = fs::read_to_string(home.join(".nt/AGENTS.md")).unwrap();
+    assert!(agents.contains("nt discuss <id>"));
+
+    for name in ["nt-note", "nt-recall", "nt-maintain", "nt-skill-builder"] {
+        let path = home.join(".nt/skills").join(name).join("SKILL.md");
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains(&format!("name: {name}")));
+        assert!(body.contains("# "));
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn agent_reports_missing_required_skill_before_running_codex() {
+    let root = temp_dir("missing-agent-skill");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    fs::remove_file(home.join(".nt/skills/nt-recall/SKILL.md")).unwrap();
+
+    assert_failed(
+        &home,
+        &["agent", "what", "did", "I", "save?"],
+        "missing skill nt-recall",
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn discuss_builds_exact_note_context_with_fake_codex() {
+    let root = temp_dir("discuss-context");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let bin = root.join("bin");
+    let prompt_path = root.join("prompt.txt");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let exact = run_nt_with_stdin(
+        &home,
+        &["add", "tag:exact", "kind:decision"],
+        "# Exact note\n\nOnly this note should be in context.\n",
+    );
+    let exact_id = exact.trim().strip_prefix("saved ").unwrap().to_string();
+    let other = run_nt_with_stdin(
+        &home,
+        &["add"],
+        "# Other note\n\nThis note must not be retrieved automatically.\n",
+    );
+    let other_id = other.trim().strip_prefix("saved ").unwrap().to_string();
+
+    fs::create_dir_all(&bin).unwrap();
+    let codex = bin.join("codex");
+    fs::write(
+        &codex,
+        "#!/bin/sh\nif [ \"$1\" != \"exec\" ]; then exit 2; fi\nprintf '%s' \"$2\" > \"$NT_FAKE_CODEX_PROMPT\"\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&codex).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&codex, permissions).unwrap();
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let fake_path = format!("{}:{}", bin.display(), current_path.to_string_lossy());
+    run_nt_with_env(
+        &home,
+        &["discuss", &exact_id, "what", "is", "the", "decision?"],
+        &[
+            ("PATH", &fake_path),
+            ("NT_FAKE_CODEX_PROMPT", prompt_path.to_str().unwrap()),
+        ],
+    );
+
+    let prompt = fs::read_to_string(prompt_path).unwrap();
+    assert!(prompt.contains("Do not retrieve additional notes automatically"));
+    assert!(prompt.contains(&format!("`nt show {exact_id}`")));
+    assert!(prompt.contains(&format!("{exact_id}  Exact note")));
+    assert!(prompt.contains("tags exact"));
+    assert!(prompt.contains("kind decision"));
+    assert!(prompt.contains("# Exact note"));
+    assert!(prompt.contains("what is the decision?"));
+    assert!(!prompt.contains(&format!("{other_id}  Other note")));
+    assert!(!prompt.contains("This note must not be retrieved automatically."));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn completion_outputs_dynamic_note_id_hooks() {
+    let root = temp_dir("completion-hooks");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let bash = run_nt(&home, &["completion", "bash"]);
+    assert!(bash.contains("init add list find show edit discuss"));
+    assert!(bash.contains("_nt_note_ids"));
+    assert!(bash.contains("nt ids 2>/dev/null"));
+
+    let zsh = run_nt(&home, &["completion", "zsh"]);
+    assert!(zsh.contains("'show:'"));
+    assert!(zsh.contains(":id:_nt_note_ids"));
+    assert!(zsh.contains("nt ids 2>/dev/null"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn help_is_a_flagless_command_with_examples() {
+    let root = temp_dir("help-command");
+    let home = root.join("home");
+
+    let root_help = run_nt(&home, &["help"]);
+    assert!(root_help.contains("nt <command> [positional...]"));
+    assert!(root_help.contains("nt help <command>"));
+    assert!(root_help.contains("Examples:"));
+
+    let find_help = run_nt(&home, &["help", "find"]);
+    assert!(find_help.contains("nt find <expr...>"));
+    assert!(find_help.contains("nt find tag:decision collection:projects/nt"));
+
+    let config_help = run_nt(&home, &["help", "config", "agent-output"]);
+    assert!(config_help.contains("nt config agent-output <hidden|format|full>"));
+    assert!(config_help.contains("nt config agent-output full"));
+
+    assert_failed(&home, &["--help"], "unexpected argument '--help'");
+    assert_failed(&home, &["list", "--help"], "unexpected argument '--help'");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn edit_uses_editor_and_updates_visible_note() {
+    let root = temp_dir("edit-editor");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let editor = root.join("editor.sh");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add"], "# Original\n\nbody one.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
+
+    fs::write(
+        &editor,
+        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n# Edited\n\nbody two.\nEOF\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let edited = run_nt_with_env(
+        &home,
+        &["edit", &id],
+        &[("EDITOR", editor.to_str().unwrap())],
+    );
+    assert_eq!(edited.trim(), format!("saved {id}"));
+
+    let shown = run_nt(&home, &["show", &id]);
+    assert!(shown.contains(&format!("{id}  Edited")));
+    assert!(shown.contains("# Edited\n\nbody two."));
+    assert!(!shown.contains("\x1b["));
+
+    let body = fs::read_to_string(notes.join(format!("{id}.md"))).unwrap();
+    assert_eq!(body, "# Edited\n\nbody two.\n");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn piped_list_and_show_output_stay_plain() {
+    let root = temp_dir("plain-piped-output");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add", "tag:plain"], "# Plain\n\nbody.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let listed = run_nt(&home, &["list"]);
+    assert!(listed.contains(id));
+    assert!(!listed.contains("\x1b["));
+
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains("tags plain"));
+    assert!(!shown.contains("\x1b["));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -392,6 +609,25 @@ fn run_nt(home: &PathBuf, args: &[&str]) -> String {
         .args(args)
         .output()
         .unwrap();
+
+    assert!(
+        output.status.success(),
+        "nt {:?} failed:\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn run_nt_with_env(home: &PathBuf, args: &[&str], env: &[(&str, &str)]) -> String {
+    let mut command = Command::new(nt_bin());
+    command.env("HOME", home).args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
 
     assert!(
         output.status.success(),
