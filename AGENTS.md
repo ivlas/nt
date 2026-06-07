@@ -66,6 +66,8 @@ Recommended command surface:
 - `nt config show`
 - `nt config agent-output <hidden|format|full>`
 - `nt completion <shell>`
+- `nt help`
+- `nt help <command>`
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, workflow orchestration, or runtime management until real usage proves

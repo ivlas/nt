@@ -86,6 +86,8 @@ nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>
 nt completion <shell>
+nt help
+nt help <command>
 ```
 
 Core commands use positional arguments, stdin, stdout, and `$EDITOR` instead of
@@ -113,6 +115,7 @@ nt find storage
 nt edit NT20260528T143012
 nt completion zsh
 nt agent note this decision about metadata outside markdown
+nt help find
 ```
 
 ## Find Syntax
@@ -329,7 +332,6 @@ The config file is TOML:
 
 ```toml
 [agent]
-backend = "codex"
 output = "format"
 ```
 
@@ -342,5 +344,5 @@ prints only status lines.
 ```sh
 cargo fmt
 cargo test
-cargo run -- --help
+cargo run -- help
 ```

@@ -202,6 +202,14 @@ Note id completion should be backed by:
 nt ids
 ```
 
+Show command help:
+
+```sh
+nt help
+nt help find
+nt help config agent-output
+```
+
 ## Codex Agent
 
 Default `AGENTS.md` and nt skills are created by `nt init` in `$HOME/.nt`.
@@ -233,7 +241,6 @@ This writes `$HOME/.nt/config.toml`:
 
 ```toml
 [agent]
-backend = "codex"
 output = "format"
 ```
 

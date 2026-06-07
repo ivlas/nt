@@ -49,6 +49,8 @@ nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>
 nt completion <shell>
+nt help
+nt help <command>
 ```
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`, or
