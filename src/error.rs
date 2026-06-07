@@ -15,7 +15,7 @@ pub enum NtError {
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run `nt init <notes-dir>` first")]
-    MissingNotebook,
+    MissingVault,
     #[error("note not found: {0}")]
     NoteNotFound(String),
     #[error("invalid note id: {0}")]

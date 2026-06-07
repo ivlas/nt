@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{NtError, Result};
 use crate::fs::{atomic_write, index_path};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -12,9 +12,13 @@ pub struct Index {
     #[serde(default = "default_version")]
     pub version: u8,
     #[serde(default)]
-    pub active_notes_dir: Option<PathBuf>,
+    pub active_vault: Option<String>,
     #[serde(default)]
-    pub notebooks: BTreeMap<String, NotebookMeta>,
+    pub vaults: BTreeMap<String, VaultMeta>,
+    #[serde(default, rename = "active_notes_dir", skip_serializing)]
+    legacy_active_notes_dir: Option<PathBuf>,
+    #[serde(default, rename = "notebooks", skip_serializing)]
+    legacy_vaults: BTreeMap<String, LegacyVaultMeta>,
     #[serde(default)]
     pub notes: BTreeMap<String, NoteMeta>,
     #[serde(default)]
@@ -36,7 +40,13 @@ pub struct Index {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NotebookMeta {
+pub struct VaultMeta {
+    pub path: PathBuf,
+    pub created: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct LegacyVaultMeta {
     pub created: String,
 }
 
@@ -73,8 +83,10 @@ impl Default for Index {
     fn default() -> Self {
         Self {
             version: 1,
-            active_notes_dir: None,
-            notebooks: BTreeMap::new(),
+            active_vault: None,
+            vaults: BTreeMap::new(),
+            legacy_active_notes_dir: None,
+            legacy_vaults: BTreeMap::new(),
             notes: BTreeMap::new(),
             recent: Vec::new(),
             kinds: BTreeMap::new(),
@@ -120,7 +132,8 @@ impl Index {
         }
 
         let bytes = fs::read(path)?;
-        let index: Self = serde_json::from_slice(&bytes)?;
+        let mut index: Self = serde_json::from_slice(&bytes)?;
+        index.migrate_legacy_vaults();
         Ok(index)
     }
 
@@ -131,8 +144,14 @@ impl Index {
         atomic_write(&path, &bytes)
     }
 
-    pub fn active_notes_dir(&self) -> Option<&Path> {
-        self.active_notes_dir.as_deref()
+    pub fn active_vault_path(&self) -> Option<&Path> {
+        let active = self.active_vault.as_ref()?;
+        self.vaults.get(active).map(|vault| vault.path.as_path())
+    }
+
+    pub fn note_is_in_active_vault(&self, note: &NoteMeta) -> bool {
+        self.active_vault_path()
+            .is_some_and(|path| note.path.starts_with(path))
     }
 
     pub fn upsert_note(&mut self, note: NoteMeta) {
@@ -226,6 +245,70 @@ impl Index {
             }
         }
     }
+}
+
+impl Index {
+    fn migrate_legacy_vaults(&mut self) {
+        let legacy_vaults = std::mem::take(&mut self.legacy_vaults);
+        for (path, meta) in legacy_vaults {
+            self.ensure_vault_for_path(PathBuf::from(path), meta.created);
+        }
+
+        if let Some(path) = self.legacy_active_notes_dir.take() {
+            let name = self.ensure_vault_for_path(path, String::new());
+            if self.active_vault.is_none() {
+                self.active_vault = Some(name);
+            }
+        }
+    }
+
+    pub fn ensure_vault_for_path(&mut self, path: PathBuf, created: String) -> String {
+        if let Some((name, _)) = self.vaults.iter().find(|(_, vault)| vault.path == path) {
+            return name.clone();
+        }
+
+        let base = vault_name_from_path(&path);
+        let name = unique_vault_name(&self.vaults, &base);
+        self.vaults
+            .insert(name.clone(), VaultMeta { path, created });
+        name
+    }
+
+    pub fn create_vault_for_path(&mut self, path: PathBuf, created: String) -> Result<String> {
+        let name = vault_name_from_path(&path);
+        if self.vaults.contains_key(&name) {
+            return Err(NtError::Message(format!(
+                "vault `{name}` already exists; choose another notes directory name"
+            )));
+        }
+
+        self.vaults
+            .insert(name.clone(), VaultMeta { path, created });
+        Ok(name)
+    }
+}
+
+fn vault_name_from_path(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("vault")
+        .to_string()
+}
+
+fn unique_vault_name(vaults: &BTreeMap<String, VaultMeta>, base: &str) -> String {
+    if !vaults.contains_key(base) {
+        return base.to_string();
+    }
+
+    for suffix in 2.. {
+        let candidate = format!("{base}-{suffix}");
+        if !vaults.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+
+    unreachable!("unbounded suffix search should always find a vault name")
 }
 
 fn terms_for_note(note: &NoteMeta) -> BTreeSet<String> {

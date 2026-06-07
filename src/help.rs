@@ -35,6 +35,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "agent" => AGENT,
         "config" => CONFIG,
         "config show" => CONFIG_SHOW,
+        "config vault" => CONFIG_VAULT,
         "config agent-output" => CONFIG_AGENT_OUTPUT,
         "completion" => COMPLETION,
         "help" => HELP,
@@ -57,7 +58,7 @@ Usage:
   nt help <command>
 
 Commands:
-  init         select a notes directory
+  init         create a vault
   add          add a Markdown note
   list         list recent notes
   find         find notes by query expressions
@@ -92,7 +93,8 @@ Examples:
 
 const INIT: &str = r#"nt init <notes-dir>
 
-Select or create the active flat notes directory.
+Create a vault from a flat notes directory and make it active. The vault name is
+the directory basename and must be unique.
 
 Examples:
   nt init notes
@@ -293,22 +295,34 @@ Examples:
 "#;
 
 const CONFIG: &str = r#"nt config show
+nt config vault [vault-name]
 nt config agent-output <hidden|format|full>
 
 Inspect or update documented nt config.
 
 Examples:
   nt config show
+  nt config vault
+  nt config vault notes
   nt config agent-output format
 "#;
 
 const CONFIG_SHOW: &str = r#"nt config show
 
-Print active config, notes directory, agent workspace, skills directory,
+Print active config, active vault, agent workspace, skills directory,
 AGENTS.md, available skills, and agent output mode.
 
 Examples:
   nt config show
+"#;
+
+const CONFIG_VAULT: &str = r#"nt config vault [vault-name]
+
+List known vaults, or select the active vault by name.
+
+Examples:
+  nt config vault
+  nt config vault notes
 "#;
 
 const CONFIG_AGENT_OUTPUT: &str = r#"nt config agent-output <hidden|format|full>
@@ -372,6 +386,7 @@ mod tests {
             "agent",
             "config",
             "config show",
+            "config vault",
             "config agent-output",
             "completion",
             "help",

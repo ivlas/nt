@@ -160,6 +160,7 @@ nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
 nt agent <prompt...>
 nt config show
+nt config vault [vault-name]
 nt config agent-output <hidden|format|full>
 nt completion <shell>
 nt help
@@ -282,13 +283,13 @@ user explicitly asks for outside research.
 const NT_MAINTAIN: &str = r#"---
 name: nt-maintain
 description: >-
-  Use when the nt notebook, note index, tags, ids, completion, or storage needs
+  Use when the nt vault, note index, tags, ids, completion, or storage needs
   inspection or repair.
 ---
 
 # nt-maintain
 
-Use visible `nt` commands first to inspect and repair the notebook or index.
+Use visible `nt` commands first to inspect and repair the vault or index.
 
 Workflow:
 

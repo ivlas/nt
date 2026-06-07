@@ -123,6 +123,7 @@ pub enum LinkMode {
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     Show,
+    Vault { name: Option<String> },
     AgentOutput { mode: AgentOutputMode },
 }
 
@@ -164,6 +165,8 @@ mod tests {
             &["nt", "links", "NT20260528T143012", "all"],
             &["nt", "agent", "summarize", "recent", "notes"],
             &["nt", "config", "show"],
+            &["nt", "config", "vault"],
+            &["nt", "config", "vault", "notes"],
             &["nt", "config", "agent-output", "hidden"],
             &["nt", "completion", "zsh"],
             &["nt", "help"],
@@ -243,6 +246,14 @@ mod tests {
         else {
             panic!("expected config agent-output");
         };
+
+        let Command::Config {
+            command: ConfigCommand::Vault { name },
+        } = Cli::parse_from(["nt", "config", "vault", "notes"]).command
+        else {
+            panic!("expected config vault");
+        };
+        assert_eq!(name.as_deref(), Some("notes"));
     }
 
     #[test]

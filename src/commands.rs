@@ -9,7 +9,7 @@ use crate::completion::print_completion;
 use crate::config::Config;
 use crate::error::{NtError, Result};
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
-use crate::index::{Index, NoteMeta, NotebookMeta};
+use crate::index::{Index, NoteMeta};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
 use crate::terminal::{Style, paint};
@@ -49,28 +49,28 @@ pub fn run(cli: Cli) -> Result<()> {
 
 fn init(notes_dir: &Path) -> Result<()> {
     let notes_dir = absolute_path(notes_dir)?;
-    fs::create_dir_all(&notes_dir)?;
-    fs::create_dir_all(nt_home()?)?;
 
     let mut index = Index::load()?;
     let timestamp = crate::note::timestamp_now();
-    index.active_notes_dir = Some(notes_dir.clone());
-    index
-        .notebooks
-        .entry(notes_dir.to_string_lossy().to_string())
-        .or_insert(NotebookMeta {
-            created: timestamp.iso,
-        });
+    let vault = index.create_vault_for_path(notes_dir.clone(), timestamp.iso)?;
+
+    fs::create_dir_all(&notes_dir)?;
+    fs::create_dir_all(nt_home()?)?;
+
+    index.active_vault = Some(vault.clone());
     index.save()?;
     crate::skills::ensure_defaults()?;
 
-    println!("initialized {}", relative_to_cwd(&notes_dir).display());
+    println!(
+        "initialized {vault} {}",
+        relative_to_cwd(&notes_dir).display()
+    );
     Ok(())
 }
 
 fn add(metadata: &[String]) -> Result<()> {
     let mut index = Index::load()?;
-    let notes_dir = active_notes_dir(&index)?.to_path_buf();
+    let notes_dir = active_vault_path(&index)?.to_path_buf();
     let metadata = CreationMetadata::parse(metadata, &index)?;
     let body = read_note_body_for_add()?;
     let timestamp = generate_unique_id(&notes_dir, &index)?;
@@ -101,6 +101,9 @@ fn list() -> Result<()> {
         let Some(note) = index.notes.get(id) else {
             continue;
         };
+        if !index.note_is_in_active_vault(note) {
+            continue;
+        }
         println!("{}", summary_line_for_display(note, color));
     }
 
@@ -125,10 +128,7 @@ fn show_text(id: &str) -> Result<String> {
 fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     validate_id(id)?;
     let index = Index::load()?;
-    let note = index
-        .notes
-        .get(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let note = note_ref(&index, id)?;
     let body = fs::read_to_string(&note.path)?;
 
     let mut text = String::new();
@@ -179,11 +179,7 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
 fn edit(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
-    let note = index
-        .notes
-        .get(id)
-        .cloned()
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let note = note_ref(&index, id)?.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let body = fs::read_to_string(&note.path)?;
     let edit_path = edit_temp_path(id)?;
@@ -229,6 +225,9 @@ fn find(exprs: &[String]) -> Result<()> {
         let Some(note) = index.notes.get(id) else {
             continue;
         };
+        if !index.note_is_in_active_vault(note) {
+            continue;
+        }
 
         if query.matches(&index, note) {
             println!("{}", summary_line(note));
@@ -241,15 +240,32 @@ fn find(exprs: &[String]) -> Result<()> {
 fn ids() -> Result<()> {
     let index = Index::load()?;
     for id in &index.recent {
-        println!("{id}");
+        if let Some(note) = index.notes.get(id)
+            && index.note_is_in_active_vault(note)
+        {
+            println!("{id}");
+        }
     }
     Ok(())
 }
 
 fn tags() -> Result<()> {
     let index = Index::load()?;
-    for (tag, ids) in &index.tags {
-        println!("{tag}\t{}", ids.len());
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for id in &index.recent {
+        let Some(note) = index.notes.get(id) else {
+            continue;
+        };
+        if !index.note_is_in_active_vault(note) {
+            continue;
+        }
+        for tag in &note.tags {
+            *counts.entry(tag.clone()).or_default() += 1;
+        }
+    }
+
+    for (tag, count) in counts {
+        println!("{tag}\t{count}");
     }
     Ok(())
 }
@@ -276,7 +292,20 @@ fn untag_note(id: &str, tag: &str) -> Result<()> {
 
 fn collections() -> Result<()> {
     let index = Index::load()?;
-    for collection in index.collections.keys() {
+    let mut collections = BTreeSet::new();
+    for id in &index.recent {
+        let Some(note) = index.notes.get(id) else {
+            continue;
+        };
+        if !index.note_is_in_active_vault(note) {
+            continue;
+        }
+        for collection in &note.collections {
+            collections.insert(collection.clone());
+        }
+    }
+
+    for collection in collections {
         println!("{collection}");
     }
     Ok(())
@@ -290,7 +319,9 @@ fn collection(name: &str) -> Result<()> {
     };
 
     for id in ids {
-        if let Some(note) = index.notes.get(id) {
+        if let Some(note) = index.notes.get(id)
+            && index.note_is_in_active_vault(note)
+        {
             println!("{}", summary_line(note));
         }
     }
@@ -301,11 +332,7 @@ fn collection(name: &str) -> Result<()> {
 fn rm(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
-    let note = index
-        .notes
-        .get(id)
-        .cloned()
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let note = note_ref(&index, id)?.clone();
 
     fs::remove_file(&note.path)?;
     index.remove_note(id);
@@ -430,12 +457,12 @@ fn links(id: &str, mode: LinkMode) -> Result<()> {
 }
 
 fn print_out_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
-    let note = index
-        .notes
-        .get(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let note = note_ref(index, id)?;
 
     for link in &note.links {
+        if ensure_note_exists(index, link).is_err() {
+            continue;
+        }
         if with_direction {
             println!("out {link}");
         } else {
@@ -449,6 +476,9 @@ fn print_out_links(index: &Index, id: &str, with_direction: bool) -> Result<()> 
 fn print_in_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
     if let Some(ids) = index.backlinks.get(id) {
         for backlink in ids {
+            if ensure_note_exists(index, backlink).is_err() {
+                continue;
+            }
             if with_direction {
                 println!("in {backlink}");
             } else {
@@ -488,19 +518,20 @@ fn print_all_links(index: &Index, id: &str) -> Result<()> {
 }
 
 fn adjacent_links(index: &Index, id: &str) -> Result<Vec<(&'static str, String)>> {
-    let note = index
-        .notes
-        .get(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let note = note_ref(index, id)?;
     let mut adjacent = Vec::new();
 
     for link in &note.links {
-        adjacent.push(("out", link.clone()));
+        if ensure_note_exists(index, link).is_ok() {
+            adjacent.push(("out", link.clone()));
+        }
     }
 
     if let Some(ids) = index.backlinks.get(id) {
         for backlink in ids {
-            adjacent.push(("in", backlink.clone()));
+            if ensure_note_exists(index, backlink).is_ok() {
+                adjacent.push(("in", backlink.clone()));
+            }
         }
     }
 
@@ -510,6 +541,10 @@ fn adjacent_links(index: &Index, id: &str) -> Result<Vec<(&'static str, String)>
 fn config(command: ConfigCommand) -> Result<()> {
     match command {
         ConfigCommand::Show => config_show(),
+        ConfigCommand::Vault { name } => match name {
+            Some(name) => config_set_vault(&name),
+            None => config_list_vaults(),
+        },
         ConfigCommand::AgentOutput { mode } => {
             let mut config = Config::load()?;
             config.agent.output = mode;
@@ -525,14 +560,15 @@ fn config_show() -> Result<()> {
     config.print()?;
 
     let index = Index::load()?;
-    let notes_dir = index
-        .active_notes_dir()
+    let vault = index.active_vault.as_deref().unwrap_or("-");
+    let vault_path = index
+        .active_vault_path()
         .map(relative_to_cwd)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "-".to_string());
     let skills = crate::skills::available_skill_paths()?;
 
-    println!("notes_dir {notes_dir}");
+    println!("vault {vault} {vault_path}");
     println!("agent_workspace {}", relative_to_cwd(&nt_home()?).display());
     println!(
         "skills_dir {}",
@@ -547,6 +583,39 @@ fn config_show() -> Result<()> {
         println!("skill {name} {}", relative_to_cwd(&path).display());
     }
 
+    Ok(())
+}
+
+fn config_list_vaults() -> Result<()> {
+    let index = Index::load()?;
+    for (name, vault) in &index.vaults {
+        let marker = if index.active_vault.as_deref() == Some(name.as_str()) {
+            "*"
+        } else {
+            "-"
+        };
+        println!("{marker} {name} {}", relative_to_cwd(&vault.path).display());
+    }
+
+    Ok(())
+}
+
+fn config_set_vault(name: &str) -> Result<()> {
+    let mut index = Index::load()?;
+    let Some(vault) = index.vaults.get(name) else {
+        return Err(NtError::Message(format!(
+            "unknown vault `{name}`; run `nt config vault`"
+        )));
+    };
+    let path = vault.path.clone();
+
+    index.active_vault = Some(name.to_string());
+    index.save()?;
+
+    println!(
+        "configured vault {name} {}",
+        relative_to_cwd(&path).display()
+    );
     Ok(())
 }
 
@@ -612,8 +681,8 @@ fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {
     Ok(dir.join(file_name))
 }
 
-fn active_notes_dir(index: &Index) -> Result<&Path> {
-    index.active_notes_dir().ok_or(NtError::MissingNotebook)
+fn active_vault_path(index: &Index) -> Result<&Path> {
+    index.active_vault_path().ok_or(NtError::MissingVault)
 }
 
 fn mutate_index<F>(mutate: F) -> Result<()>
@@ -635,18 +704,37 @@ where
 }
 
 fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
+    let in_active_vault = {
+        let note = index
+            .notes
+            .get(id)
+            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+        index.note_is_in_active_vault(note)
+    };
+    if !in_active_vault {
+        return Err(NtError::NoteNotFound(id.to_string()));
+    }
+
     index
         .notes
         .get_mut(id)
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
 }
 
-fn ensure_note_exists(index: &Index, id: &str) -> Result<()> {
-    if index.notes.contains_key(id) {
-        Ok(())
+fn note_ref<'a>(index: &'a Index, id: &str) -> Result<&'a NoteMeta> {
+    let note = index
+        .notes
+        .get(id)
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    if index.note_is_in_active_vault(note) {
+        Ok(note)
     } else {
         Err(NtError::NoteNotFound(id.to_string()))
     }
+}
+
+fn ensure_note_exists(index: &Index, id: &str) -> Result<()> {
+    note_ref(index, id).map(|_| ())
 }
 
 fn push_unique_sorted(values: &mut Vec<String>, value: String) {
