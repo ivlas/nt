@@ -84,9 +84,13 @@ fn metadata_commands_route_through_visible_index() {
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
     run_nt(&home, &["collect", first_id, "projects/nt"]);
+    run_nt(&home, &["tag", first_id, "storage"]);
     run_nt(&home, &["kind", first_id, "decision"]);
     run_nt(&home, &["status", first_id, "open"]);
     run_nt(&home, &["link", first_id, second_id]);
+
+    let tags = run_nt(&home, &["tags"]);
+    assert!(tags.contains("storage\t1"));
 
     let collections = run_nt(&home, &["collections"]);
     assert!(collections.contains("projects/nt\t1"));
@@ -107,6 +111,7 @@ fn metadata_commands_route_through_visible_index() {
         &home,
         &[
             "find",
+            "tag:storage",
             "kind:decision",
             "status:open",
             "collection:projects/nt",
@@ -120,6 +125,7 @@ fn metadata_commands_route_through_visible_index() {
     assert!(!backlink_found.contains(second_id));
 
     run_nt(&home, &["unlink", first_id, second_id]);
+    run_nt(&home, &["untag", first_id, "storage"]);
     run_nt(&home, &["uncollect", first_id, "projects/nt"]);
 
     let links = run_nt(&home, &["links", first_id]);
@@ -127,6 +133,68 @@ fn metadata_commands_route_through_visible_index() {
 
     let collection = run_nt(&home, &["collection", "projects/nt"]);
     assert!(collection.trim().is_empty());
+
+    let tags = run_nt(&home, &["tags"]);
+    assert!(!tags.contains("storage"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn add_accepts_creation_metadata() {
+    let root = temp_dir("add-creation-metadata");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First source\n\nbody one.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add"], "# Second source\n\nbody two.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+    let links = format!("link:{first_id},{second_id}");
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &[
+            "add",
+            "tag:qemu,firecracker",
+            "tag:research",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+            &links,
+        ],
+        "# VM decision\n\nPrefer visible metadata at creation time.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains("kind decision"));
+    assert!(shown.contains("status open"));
+    assert!(shown.contains("tags firecracker,qemu,research"));
+    assert!(shown.contains("collections projects/nt"));
+    assert!(shown.contains(&format!("links {first_id},{second_id}")));
+
+    let tags = run_nt(&home, &["tags"]);
+    assert!(tags.contains("firecracker\t1"));
+    assert!(tags.contains("qemu\t1"));
+    assert!(tags.contains("research\t1"));
+
+    let found = run_nt(
+        &home,
+        &[
+            "find",
+            "tag:qemu",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+        ],
+    );
+    assert!(found.contains(id));
+
+    let backlinks = run_nt(&home, &["backlinks", first_id]);
+    assert_eq!(backlinks.trim(), id);
 
     let _ = fs::remove_dir_all(root);
 }

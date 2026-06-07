@@ -27,7 +27,7 @@ capture -> organize -> retrieve -> inspect -> revise -> rebuild
 It maps to small commands such as:
 
 ```sh
-nt add
+nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
@@ -57,7 +57,7 @@ workflow orchestration, or runtime management until real usage proves they are
 necessary.
 
 Metadata mutations should go through explicit commands, such as `nt collect`,
-`nt kind`, `nt status`, and `nt link`, instead of direct edits to
+`nt tag`, `nt kind`, `nt status`, and `nt link`, instead of direct edits to
 `$HOME/.nt/index.json`.
 
 ## Query Model
@@ -262,7 +262,7 @@ Agent-driven writes require approval before mutation:
 - Note edits: produce a proposed replacement or patch, then open `$EDITOR`
   before saving.
 - Metadata updates: show planned commands such as `nt collect`, `nt link`,
-  `nt kind`, or `nt status` before running them.
+  `nt tag`, `nt kind`, or `nt status` before running them.
 
 Rejection must leave notes and metadata unchanged.
 

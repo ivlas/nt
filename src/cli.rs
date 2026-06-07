@@ -22,7 +22,10 @@ pub enum Command {
     Init {
         notes_dir: PathBuf,
     },
-    Add,
+    Add {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        metadata: Vec<String>,
+    },
     List,
     Find {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -45,6 +48,14 @@ pub enum Command {
     Rebuild,
     Ids,
     Tags,
+    Tag {
+        id: String,
+        tag: String,
+    },
+    Untag {
+        id: String,
+        tag: String,
+    },
     Collections,
     Collection {
         name: String,
@@ -115,6 +126,7 @@ mod tests {
         let cases: &[&[&str]] = &[
             &["nt", "init", "notes"],
             &["nt", "add"],
+            &["nt", "add", "tag:decision", "kind:note", "status:open"],
             &["nt", "list"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
@@ -125,6 +137,8 @@ mod tests {
             &["nt", "rebuild"],
             &["nt", "ids"],
             &["nt", "tags"],
+            &["nt", "tag", "NT20260528T143012", "decision"],
+            &["nt", "untag", "NT20260528T143012", "decision"],
             &["nt", "collections"],
             &["nt", "collection", "projects/nt"],
             &["nt", "collect", "NT20260528T143012", "projects/nt"],
@@ -188,6 +202,8 @@ mod tests {
                 "rebuild",
                 "ids",
                 "tags",
+                "tag",
+                "untag",
                 "collections",
                 "collection",
                 "collect",

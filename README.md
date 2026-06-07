@@ -43,7 +43,7 @@ capture -> organize -> retrieve -> inspect -> revise -> rebuild
 `nt` keeps that loop visible:
 
 ```sh
-nt add
+nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
@@ -62,7 +62,7 @@ index with `nt rebuild` if metadata gets stale.
 
 ```sh
 nt init <notes-dir>
-nt add
+nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
@@ -73,6 +73,8 @@ nt rm <id>
 nt rebuild
 nt ids
 nt tags
+nt tag <id> <tag>
+nt untag <id> <tag>
 nt collections
 nt collection <name>
 nt collect <id> <collection>
@@ -98,7 +100,16 @@ Examples:
 
 ```sh
 nt init notes
-echo "Remember the storage shape" | nt add
+cat <<'EOF' | nt add tag:storage kind:decision status:open
+# Storage shape
+
+Remember the storage shape.
+EOF
+cat <<'EOF' | nt add link:NT20260605T101500,NT20260605T103000 tag:followup
+# Follow-up
+
+Connect this note to two earlier notes.
+EOF
 nt list
 nt ids
 nt show NT20260528T143012
@@ -183,7 +194,7 @@ filenames and Markdown content, including cheap term indexes from headings,
 Markdown links, and the first paragraph. For notes already known to the index,
 `nt rebuild` preserves visible metadata that cannot be derived from CommonMark.
 That metadata should be updated through explicit commands such as `nt collect`,
-`nt kind`, `nt status`, and `nt link`.
+`nt tag`, `nt kind`, `nt status`, and `nt link`.
 
 ## Retrieval And Scale
 

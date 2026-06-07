@@ -112,7 +112,7 @@ store, a daemon, or direct edits to `$HOME/.nt/index.json`.
 
 ```sh
 nt init <notes-dir>
-nt add
+nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
@@ -123,6 +123,8 @@ nt rm <id>
 nt rebuild
 nt ids
 nt tags
+nt tag <id> <tag>
+nt untag <id> <tag>
 nt collections
 nt collection <name>
 nt collect <id> <collection>
@@ -173,8 +175,14 @@ nt show <id>
 ```
 
 When writing notes, draft concise CommonMark Markdown and save through `nt add`.
-When changing metadata, use explicit commands such as `nt collect`, `nt kind`,
-`nt status`, and `nt link`. Use `nt rebuild` when the JSON index appears stale.
+Use stdin for scripted saves and prefer heredocs for multiline Markdown. When
+metadata is known at creation time, pass it to `nt add` with expressions such as
+`tag:qemu`, `kind:decision`, `status:open`, `collection:projects/nt`, or
+`link:NT20260605T101500`. Repeated fields and comma-separated values are
+equivalent for tags, collections, and links.
+When changing metadata after creation, use explicit commands such as `nt tag`,
+`nt collect`, `nt kind`, `nt status`, and `nt link`. Use `nt rebuild` when the
+JSON index appears stale.
 "#;
 
 const NT_NOTE: &str = r#"---
@@ -195,19 +203,20 @@ Workflow:
 1. Extract the useful context from the user request or current conversation.
 2. Write a compact Markdown note with a clear title, the decision or fact, and
    enough context to make it useful later.
-3. Add simple inline tags when useful, such as `#meeting`, `#decision`,
-   `#todo`, `#research`, `#project`, or a concrete topic tag.
-4. Pipe the Markdown body to `nt add`.
+3. Choose simple metadata tags when useful, such as `meeting`, `decision`,
+   `todo`, `research`, `project`, or a concrete topic tag.
+4. Pipe the Markdown body to `nt add`; prefer a heredoc for multiline notes.
+   Add creation metadata in the same command when known.
 5. Report the saved note id.
 
 Use this command shape:
 
 ```sh
-printf '%s\n' '# Title
+cat <<'EOF' | nt add tag:research kind:note
+# Title
 
 Concise note body.
-
-#tag' | nt add
+EOF
 ```
 
 Do not store metadata in Markdown front matter. Do not edit

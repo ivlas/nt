@@ -40,7 +40,7 @@ replacement.
 Recommended command surface:
 
 - `nt init <notes-dir>`
-- `nt add`
+- `nt add [metadata...]`
 - `nt list`
 - `nt find <expr...>`
 - `nt show <id>`
@@ -51,6 +51,8 @@ Recommended command surface:
 - `nt rebuild`
 - `nt ids`
 - `nt tags`
+- `nt tag <id> <tag>`
+- `nt untag <id> <tag>`
 - `nt collections`
 - `nt collection <name>`
 - `nt collect <id> <collection>`
@@ -164,7 +166,8 @@ Derived maps must be rebuildable from primary metadata and, where useful, from
 CommonMark note bodies.
 
 Metadata fields that cannot be derived from CommonMark must be updated through
-explicit commands such as `nt collect`, `nt kind`, `nt status`, and `nt link`.
+explicit commands such as `nt collect`, `nt tag`, `nt kind`, `nt status`, and
+`nt link`.
 Do not edit `$HOME/.nt/index.json` directly unless no command exists and the
 repair cannot be done with `nt rebuild`.
 
@@ -222,7 +225,7 @@ Agent-driven writes require approval before mutation:
 - Note edits: produce a proposed replacement or patch, then open `$EDITOR`
   before saving.
 - Metadata updates: show planned commands such as `nt collect`, `nt link`,
-  `nt kind`, or `nt status` before running them.
+  `nt tag`, `nt kind`, or `nt status` before running them.
 
 Rejection must leave notes and metadata unchanged.
 

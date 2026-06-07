@@ -23,7 +23,7 @@ Rules:
 
 ```sh
 nt init <notes-dir>
-nt add
+nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
@@ -34,6 +34,8 @@ nt rm <id>
 nt rebuild
 nt ids
 nt tags
+nt tag <id> <tag>
+nt untag <id> <tag>
 nt collections
 nt collection <name>
 nt collect <id> <collection>
@@ -55,6 +57,69 @@ Avoid adding broader commands such as `search`, `grep`, `graph`, `open`, or
 `browse` until real usage proves they are necessary.
 
 ## Find
+
+## Add
+
+```text
+nt add [metadata...]
+```
+
+`nt add` reads the note body from stdin, or opens `$EDITOR` when stdin is a
+terminal. Optional metadata expressions attach visible JSON metadata while the
+note is created, so the generated note id does not need to be known first.
+
+Examples:
+
+```sh
+cat <<'EOF' | nt add tag:qemu kind:decision status:open collection:projects/nt
+# Note Body
+
+Text.
+EOF
+
+cat <<'EOF' | nt add tag:qemu,firecracker tag:research
+# VM research
+
+Compare QEMU and Firecracker.
+EOF
+
+cat <<'EOF' | nt add link:NT20260605T101500,NT20260605T103000 tag:followup
+# Follow-up
+
+Connect this note to two earlier notes.
+EOF
+```
+
+Creation metadata fields:
+
+```text
+tag:<tag>              add tag; comma-separated values are allowed
+kind:<kind>            set one kind
+status:<status>        set one status
+collection:<name>      add collection; comma-separated values are allowed
+link:<id>              add outbound link; comma-separated ids are allowed
+ref:<term>             add one external reference term
+```
+
+`kind` and `status` accept one value. Repeat `tag`, `collection`, `link`, and
+`ref` expressions when multiple values are needed. `tag`, `collection`, and
+`link` also accept comma-separated values. All `link:` target notes must already
+exist.
+
+These tag forms are equivalent:
+
+```sh
+nt add tag:qemu,firecracker tag:research kind:decision
+nt add tag:qemu,firecracker,research kind:decision
+nt add tag:qemu tag:firecracker tag:research kind:decision
+```
+
+These link forms are equivalent:
+
+```sh
+nt add link:NT20260605T101500,NT20260605T103000
+nt add link:NT20260605T101500 link:NT20260605T103000
+```
 
 ```text
 nt find <expr...>

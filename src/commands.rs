@@ -19,7 +19,7 @@ use crate::query::Query;
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Init { notes_dir } => init(&notes_dir),
-        Command::Add => add(),
+        Command::Add { metadata } => add(&metadata),
         Command::List => list(),
         Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
@@ -29,6 +29,8 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Rebuild => rebuild(),
         Command::Ids => ids(),
         Command::Tags => tags(),
+        Command::Tag { id, tag } => tag_note(&id, &tag),
+        Command::Untag { id, tag } => untag_note(&id, &tag),
         Command::Collections => collections(),
         Command::Collection { name } => collection(&name),
         Command::Collect { id, collection } => collect(&id, &collection),
@@ -70,22 +72,25 @@ fn init(notes_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn add() -> Result<()> {
+fn add(metadata: &[String]) -> Result<()> {
     let mut index = Index::load()?;
     let notes_dir = active_notes_dir(&index)?.to_path_buf();
+    let metadata = CreationMetadata::parse(metadata, &index)?;
     let body = read_note_body_for_add()?;
     let timestamp = generate_unique_id(&notes_dir, &index)?;
     let path = note_path(&notes_dir, &timestamp.id)?;
-
-    atomic_write(&path, body.as_bytes())?;
-
-    index.upsert_note(NoteMeta::new_note(
+    let mut note = NoteMeta::new_note(
         timestamp.id.clone(),
-        path,
+        path.clone(),
         timestamp.iso.clone(),
         timestamp.iso,
         title_from_body(&body),
-    ));
+    );
+    metadata.apply(&mut note);
+
+    atomic_write(&path, body.as_bytes())?;
+
+    index.upsert_note(note);
     refresh_derived_from_note_files(&mut index)?;
     index.save()?;
 
@@ -216,6 +221,26 @@ fn tags() -> Result<()> {
     for (tag, ids) in &index.tags {
         println!("{tag}\t{}", ids.len());
     }
+    Ok(())
+}
+
+fn tag_note(id: &str, tag: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        push_unique_sorted(&mut note.tags, tag.to_string());
+        Ok(())
+    })?;
+
+    println!("tagged {id} {tag}");
+    Ok(())
+}
+
+fn untag_note(id: &str, tag: &str) -> Result<()> {
+    mutate_note(id, |note| {
+        note.tags.retain(|value| value != tag);
+        Ok(())
+    })?;
+
+    println!("untagged {id} {tag}");
     Ok(())
 }
 
@@ -628,6 +653,117 @@ fn file_updated_iso(path: &Path) -> Result<Option<String>> {
     }
 }
 
+#[derive(Debug, Default)]
+struct CreationMetadata {
+    kind: Option<String>,
+    status: Option<String>,
+    tags: Vec<String>,
+    collections: Vec<String>,
+    links: Vec<String>,
+    refs: Vec<String>,
+}
+
+impl CreationMetadata {
+    fn parse(exprs: &[String], index: &Index) -> Result<Self> {
+        let mut metadata = Self::default();
+
+        for expr in exprs {
+            metadata.parse_expr(expr, index)?;
+        }
+
+        Ok(metadata)
+    }
+
+    fn parse_expr(&mut self, expr: &str, index: &Index) -> Result<()> {
+        let Some((field, value)) = expr.split_once(':') else {
+            return Err(NtError::Message(format!(
+                "unknown add metadata `{expr}`; use tag:<tag>, kind:<kind>, status:<status>, collection:<name>, link:<id>, or ref:<term>"
+            )));
+        };
+
+        match field {
+            "tag" => push_value_list(&mut self.tags, field, value),
+            "collection" => push_value_list(&mut self.collections, field, value),
+            "ref" => push_single_value(&mut self.refs, field, value),
+            "link" => {
+                for link in split_metadata_values(field, value)? {
+                    validate_id(&link)?;
+                    ensure_note_exists(index, &link)?;
+                    push_unique_sorted(&mut self.links, link);
+                }
+                Ok(())
+            }
+            "kind" => set_single_metadata(&mut self.kind, field, value),
+            "status" => set_single_metadata(&mut self.status, field, value),
+            _ => Err(NtError::Message(format!(
+                "unknown add metadata field `{field}`"
+            ))),
+        }
+    }
+
+    fn apply(self, note: &mut NoteMeta) {
+        if let Some(kind) = self.kind {
+            note.kind = kind;
+        }
+        note.status = self.status;
+        note.tags = self.tags;
+        note.collections = self.collections;
+        note.links = self.links;
+        note.refs = self.refs;
+    }
+}
+
+fn push_value_list(values: &mut Vec<String>, field: &str, raw: &str) -> Result<()> {
+    for value in split_metadata_values(field, raw)? {
+        push_unique_sorted(values, value);
+    }
+    Ok(())
+}
+
+fn push_single_value(values: &mut Vec<String>, field: &str, raw: &str) -> Result<()> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(NtError::Message(format!(
+            "empty add metadata value for `{field}`"
+        )));
+    }
+
+    push_unique_sorted(values, value.to_string());
+    Ok(())
+}
+
+fn set_single_metadata(target: &mut Option<String>, field: &str, raw: &str) -> Result<()> {
+    let values = split_metadata_values(field, raw)?;
+    if values.len() != 1 {
+        return Err(NtError::Message(format!(
+            "`{field}` metadata accepts one value"
+        )));
+    }
+    if target.replace(values[0].clone()).is_some() {
+        return Err(NtError::Message(format!(
+            "`{field}` metadata can be set only once"
+        )));
+    }
+    Ok(())
+}
+
+fn split_metadata_values(field: &str, raw: &str) -> Result<Vec<String>> {
+    let values: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    if values.is_empty() {
+        return Err(NtError::Message(format!(
+            "empty add metadata value for `{field}`"
+        )));
+    }
+
+    Ok(values)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -636,7 +772,7 @@ mod tests {
     use crate::fs::atomic_write;
     use crate::index::{Index, NoteMeta};
 
-    use super::{rebuild_index_from_dir, summary_line};
+    use super::{CreationMetadata, rebuild_index_from_dir, summary_line};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -720,6 +856,39 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn creation_metadata_accepts_repeated_and_comma_separated_values() {
+        let metadata = CreationMetadata::parse(
+            &[
+                "tag:design,cli".to_string(),
+                "tag:rust".to_string(),
+                "collection:projects/nt".to_string(),
+                "ref:https://example.com/a,b".to_string(),
+                "kind:decision".to_string(),
+                "status:open".to_string(),
+            ],
+            &Index::default(),
+        )
+        .unwrap();
+        let mut note = note("NT20260528T143012");
+
+        metadata.apply(&mut note);
+
+        assert_eq!(note.tags, vec!["cli", "design", "rust"]);
+        assert_eq!(note.collections, vec!["projects/nt"]);
+        assert_eq!(note.refs, vec!["https://example.com/a,b"]);
+        assert_eq!(note.kind, "decision");
+        assert_eq!(note.status.as_deref(), Some("open"));
+    }
+
+    #[test]
+    fn creation_metadata_rejects_unknown_fields() {
+        let err =
+            CreationMetadata::parse(&["topic:storage".to_string()], &Index::default()).unwrap_err();
+
+        assert_eq!(err.to_string(), "unknown add metadata field `topic`");
     }
 
     fn temp_dir(name: &str) -> PathBuf {

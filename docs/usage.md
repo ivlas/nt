@@ -19,12 +19,42 @@ This creates the notes directory and configures it as active.
 
 ## Add Notes
 
-Add a note from stdin:
+Add a multiline Markdown note from stdin:
 
 ```sh
-printf '%s\n' '# Storage decision
+cat <<'EOF' | nt add
+# Storage decision
 
-Keep note metadata outside Markdown.' | nt add
+Keep note metadata outside Markdown.
+EOF
+```
+
+Attach visible metadata while creating the note:
+
+```sh
+cat <<'EOF' | nt add tag:storage kind:decision status:open collection:projects/nt
+# Storage decision
+
+Keep note metadata outside Markdown.
+EOF
+```
+
+Repeated metadata fields and comma-separated values are equivalent:
+
+```sh
+nt add tag:qemu,firecracker tag:research kind:decision
+nt add tag:qemu,firecracker,research kind:decision
+nt add tag:qemu tag:firecracker tag:research kind:decision
+```
+
+Link the new note to one or more existing notes during creation:
+
+```sh
+cat <<'EOF' | nt add link:NT20260605T101500,NT20260605T103000 tag:followup
+# Follow-up
+
+Connect this note to two earlier notes.
+EOF
 ```
 
 If stdin is a terminal, `nt add` opens `$EDITOR`:
@@ -92,6 +122,8 @@ Update visible JSON metadata with explicit commands:
 ```sh
 nt collect NT20260528T143012 projects/nt
 nt uncollect NT20260528T143012 projects/nt
+nt tag NT20260528T143012 storage
+nt untag NT20260528T143012 storage
 nt kind NT20260528T143012 decision
 nt status NT20260528T143012 open
 nt link NT20260528T143012 NT20260527T120000
