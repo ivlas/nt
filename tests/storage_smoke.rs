@@ -101,11 +101,17 @@ fn metadata_commands_route_through_visible_index() {
     let status = run_nt(&home, &["status"]);
     assert!(status.contains(first_id));
 
-    let links = run_nt(&home, &["links", first_id]);
+    let links = run_nt(&home, &["links", first_id, "out"]);
     assert_eq!(links.trim(), second_id);
 
-    let backlinks = run_nt(&home, &["backlinks", second_id]);
+    let backlinks = run_nt(&home, &["links", second_id, "in"]);
     assert_eq!(backlinks.trim(), first_id);
+
+    let self_links = run_nt(&home, &["links", second_id, "self"]);
+    assert_eq!(self_links.trim(), format!("in {first_id}"));
+
+    let all_links = run_nt(&home, &["links", first_id, "all"]);
+    assert_eq!(all_links.trim(), format!("1 out {second_id}"));
 
     let found = run_nt(
         &home,
@@ -128,7 +134,7 @@ fn metadata_commands_route_through_visible_index() {
     run_nt(&home, &["untag", first_id, "storage"]);
     run_nt(&home, &["uncollect", first_id, "projects/nt"]);
 
-    let links = run_nt(&home, &["links", first_id]);
+    let links = run_nt(&home, &["links", first_id, "out"]);
     assert!(links.trim().is_empty());
 
     let collection = run_nt(&home, &["collection", "projects/nt"]);
@@ -193,8 +199,20 @@ fn add_accepts_creation_metadata() {
     );
     assert!(found.contains(id));
 
-    let backlinks = run_nt(&home, &["backlinks", first_id]);
+    let backlinks = run_nt(&home, &["links", first_id, "in"]);
     assert_eq!(backlinks.trim(), id);
+
+    let self_links = run_nt(&home, &["links", id, "self"]);
+    assert_eq!(
+        self_links.trim(),
+        format!("out {first_id}\nout {second_id}")
+    );
+
+    let all_links = run_nt(&home, &["links", id, "all"]);
+    assert_eq!(
+        all_links.trim(),
+        format!("1 out {first_id}\n1 out {second_id}")
+    );
 
     let _ = fs::remove_dir_all(root);
 }

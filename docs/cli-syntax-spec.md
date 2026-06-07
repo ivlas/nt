@@ -45,8 +45,7 @@ nt status
 nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
-nt links <id>
-nt backlinks <id>
+nt links <id> <out|in|self|all>
 nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>
@@ -56,7 +55,47 @@ nt completion <shell>
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`, or
 `browse` until real usage proves they are necessary.
 
-## Find
+## Links
+
+```text
+nt links <id> <out|in|self|all>
+```
+
+Link modes:
+
+```text
+out                    direct outbound links from id
+in                     direct inbound links to id
+self                   direct inbound and outbound links
+all                    graph walk through inbound and outbound links
+```
+
+`out` and `in` print one note id per line. `self` prints direct neighbors with a
+direction prefix. `all` prints a deduplicated walk with distance and direction.
+
+Examples:
+
+```sh
+nt links NT20260605T101500 out
+nt links NT20260605T101500 in
+nt links NT20260605T101500 self
+nt links NT20260605T101500 all
+```
+
+Example `self` output:
+
+```text
+out NT20260605T103000
+in NT20260604T090000
+```
+
+Example `all` output:
+
+```text
+1 out NT20260605T103000
+1 in NT20260604T090000
+2 out NT20260606T120000
+```
 
 ## Add
 
@@ -120,6 +159,8 @@ These link forms are equivalent:
 nt add link:NT20260605T101500,NT20260605T103000
 nt add link:NT20260605T101500 link:NT20260605T103000
 ```
+
+## Find
 
 ```text
 nt find <expr...>

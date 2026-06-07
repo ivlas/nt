@@ -62,8 +62,7 @@ Recommended command surface:
 - `nt status <id> <status>`
 - `nt link <from-id> <to-id>`
 - `nt unlink <from-id> <to-id>`
-- `nt links <id>`
-- `nt backlinks <id>`
+- `nt links <id> <out|in|self|all>`
 - `nt agent <prompt...>`
 - `nt config show`
 - `nt config agent-output <hidden|format|full>`
@@ -203,7 +202,8 @@ Agents should retrieve notes through cheap, visible operations:
 - Use `nt tags` and `nt collections` before choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
-- Use `nt links <id>` and `nt backlinks <id>` for explicit note relationships.
+- Use `nt links <id> out`, `nt links <id> in`, `nt links <id> self`, and
+  `nt links <id> all` for explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
 
 When answering from notes, cite supporting note ids.
@@ -266,8 +266,8 @@ Agent output is controlled by `$HOME/.nt/config.toml`:
 - Avoid decorative boxes, banners, spinners, and progress bars.
 - Use ANSI color only when stdout is a TTY.
 - Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing commands such as `ids`, `find`, `tags`, `collections`,
-  `links`, and `backlinks` must stay stable and one-record-per-line.
+- Machine-facing commands such as `ids`, `find`, `tags`, `collections`, and
+  direct `links` modes must stay stable and one-record-per-line.
 
 Suggested TTY colors:
 

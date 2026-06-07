@@ -133,9 +133,15 @@ nt unlink NT20260528T143012 NT20260527T120000
 Print note links for scripts and agents:
 
 ```sh
-nt links NT20260528T143012
-nt backlinks NT20260527T120000
+nt links NT20260528T143012 out
+nt links NT20260528T143012 in
+nt links NT20260528T143012 self
+nt links NT20260528T143012 all
 ```
+
+`out` prints notes the id links to. `in` prints notes that link to the id.
+`self` prints direct neighbors with direction prefixes. `all` walks the
+connected note graph and prints distance, direction, and id.
 
 Show actionable open and waiting notes:
 

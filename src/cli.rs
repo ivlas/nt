@@ -86,9 +86,7 @@ pub enum Command {
     },
     Links {
         id: String,
-    },
-    Backlinks {
-        id: String,
+        mode: LinkMode,
     },
     Agent {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -107,6 +105,15 @@ pub enum Command {
 pub enum Shell {
     Bash,
     Zsh,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum LinkMode {
+    Out,
+    In,
+    #[value(name = "self")]
+    Self_,
+    All,
 }
 
 #[derive(Subcommand)]
@@ -148,8 +155,10 @@ mod tests {
             &["nt", "status", "NT20260528T143012", "open"],
             &["nt", "link", "NT20260528T143012", "NT20260527T120000"],
             &["nt", "unlink", "NT20260528T143012", "NT20260527T120000"],
-            &["nt", "links", "NT20260528T143012"],
-            &["nt", "backlinks", "NT20260528T143012"],
+            &["nt", "links", "NT20260528T143012", "out"],
+            &["nt", "links", "NT20260528T143012", "in"],
+            &["nt", "links", "NT20260528T143012", "self"],
+            &["nt", "links", "NT20260528T143012", "all"],
             &["nt", "agent", "summarize", "recent", "notes"],
             &["nt", "config", "show"],
             &["nt", "config", "agent-output", "hidden"],
@@ -213,7 +222,6 @@ mod tests {
                 "link",
                 "unlink",
                 "links",
-                "backlinks",
                 "agent",
                 "config",
                 "completion",

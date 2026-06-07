@@ -204,8 +204,9 @@ Notes should stay plain CommonMark Markdown. Do not introduce wiki-link syntax,
 front matter, or nt-specific note-body markup.
 
 Note-to-note links live in JSON metadata. `nt link <from-id> <to-id>` and
-`nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id>` and
-`nt backlinks <id>` print note ids one per line for scripts and agents.
+`nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id> out` prints
+outbound links, `nt links <id> in` prints inbound links, `nt links <id> self`
+prints direct neighbors, and `nt links <id> all` walks the connected note graph.
 
 External source references can live in JSON metadata as `sources`. Markdown links
 in the body remain valid CommonMark and may be extracted into `sources` as a
@@ -289,8 +290,8 @@ Output should be plain, stable, grep-friendly, and fast.
 - Avoid decorative boxes, banners, spinners, and progress bars.
 - Use ANSI color only when stdout is a TTY.
 - Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing commands such as `ids`, `find`, `tags`, `collections`,
-  `links`, and `backlinks` must stay stable and one-record-per-line.
+- Machine-facing commands such as `ids`, `find`, `tags`, `collections`, and
+  direct `links` modes must stay stable and one-record-per-line.
 
 ## Future Extensions
 

@@ -84,8 +84,7 @@ nt status
 nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
-nt links <id>
-nt backlinks <id>
+nt links <id> <out|in|self|all>
 nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>

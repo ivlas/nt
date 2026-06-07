@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{Cli, Command, ConfigCommand};
+use crate::cli::{Cli, Command, ConfigCommand, LinkMode};
 use crate::completion::print_completion;
 use crate::config::Config;
 use crate::error::{NtError, Result};
@@ -39,8 +39,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Status { args } => route_status(&args),
         Command::Link { from_id, to_id } => link(&from_id, &to_id),
         Command::Unlink { from_id, to_id } => unlink(&from_id, &to_id),
-        Command::Links { id } => links(&id),
-        Command::Backlinks { id } => backlinks(&id),
+        Command::Links { id, mode } => links(&id, mode),
         Command::Agent { prompt } => crate::agent::run(&prompt),
         Command::Config { command } => config(command),
         Command::Completion { shell } => {
@@ -444,33 +443,95 @@ fn unlink(from_id: &str, to_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn links(id: &str) -> Result<()> {
+fn links(id: &str, mode: LinkMode) -> Result<()> {
     validate_id(id)?;
     let index = Index::load()?;
+    ensure_note_exists(&index, id)?;
+
+    match mode {
+        LinkMode::Out => print_out_links(&index, id, false),
+        LinkMode::In => print_in_links(&index, id, false),
+        LinkMode::Self_ => print_self_links(&index, id),
+        LinkMode::All => print_all_links(&index, id),
+    }
+}
+
+fn print_out_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
     let note = index
         .notes
         .get(id)
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
 
     for link in &note.links {
-        println!("{link}");
+        if with_direction {
+            println!("out {link}");
+        } else {
+            println!("{link}");
+        }
     }
 
     Ok(())
 }
 
-fn backlinks(id: &str) -> Result<()> {
-    validate_id(id)?;
-    let index = Index::load()?;
-    ensure_note_exists(&index, id)?;
-
+fn print_in_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
     if let Some(ids) = index.backlinks.get(id) {
         for backlink in ids {
-            println!("{backlink}");
+            if with_direction {
+                println!("in {backlink}");
+            } else {
+                println!("{backlink}");
+            }
         }
     }
 
     Ok(())
+}
+
+fn print_self_links(index: &Index, id: &str) -> Result<()> {
+    print_out_links(index, id, true)?;
+    print_in_links(index, id, true)
+}
+
+fn print_all_links(index: &Index, id: &str) -> Result<()> {
+    let mut seen = BTreeSet::from([id.to_string()]);
+    let mut queue = VecDeque::from([(id.to_string(), 0usize)]);
+
+    while let Some((current, depth)) = queue.pop_front() {
+        let next_depth = depth + 1;
+
+        for (direction, next) in adjacent_links(index, &current)? {
+            if !seen.insert(next.clone()) {
+                continue;
+            }
+
+            println!("{next_depth} {direction} {next}");
+            if index.notes.contains_key(&next) {
+                queue.push_back((next, next_depth));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn adjacent_links(index: &Index, id: &str) -> Result<Vec<(&'static str, String)>> {
+    let note = index
+        .notes
+        .get(id)
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let mut adjacent = Vec::new();
+
+    for link in &note.links {
+        adjacent.push(("out", link.clone()));
+    }
+
+    if let Some(ids) = index.backlinks.get(id) {
+        for backlink in ids {
+            adjacent.push(("in", backlink.clone()));
+        }
+    }
+
+    Ok(adjacent)
 }
 
 fn config(command: ConfigCommand) -> Result<()> {
