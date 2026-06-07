@@ -245,13 +245,14 @@ fn untag_note(id: &str, tag: &str) -> Result<()> {
 
 fn collections() -> Result<()> {
     let index = Index::load()?;
-    for (collection, ids) in &index.collections {
-        println!("{collection}\t{}", ids.len());
+    for collection in index.collections.keys() {
+        println!("{collection}");
     }
     Ok(())
 }
 
 fn collection(name: &str) -> Result<()> {
+    validate_collection(name)?;
     let index = Index::load()?;
     let Some(ids) = index.collections.get(name) else {
         return Ok(());
@@ -349,6 +350,7 @@ fn rm(id: &str) -> Result<()> {
 }
 
 fn collect(id: &str, collection: &str) -> Result<()> {
+    validate_collection(collection)?;
     mutate_note(id, |note| {
         push_unique_sorted(&mut note.collections, collection.to_string());
         Ok(())
@@ -359,6 +361,7 @@ fn collect(id: &str, collection: &str) -> Result<()> {
 }
 
 fn uncollect(id: &str, collection: &str) -> Result<()> {
+    validate_collection(collection)?;
     mutate_note(id, |note| {
         note.collections.retain(|value| value != collection);
         Ok(())
@@ -369,6 +372,7 @@ fn uncollect(id: &str, collection: &str) -> Result<()> {
 }
 
 fn set_kind(id: &str, kind: &str) -> Result<()> {
+    validate_kind(kind)?;
     mutate_note(id, |note| {
         note.kind = kind.to_string();
         Ok(())
@@ -391,15 +395,17 @@ fn route_status(args: &[String]) -> Result<()> {
 fn print_status() -> Result<()> {
     let index = Index::load()?;
 
-    for wanted in ["open", "waiting"] {
-        let Some(ids) = index.statuses.get(wanted) else {
+    for id in &index.recent {
+        let Some(note) = index.notes.get(id) else {
             continue;
         };
 
-        for id in ids {
-            if let Some(note) = index.notes.get(id) {
-                println!("{}", summary_line(note));
-            }
+        if note
+            .status
+            .as_deref()
+            .is_some_and(|status| matches!(status, "open" | "waiting"))
+        {
+            println!("{}", summary_line(note));
         }
     }
 
@@ -407,6 +413,7 @@ fn print_status() -> Result<()> {
 }
 
 fn set_status(id: &str, status: &str) -> Result<()> {
+    validate_status(status)?;
     mutate_note(id, |note| {
         note.status = Some(status.to_string());
         Ok(())
@@ -691,6 +698,42 @@ fn push_unique_sorted(values: &mut Vec<String>, value: String) {
     }
 }
 
+fn validate_collection(collection: &str) -> Result<()> {
+    if collection.trim().is_empty() {
+        return Err(NtError::Message("empty collection name".to_string()));
+    }
+
+    if collection
+        .chars()
+        .any(|ch| ch.is_whitespace() || ch.is_uppercase())
+    {
+        return Err(NtError::Message(format!(
+            "invalid collection `{collection}`; use lowercase names"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_kind(kind: &str) -> Result<()> {
+    if matches!(
+        kind,
+        "note" | "todo" | "meeting" | "decision" | "source" | "research" | "project"
+    ) {
+        Ok(())
+    } else {
+        Err(NtError::Message(format!("invalid kind: {kind}")))
+    }
+}
+
+fn validate_status(status: &str) -> Result<()> {
+    if matches!(status, "open" | "waiting" | "done" | "dropped") {
+        Ok(())
+    } else {
+        Err(NtError::Message(format!("invalid status: {status}")))
+    }
+}
+
 fn summary_line(note: &NoteMeta) -> String {
     let day = note.created.get(0..10).unwrap_or("unknown");
     let tags = joined_or_dash(&note.tags);
@@ -744,7 +787,13 @@ impl CreationMetadata {
 
         match field {
             "tag" => push_value_list(&mut self.tags, field, value),
-            "collection" => push_value_list(&mut self.collections, field, value),
+            "collection" => {
+                for collection in split_metadata_values(field, value)? {
+                    validate_collection(&collection)?;
+                    push_unique_sorted(&mut self.collections, collection);
+                }
+                Ok(())
+            }
             "source" => push_single_value(&mut self.sources, field, value),
             "link" => {
                 for link in split_metadata_values(field, value)? {
@@ -754,8 +803,14 @@ impl CreationMetadata {
                 }
                 Ok(())
             }
-            "kind" => set_single_metadata(&mut self.kind, field, value),
-            "status" => set_single_metadata(&mut self.status, field, value),
+            "kind" => {
+                set_single_metadata(&mut self.kind, field, value)?;
+                validate_kind(self.kind.as_deref().unwrap_or_default())
+            }
+            "status" => {
+                set_single_metadata(&mut self.status, field, value)?;
+                validate_status(self.status.as_deref().unwrap_or_default())
+            }
             _ => Err(NtError::Message(format!(
                 "unknown add metadata field `{field}`"
             ))),

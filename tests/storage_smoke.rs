@@ -93,7 +93,7 @@ fn metadata_commands_route_through_visible_index() {
     assert!(tags.contains("storage\t1"));
 
     let collections = run_nt(&home, &["collections"]);
-    assert!(collections.contains("projects/nt\t1"));
+    assert_eq!(collections.trim(), "projects/nt");
 
     let collection = run_nt(&home, &["collection", "projects/nt"]);
     assert!(collection.contains(first_id));
@@ -138,6 +138,106 @@ fn metadata_commands_route_through_visible_index() {
 
     let tags = run_nt(&home, &["tags"]);
     assert!(!tags.contains("storage"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn collection_and_status_commands_validate_and_update_index_only() {
+    let root = temp_dir("metadata-validation");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nbody two.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+
+    assert_failed(
+        &home,
+        &["collect", "bad-id", "projects/nt"],
+        "invalid note id",
+    );
+    assert_failed(
+        &home,
+        &["collect", first_id, "Projects/nt"],
+        "invalid collection",
+    );
+    assert_failed(&home, &["kind", first_id, "unknown"], "invalid kind");
+    assert_failed(&home, &["status", first_id, "blocked"], "invalid status");
+
+    let collected = run_nt(&home, &["collect", first_id, "projects/nt"]);
+    assert_eq!(
+        collected.trim(),
+        format!("collected {first_id} projects/nt")
+    );
+    let collected_again = run_nt(&home, &["collect", first_id, "projects/nt"]);
+    assert_eq!(
+        collected_again.trim(),
+        format!("collected {first_id} projects/nt")
+    );
+
+    run_nt(&home, &["kind", first_id, "todo"]);
+    run_nt(&home, &["status", first_id, "open"]);
+    run_nt(&home, &["status", second_id, "waiting"]);
+
+    let first_body = fs::read_to_string(notes.join(format!("{first_id}.md"))).unwrap();
+    assert_eq!(first_body, "# First\n\nbody one.\n");
+
+    let collections = run_nt(&home, &["collections"]);
+    assert_eq!(collections.trim(), "projects/nt");
+
+    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    assert_eq!(summary_ids(&collection), vec![first_id]);
+
+    let status = run_nt(&home, &["status"]);
+    assert_eq!(summary_ids(&status), vec![second_id, first_id]);
+
+    let index = read_index(&home);
+    assert_eq!(
+        index["notes"][first_id]["collections"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        index["collections"]["projects/nt"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+    assert_eq!(
+        index["kinds"]["todo"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+    assert!(
+        index["statuses"]["open"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str() == Some(first_id))
+    );
+
+    let uncollected = run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+    assert_eq!(
+        uncollected.trim(),
+        format!("uncollected {first_id} projects/nt")
+    );
+    let uncollected_again = run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+    assert_eq!(
+        uncollected_again.trim(),
+        format!("uncollected {first_id} projects/nt")
+    );
+
+    let index = read_index(&home);
+    assert!(
+        index["notes"][first_id]["collections"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(index["collections"].as_object().unwrap().is_empty());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -211,6 +311,43 @@ fn add_accepts_creation_metadata() {
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+fn assert_failed(home: &PathBuf, args: &[&str], expected: &str) {
+    let output = Command::new(nt_bin())
+        .env("HOME", home)
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "nt {:?} unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected),
+        "nt {:?} stderr did not contain {:?}:\n{}",
+        args,
+        expected,
+        stderr
+    );
+}
+
+fn read_index(home: &PathBuf) -> serde_json::Value {
+    let index = fs::read_to_string(home.join(".nt/index.json")).unwrap();
+    serde_json::from_str(&index).unwrap()
+}
+
+fn summary_ids(output: &str) -> Vec<&str> {
+    output
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect()
 }
 
 fn run_nt(home: &PathBuf, args: &[&str]) -> String {
