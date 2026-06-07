@@ -58,7 +58,7 @@ pub struct NoteMeta {
     #[serde(default)]
     pub links: Vec<String>,
     #[serde(default)]
-    pub refs: Vec<String>,
+    pub sources: Vec<String>,
 }
 
 fn default_kind() -> String {
@@ -107,7 +107,7 @@ impl NoteMeta {
             tags: Vec::new(),
             collections: Vec::new(),
             links: Vec::new(),
-            refs: Vec::new(),
+            sources: Vec::new(),
         }
     }
 }
@@ -301,7 +301,7 @@ fn terms_for_note(note: &NoteMeta) -> BTreeSet<String> {
         .iter()
         .chain(note.collections.iter())
         .chain(note.links.iter())
-        .chain(note.refs.iter())
+        .chain(note.sources.iter())
     {
         insert_terms(&mut terms, value);
     }
@@ -353,7 +353,7 @@ mod tests {
         storage.tags = vec!["design".to_string()];
         storage.collections = vec!["projects/nt".to_string()];
         storage.links = vec!["NT20260527T120000".to_string()];
-        storage.refs = vec!["https://example.com/spec".to_string()];
+        storage.sources = vec!["https://example.com/spec".to_string()];
 
         index.upsert_note(storage);
 
@@ -400,7 +400,8 @@ mod tests {
             "created": "2026-05-28T14:30:12Z",
             "updated": "2026-05-28T14:30:12Z",
             "title": "Storage",
-            "tags": ["design"]
+            "tags": ["design"],
+            "sources": ["https://example.com/spec"]
         }"#;
 
         let note: NoteMeta = serde_json::from_str(json).unwrap();
@@ -410,7 +411,7 @@ mod tests {
         assert_eq!(note.tags, vec!["design".to_string()]);
         assert!(note.collections.is_empty());
         assert!(note.links.is_empty());
-        assert!(note.refs.is_empty());
+        assert_eq!(note.sources, vec!["https://example.com/spec".to_string()]);
     }
 
     #[test]

@@ -192,7 +192,7 @@ nt rebuild
 `nt rebuild` scans `NTYYYYMMDDTHHmmss.md` files and recreates derived metadata,
 including cheap term indexes from headings, Markdown links, and the first
 paragraph. For known note ids, it preserves explicit metadata that cannot be
-derived from Markdown, such as kind, status, tags, collections, links, and refs.
+derived from Markdown, such as kind, status, tags, collections, links, and sources.
 
 ## Shell Completion
 

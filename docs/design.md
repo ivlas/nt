@@ -98,7 +98,7 @@ status
 tags
 collections
 links
-refs
+sources
 ```
 
 Derived maps may include:
@@ -121,7 +121,7 @@ Search should use three tiers:
 
 1. Exact id lookup through `notes`.
 2. Indexed metadata lookup through kinds, statuses, tags, collections, days,
-   links, refs, titles, and terms.
+   links, sources, titles, and terms.
 3. Streaming body search as fallback.
 
 The `terms` map is a rebuildable inverted index from normalized words to note
@@ -144,7 +144,7 @@ Use distinct fields instead of overloading tags:
   `projects/nt`, or `research/qemu`.
 - `tag`: sparse topic or entity.
 - `link`: exact note-to-note relationship stored in JSON metadata.
-- `ref`: external source reference.
+- `source`: external source reference.
 
 The intended separation is:
 
@@ -207,8 +207,8 @@ Note-to-note links live in JSON metadata. `nt link <from-id> <to-id>` and
 `nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id>` and
 `nt backlinks <id>` print note ids one per line for scripts and agents.
 
-External source references can live in JSON metadata as `refs`. Markdown links
-in the body remain valid CommonMark and may be extracted into `refs` as a
+External source references can live in JSON metadata as `sources`. Markdown links
+in the body remain valid CommonMark and may be extracted into `sources` as a
 convenience. Saved references should accelerate search, not replace the Markdown
 note as the canonical record.
 

@@ -22,7 +22,7 @@ enum QueryExpr {
     Collection(String),
     Link(String),
     Backlink(String),
-    Ref(String),
+    Source(String),
     Body(String),
     Not(Box<QueryExpr>),
 }
@@ -83,7 +83,7 @@ impl QueryExpr {
             "collection" => Ok(Self::Collection(value)),
             "link" => Ok(Self::Link(value)),
             "backlink" => Ok(Self::Backlink(value)),
-            "ref" => Ok(Self::Ref(value)),
+            "source" => Ok(Self::Source(value)),
             "body" => Ok(Self::Body(value)),
             _ => Err(NtError::Message(format!("unknown query field `{field}`"))),
         }
@@ -115,8 +115,8 @@ impl QueryExpr {
                 .backlinks
                 .iter()
                 .any(|(id, ids)| normalize(id) == *value && ids.iter().any(|id| id == &note.id)),
-            Self::Ref(value) => note
-                .refs
+            Self::Source(value) => note
+                .sources
                 .iter()
                 .any(|reference| normalize(reference).contains(value)),
             Self::Body(value) => matches_body(note, value),
@@ -154,7 +154,7 @@ fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
             .iter()
             .any(|link| link.to_ascii_lowercase().contains(needle))
         || note
-            .refs
+            .sources
             .iter()
             .any(|reference| reference.to_ascii_lowercase().contains(needle))
 }
@@ -198,11 +198,13 @@ mod tests {
         note.kind = "decision".to_string();
         note.status = Some("open".to_string());
         note.collections = vec!["projects/nt".to_string()];
+        note.sources = vec!["https://example.com/spec".to_string()];
 
         let query = Query::parse(&[
             "kind:decision".to_string(),
             "status:open".to_string(),
             "collection:projects/nt".to_string(),
+            "source:example.com".to_string(),
             "since:2026-05-01".to_string(),
             "before:2026-06-01".to_string(),
         ])

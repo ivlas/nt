@@ -89,7 +89,7 @@ nt find status:open
 nt find collection:meetings
 nt find link:NT20260528T143012
 nt find backlink:NT20260528T143012
-nt find ref:firecracker
+nt find source:firecracker
 nt find body:'microvm jailer'
 nt find not:tag:draft qemu
 ```
@@ -120,7 +120,7 @@ Initial query fields:
 - `collection:<name>`
 - `link:<id>`
 - `backlink:<id>`
-- `ref:<term>`
+- `source:<term>`
 - `body:<term>`
 - `not:<expr>`
 
@@ -149,7 +149,7 @@ Primary note metadata should stay small:
 - `tags`
 - `collections`
 - `links`
-- `refs`
+- `sources`
 
 Derived maps may include:
 
@@ -182,7 +182,7 @@ Use distinct fields instead of overloading tags:
   `projects/nt`, or `research/qemu`.
 - `tag`: sparse topics or entities.
 - `link`: exact note-to-note relationships stored in JSON metadata.
-- `ref`: external source references.
+- `source`: external source references.
 
 Tags should stay sparse. Agents should run `nt tags` before choosing tags,
 prefer existing tags, use one to three tags by default, and create a new tag

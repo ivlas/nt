@@ -159,7 +159,7 @@ nt find not:tag:draft qemu
 ```
 
 Fields: `id`, `tag`, `title`, `day`, `since`, `before`, `kind`, `status`,
-`collection`, `link`, `backlink`, `ref`, `body`, and `not:<expr>`. `#tag` is
+`collection`, `link`, `backlink`, `source`, `body`, and `not:<expr>`. `#tag` is
 shorthand for `tag:<tag>`. Unknown fields are errors.
 
 ## Usage flow

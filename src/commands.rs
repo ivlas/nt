@@ -129,7 +129,7 @@ fn show(id: &str) -> Result<()> {
     println!("tags {}", joined_or_dash(&note.tags));
     println!("collections {}", joined_or_dash(&note.collections));
     println!("links {}", joined_or_dash(&note.links));
-    println!("refs {}", joined_or_dash(&note.refs));
+    println!("sources {}", joined_or_dash(&note.sources));
     println!();
     print!("{body}");
     if !body.ends_with('\n') {
@@ -321,7 +321,7 @@ fn rebuild_index_from_dir(notes_dir: &Path, previous_index: &Index) -> Result<In
             note.tags = previous.tags.clone();
             note.collections = previous.collections.clone();
             note.links = previous.links.clone();
-            note.refs = previous.refs.clone();
+            note.sources = previous.sources.clone();
         }
 
         rebuilt.notes.insert(id, note);
@@ -660,7 +660,7 @@ struct CreationMetadata {
     tags: Vec<String>,
     collections: Vec<String>,
     links: Vec<String>,
-    refs: Vec<String>,
+    sources: Vec<String>,
 }
 
 impl CreationMetadata {
@@ -677,14 +677,14 @@ impl CreationMetadata {
     fn parse_expr(&mut self, expr: &str, index: &Index) -> Result<()> {
         let Some((field, value)) = expr.split_once(':') else {
             return Err(NtError::Message(format!(
-                "unknown add metadata `{expr}`; use tag:<tag>, kind:<kind>, status:<status>, collection:<name>, link:<id>, or ref:<term>"
+                "unknown add metadata `{expr}`; use tag:<tag>, kind:<kind>, status:<status>, collection:<name>, link:<id>, or source:<term>"
             )));
         };
 
         match field {
             "tag" => push_value_list(&mut self.tags, field, value),
             "collection" => push_value_list(&mut self.collections, field, value),
-            "ref" => push_single_value(&mut self.refs, field, value),
+            "source" => push_single_value(&mut self.sources, field, value),
             "link" => {
                 for link in split_metadata_values(field, value)? {
                     validate_id(&link)?;
@@ -709,7 +709,7 @@ impl CreationMetadata {
         note.tags = self.tags;
         note.collections = self.collections;
         note.links = self.links;
-        note.refs = self.refs;
+        note.sources = self.sources;
     }
 }
 
@@ -821,7 +821,7 @@ mod tests {
         old_note.tags = vec!["design".to_string()];
         old_note.collections = vec!["projects/nt".to_string()];
         old_note.links = vec!["NT20260527T120000".to_string()];
-        old_note.refs = vec!["https://example.com/spec".to_string()];
+        old_note.sources = vec!["https://example.com/spec".to_string()];
         previous.upsert_note(old_note);
 
         let rebuilt = rebuild_index_from_dir(&dir, &previous).unwrap();
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(rebuilt_note.collections, vec!["projects/nt".to_string()]);
         assert_eq!(rebuilt_note.links, vec!["NT20260527T120000".to_string()]);
         assert_eq!(
-            rebuilt_note.refs,
+            rebuilt_note.sources,
             vec!["https://example.com/spec".to_string()]
         );
 
@@ -865,7 +865,7 @@ mod tests {
                 "tag:design,cli".to_string(),
                 "tag:rust".to_string(),
                 "collection:projects/nt".to_string(),
-                "ref:https://example.com/a,b".to_string(),
+                "source:https://example.com/a,b".to_string(),
                 "kind:decision".to_string(),
                 "status:open".to_string(),
             ],
@@ -878,7 +878,7 @@ mod tests {
 
         assert_eq!(note.tags, vec!["cli", "design", "rust"]);
         assert_eq!(note.collections, vec!["projects/nt"]);
-        assert_eq!(note.refs, vec!["https://example.com/a,b"]);
+        assert_eq!(note.sources, vec!["https://example.com/a,b"]);
         assert_eq!(note.kind, "decision");
         assert_eq!(note.status.as_deref(), Some("open"));
     }

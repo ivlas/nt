@@ -98,11 +98,11 @@ kind:<kind>            set one kind
 status:<status>        set one status
 collection:<name>      add collection; comma-separated values are allowed
 link:<id>              add outbound link; comma-separated ids are allowed
-ref:<term>             add one external reference term
+source:<term>          add one external source reference
 ```
 
 `kind` and `status` accept one value. Repeat `tag`, `collection`, `link`, and
-`ref` expressions when multiple values are needed. `tag`, `collection`, and
+`source` expressions when multiple values are needed. `tag`, `collection`, and
 `link` also accept comma-separated values. All `link:` target notes must already
 exist.
 
@@ -139,7 +139,7 @@ nt find collection:projects/nt
 nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
 nt find link:NT20260605T101500
 nt find backlink:NT20260605T101500
-nt find ref:firecracker
+nt find source:firecracker
 nt find body:'microvm jailer'
 nt find not:tag:draft qemu
 ```
@@ -176,7 +176,7 @@ status:<status>        exact status
 collection:<name>      exact collection
 link:<id>              outbound link to id
 backlink:<id>          inbound link to id
-ref:<term>             reference contains term
+source:<term>          source reference contains term
 body:<term>            Markdown body contains term
 not:<expr>             exclude simple expression
 ```
