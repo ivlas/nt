@@ -88,6 +88,10 @@ pub enum Command {
         id: String,
         mode: LinkMode,
     },
+    Export {
+        path: PathBuf,
+        ids: Vec<String>,
+    },
     Agent {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         prompt: Vec<String>,
@@ -163,6 +167,15 @@ mod tests {
             &["nt", "links", "NT20260528T143012", "in"],
             &["nt", "links", "NT20260528T143012", "self"],
             &["nt", "links", "NT20260528T143012", "all"],
+            &["nt", "export", "archive"],
+            &["nt", "export", "archive", "NT20260528T143012"],
+            &[
+                "nt",
+                "export",
+                "archive",
+                "NT20260528T143012",
+                "NT20260527T120000",
+            ],
             &["nt", "agent", "summarize", "recent", "notes"],
             &["nt", "config", "show"],
             &["nt", "config", "vault"],
@@ -230,6 +243,7 @@ mod tests {
                 "link",
                 "unlink",
                 "links",
+                "export",
                 "agent",
                 "config",
                 "completion",

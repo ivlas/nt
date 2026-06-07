@@ -201,6 +201,11 @@ edit the CommonMark note body.
 Notes should stay plain CommonMark Markdown. Do not introduce wiki-link syntax,
 front matter, or nt-specific note-body markup.
 
+Front matter is allowed only in exported copies. `nt export <path> [id...]`
+materializes current JSON metadata into Markdown front matter for
+interoperability and archiving, but the active notes directory and
+`$HOME/.nt/index.json` remain the canonical storage pair.
+
 Note-to-note links live in JSON metadata. `nt link <from-id> <to-id>` and
 `nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id> out` prints
 outbound links, `nt links <id> in` prints inbound links, `nt links <id> self`

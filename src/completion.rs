@@ -28,6 +28,7 @@ fn completion_script(shell: Shell) -> String {
                 "*::args:_default",
                 ":id:_nt_note_ids' \\\n':status:_default",
             );
+            script = script.replace("*::ids:_default", "*::ids:_nt_note_ids");
             script.push_str(ZSH_NOTE_ID_COMPLETION);
         }
     }
@@ -53,7 +54,7 @@ _nt() {
     fi
 
     case "${COMP_WORDS[1]}:${COMP_CWORD}" in
-        show:2|edit:2|discuss:2|rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3)
+        show:2|edit:2|discuss:2|rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3|export:[3-9]|export:[1-9][0-9]*)
             _nt_note_ids
             return 0
             ;;
@@ -88,6 +89,7 @@ mod tests {
         assert!(script.contains("nt ids 2>/dev/null"));
         assert!(script.contains("show:2|edit:2|discuss:2|rm:2"));
         assert!(script.contains("link:2|link:3|unlink:2|unlink:3"));
+        assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
 
     #[test]
@@ -98,6 +100,7 @@ mod tests {
         assert!(script.contains(":id:_nt_note_ids"));
         assert!(script.contains(":from_id:_nt_note_ids"));
         assert!(script.contains(":to_id:_nt_note_ids"));
+        assert!(script.contains("*::ids:_nt_note_ids"));
         assert!(script.contains("nt ids 2>/dev/null"));
     }
 }

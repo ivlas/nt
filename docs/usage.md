@@ -109,6 +109,33 @@ Print known tags:
 nt tags
 ```
 
+## Export
+
+Export all notes in the active vault as Markdown files with generated front
+matter:
+
+```sh
+nt export archive
+```
+
+Export one or more exact notes:
+
+```sh
+nt export archive NT20260528T143012
+nt export archive NT20260528T143012 NT20260527T120000
+```
+
+Export a query result by piping ids from the normal summary output:
+
+```sh
+nt find since:2026-05-01 before:2026-06-01 collection:projects/nt \
+  | awk '{print $1}' \
+  | while read -r id; do nt export archive "$id"; done
+```
+
+Exported files are copies named `<id>.md`. The active note files stay plain
+Markdown, and `$HOME/.nt/index.json` remains the source of truth for metadata.
+
 ## Organize Metadata
 
 List and inspect collections:

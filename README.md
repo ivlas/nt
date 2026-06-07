@@ -82,6 +82,7 @@ nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
+nt export <path> [id...]
 nt agent <prompt...>
 nt config show
 nt config vault
@@ -118,6 +119,7 @@ nt ids
 nt show NT20260528T143012
 nt find storage
 nt edit NT20260528T143012
+nt export archive NT20260528T143012
 nt completion zsh
 nt agent note this decision about metadata outside markdown
 nt help find
@@ -197,6 +199,10 @@ headings, Markdown links, and the first paragraph are refreshed after `nt edit`.
 Explicit metadata (kind, status, tags, collections, links, sources) should be
 updated through dedicated commands such as `nt collect`, `nt tag`, `nt kind`,
 `nt status`, and `nt link`.
+
+`nt export <path> [id...]` writes Markdown copies with generated front matter for
+interoperability and archiving. The JSON index remains the source of truth, and
+the active note files are not modified.
 
 ## Retrieval And Scale
 

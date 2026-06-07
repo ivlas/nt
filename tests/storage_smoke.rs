@@ -416,6 +416,70 @@ fn metadata_commands_route_through_visible_index() {
 }
 
 #[test]
+fn export_writes_front_matter_copies_from_index() {
+    let root = temp_dir("export-front-matter");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let archive = root.join("archive");
+    let full_archive = root.join("full-archive");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let link = format!("link:{first_id}");
+    let second = run_nt_with_stdin(
+        &home,
+        &[
+            "add",
+            "tag:storage",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+            "source:https://example.com/spec",
+            &link,
+        ],
+        "# Second\n\nbody two.\n",
+    );
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+
+    let exported = run_nt(&home, &["export", archive.to_str().unwrap(), second_id]);
+    assert!(
+        exported
+            .trim()
+            .starts_with(&format!("exported {second_id} "))
+    );
+    assert!(exported.trim().ends_with(&format!("{second_id}.md")));
+
+    let exported_body = fs::read_to_string(archive.join(format!("{second_id}.md"))).unwrap();
+    assert!(exported_body.starts_with("---\n"));
+    assert!(exported_body.contains(&format!("id: \"{second_id}\"\n")));
+    assert!(exported_body.contains("kind: \"decision\"\n"));
+    assert!(exported_body.contains("status: \"open\"\n"));
+    assert!(exported_body.contains("tags: [\"storage\"]\n"));
+    assert!(exported_body.contains("collections: [\"projects/nt\"]\n"));
+    assert!(exported_body.contains(&format!("links: [\"{first_id}\"]\n")));
+    assert!(exported_body.contains("sources: [\"https://example.com/spec\"]\n"));
+    assert!(exported_body.ends_with("# Second\n\nbody two.\n"));
+
+    let active_body = fs::read_to_string(notes.join(format!("{second_id}.md"))).unwrap();
+    assert_eq!(active_body, "# Second\n\nbody two.\n");
+
+    let exported = run_nt(&home, &["export", full_archive.to_str().unwrap()]);
+    assert_eq!(summary_ids(&exported), vec!["exported", "exported"]);
+    assert!(full_archive.join(format!("{first_id}.md")).exists());
+    assert!(full_archive.join(format!("{second_id}.md")).exists());
+
+    assert_failed(
+        &home,
+        &["export", notes.to_str().unwrap()],
+        "export path must be outside the active notes directory",
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn collection_and_status_commands_validate_and_update_index_only() {
     let root = temp_dir("metadata-validation");
     let home = root.join("home");

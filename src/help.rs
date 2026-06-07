@@ -32,6 +32,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "link" => LINK,
         "unlink" => UNLINK,
         "links" => LINKS,
+        "export" => EXPORT,
         "agent" => AGENT,
         "config" => CONFIG,
         "config show" => CONFIG_SHOW,
@@ -79,6 +80,7 @@ Commands:
   link         add a note link
   unlink       remove a note link
   links        print note links
+  export       export Markdown with front matter
   agent        launch Codex with visible nt skills
   config       inspect or edit nt config
   completion   generate shell completion
@@ -284,6 +286,18 @@ Examples:
   nt links NT20260528T143012 all
 "#;
 
+const EXPORT: &str = r#"nt export <path> [id...]
+
+Export notes into a directory as Markdown files with generated front matter.
+Metadata is read from the JSON index; active note files are not modified.
+
+Examples:
+  nt export archive
+  nt export archive NT20260528T143012
+  nt export archive NT20260528T143012 NT20260527T120000
+  nt find collection:projects/nt | awk '{print $1}' | while read -r id; do nt export archive "$id"; done
+"#;
+
 const AGENT: &str = r#"nt agent <prompt...>
 
 Launch Codex from the nt agent workspace with visible nt skills. nt itself does
@@ -383,6 +397,7 @@ mod tests {
             "link",
             "unlink",
             "links",
+            "export",
             "agent",
             "config",
             "config show",

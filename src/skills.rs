@@ -158,6 +158,7 @@ nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
+nt export <path> [id...]
 nt agent <prompt...>
 nt config show
 nt config vault [vault-name]
@@ -206,6 +207,9 @@ metadata is known at creation time, pass it to `nt add` with expressions such as
 equivalent for tags, collections, and links.
 When changing metadata after creation, use explicit commands such as `nt tag`,
 `nt collect`, `nt kind`, `nt status`, and `nt link`.
+Use `nt export <path> [id...]` only when the user wants interoperable Markdown
+copies with generated front matter. The active notes stay plain CommonMark, and
+`$HOME/.nt/index.json` remains the metadata source of truth.
 "#;
 
 const NT_NOTE: &str = r#"---

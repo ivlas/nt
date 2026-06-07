@@ -45,6 +45,7 @@ nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
+nt export <path> [id...]
 nt agent <prompt...>
 nt config show
 nt config vault
@@ -100,6 +101,50 @@ Example `all` output:
 1 out NT20260605T103000
 1 in NT20260604T090000
 2 out NT20260606T120000
+```
+
+## Export
+
+```text
+nt export <path> [id...]
+```
+
+`nt export` writes Markdown copies into `<path>` with generated front matter
+that mirrors the current note metadata from `$HOME/.nt/index.json`. The active
+notes directory remains plain CommonMark and is not modified.
+
+If no ids are provided, all notes in the active vault are exported. If ids are
+provided, only those notes are exported. Exported filenames use `<id>.md`.
+
+Examples:
+
+```sh
+nt export archive
+nt export archive NT20260528T143012
+nt export archive NT20260528T143012 NT20260527T120000
+nt find collection:projects/nt | awk '{print $1}' | while read -r id; do nt export archive "$id"; done
+```
+
+Example exported file:
+
+```markdown
+---
+id: "NT20260528T143012"
+path: "/home/me/notes/NT20260528T143012.md"
+created: "2026-05-28T14:30:12Z"
+updated: "2026-05-28T14:30:12Z"
+title: "Storage shape"
+kind: "decision"
+status: "open"
+tags: ["storage"]
+collections: ["projects/nt"]
+links: []
+sources: []
+---
+
+# Storage shape
+
+Keep the note format simple.
 ```
 
 ## Add
