@@ -187,19 +187,6 @@ Remove a note:
 nt rm NT20260528T143012
 ```
 
-## Rebuild Index
-
-If the metadata index is stale, rebuild it from the active notes directory:
-
-```sh
-nt rebuild
-```
-
-`nt rebuild` scans `NTYYYYMMDDTHHmmss.md` files and recreates derived metadata,
-including cheap term indexes from headings, Markdown links, and the first
-paragraph. For known note ids, it preserves explicit metadata that cannot be
-derived from Markdown, such as kind, status, tags, collections, links, and sources.
-
 ## Shell Completion
 
 Generate completion scripts with `clap_complete`:

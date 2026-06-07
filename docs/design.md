@@ -21,7 +21,7 @@ agent-only paths, or framework complexity.
 The core workflow is:
 
 ```text
-capture -> organize -> retrieve -> inspect -> revise -> rebuild
+capture -> organize -> retrieve -> inspect -> revise
 ```
 
 It maps to small commands such as:
@@ -33,7 +33,6 @@ nt find <expr...>
 nt show <id>
 nt edit <id>
 nt tags
-nt rebuild
 nt agent <prompt...>
 ```
 
@@ -130,8 +129,7 @@ note ids, links, headings, references, and possibly the first paragraph. Indexin
 every body word can wait until real note set size requires it.
 
 Metadata fields that cannot be derived from CommonMark should be updated through
-explicit commands. Do not edit `$HOME/.nt/index.json` directly unless no command
-exists and the repair cannot be done with `nt rebuild`.
+explicit commands.
 
 ## Metadata Model
 

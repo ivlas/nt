@@ -27,7 +27,7 @@ See [docs/usage.md](docs/usage.md) for a compact usage guide,
 - Make agent recall explicit, inspectable, and reproducible.
 - Retrieve a note by id in one direct path lookup.
 - Keep notes readable and editable without `nt`.
-- Keep metadata simple, visible, and rebuildable where possible.
+- Keep metadata simple, visible, and derivable from note files where possible.
 - Make agent use predictable with plain, grep-friendly output.
 - Stay flagless for core workflows.
 - Provide shell completion for commands and note ids.
@@ -37,7 +37,7 @@ See [docs/usage.md](docs/usage.md) for a compact usage guide,
 The core loop is:
 
 ```text
-capture -> organize -> retrieve -> inspect -> revise -> rebuild
+capture -> organize -> retrieve -> inspect -> revise
 ```
 
 `nt` keeps that loop visible:
@@ -49,14 +49,12 @@ nt find <expr...>
 nt show <id>
 nt edit <id>
 nt tags
-nt rebuild
 nt agent <prompt...>
 ```
 
 Agents should use the same commands humans use. For example, an agent can find
 candidate notes with `nt find qemu`, inspect exact Markdown with
-`nt show NT20260528T143012`, revise a note with `nt edit <id>`, and rebuild the
-index with `nt rebuild` if metadata gets stale.
+`nt show NT20260528T143012`, and revise a note with `nt edit <id>`.
 
 ## Core Commands
 
@@ -70,7 +68,6 @@ nt edit <id>
 nt discuss <id>
 nt discuss <id> <prompt...>
 nt rm <id>
-nt rebuild
 nt ids
 nt tags
 nt tag <id> <tag>
@@ -114,7 +111,6 @@ nt ids
 nt show NT20260528T143012
 nt find storage
 nt edit NT20260528T143012
-nt rebuild
 nt completion zsh
 nt agent note this decision about metadata outside markdown
 ```
@@ -186,13 +182,13 @@ index stores small metadata and derived lookup maps for ids, dates, tags,
 kinds, statuses, collections, links, references, and terms. It does not store
 note bodies.
 
-The index should be written atomically the same way as notes. `nt rebuild`
-scans the active notes directory and recreates metadata that can be derived from
-filenames and Markdown content, including cheap term indexes from headings,
-Markdown links, and the first paragraph. For notes already known to the index,
-`nt rebuild` preserves visible metadata that cannot be derived from CommonMark.
-That metadata should be updated through explicit commands such as `nt collect`,
-`nt tag`, `nt kind`, `nt status`, and `nt link`.
+The index should be written atomically the same way as notes. Derived metadata
+such as tags, collections, kinds, statuses, and backlinks is rebuilt from primary
+note metadata on every index load and on every mutation. Body-term indexes from
+headings, Markdown links, and the first paragraph are refreshed after `nt edit`.
+Explicit metadata (kind, status, tags, collections, links, sources) should be
+updated through dedicated commands such as `nt collect`, `nt tag`, `nt kind`,
+`nt status`, and `nt link`.
 
 ## Retrieval And Scale
 
@@ -316,8 +312,8 @@ The default skills are:
 - `nt-note`: capture compact research, context, and decisions with `nt add`.
 - `nt-recall`: retrieve with visible `nt list`, `nt find`, and `nt show`
   commands, then cite note ids.
-- `nt-maintain`: inspect and repair the workspace/index with `nt ids`,
-  `nt tags`, and `nt rebuild`.
+- `nt-maintain`: inspect and repair the workspace/index with `nt ids`
+  and `nt tags`.
 - `nt-skill-builder`: help create or refine custom nt skills for the workspace.
 
 Agent output is configured in `$HOME/.nt/config.toml`:

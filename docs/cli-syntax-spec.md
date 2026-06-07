@@ -31,7 +31,6 @@ nt edit <id>
 nt discuss <id>
 nt discuss <id> <prompt...>
 nt rm <id>
-nt rebuild
 nt ids
 nt tags
 nt tag <id> <tag>

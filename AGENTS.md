@@ -48,7 +48,6 @@ Recommended command surface:
 - `nt discuss <id>`
 - `nt discuss <id> <prompt...>`
 - `nt rm <id>`
-- `nt rebuild`
 - `nt ids`
 - `nt tags`
 - `nt tag <id> <tag>`
@@ -131,7 +130,6 @@ Use `docs/cli-syntax-spec.md` as the source of truth if this summary drifts.
 - Store metadata under `$HOME/.nt/index.json`.
 - Use a metadata map keyed by note id for direct lookup.
 - Keep derived maps for fast lookup.
-- Support `nt rebuild` to recover rebuildable metadata.
 - Do not store note bodies in the index.
 
 Primary note metadata should stay small:
@@ -165,8 +163,6 @@ CommonMark note bodies.
 Metadata fields that cannot be derived from CommonMark must be updated through
 explicit commands such as `nt collect`, `nt tag`, `nt kind`, `nt status`, and
 `nt link`.
-Do not edit `$HOME/.nt/index.json` directly unless no command exists and the
-repair cannot be done with `nt rebuild`.
 
 ## Metadata Model
 
