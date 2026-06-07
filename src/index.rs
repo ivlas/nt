@@ -120,8 +120,7 @@ impl Index {
         }
 
         let bytes = fs::read(path)?;
-        let mut index: Self = serde_json::from_slice(&bytes)?;
-        index.rebuild_derived();
+        let index: Self = serde_json::from_slice(&bytes)?;
         Ok(index)
     }
 
@@ -229,63 +228,6 @@ impl Index {
     }
 }
 
-pub fn terms_from_body(body: &str) -> BTreeSet<String> {
-    let mut terms = BTreeSet::new();
-    let mut first_paragraph = String::new();
-    let mut found_first_paragraph = false;
-
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            if !first_paragraph.is_empty() {
-                found_first_paragraph = true;
-            }
-            continue;
-        }
-
-        if let Some(heading) = heading_text(trimmed) {
-            insert_terms(&mut terms, heading);
-            insert_markdown_link_terms(&mut terms, trimmed);
-            continue;
-        }
-
-        insert_markdown_link_terms(&mut terms, trimmed);
-
-        if !found_first_paragraph {
-            if !first_paragraph.is_empty() {
-                first_paragraph.push(' ');
-            }
-            first_paragraph.push_str(trimmed);
-        }
-    }
-
-    insert_terms(&mut terms, &first_paragraph);
-    terms
-}
-
-fn heading_text(line: &str) -> Option<&str> {
-    let marker_len = line.chars().take_while(|char| *char == '#').count();
-    if marker_len == 0 || marker_len > 6 {
-        return None;
-    }
-
-    Some(line[marker_len..].trim())
-}
-
-fn insert_markdown_link_terms(terms: &mut BTreeSet<String>, line: &str) {
-    let mut rest = line;
-
-    while let Some(start) = rest.find("](") {
-        let after_open = &rest[start + 2..];
-        let Some(end) = after_open.find(')') else {
-            break;
-        };
-
-        insert_terms(terms, &after_open[..end]);
-        rest = &after_open[end + 1..];
-    }
-}
-
 fn terms_for_note(note: &NoteMeta) -> BTreeSet<String> {
     let mut terms = BTreeSet::new();
     insert_terms(&mut terms, &note.id);
@@ -332,7 +274,7 @@ fn insert_terms(terms: &mut BTreeSet<String>, text: &str) {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{Index, NoteMeta, terms_from_body};
+    use super::{Index, NoteMeta};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -412,18 +354,5 @@ mod tests {
         assert!(note.collections.is_empty());
         assert!(note.links.is_empty());
         assert_eq!(note.sources, vec!["https://example.com/spec".to_string()]);
-    }
-
-    #[test]
-    fn derives_terms_from_commonmark_body() {
-        let terms = terms_from_body(
-            "# Storage Heading\n\nFirst paragraph has bodyonlyterm.\n\nSee [spec](https://example.com/spec).",
-        );
-
-        assert!(terms.contains("storage"));
-        assert!(terms.contains("heading"));
-        assert!(terms.contains("bodyonlyterm"));
-        assert!(terms.contains("example"));
-        assert!(terms.contains("spec"));
     }
 }

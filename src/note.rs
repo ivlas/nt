@@ -26,23 +26,6 @@ pub fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
     timestamp_from_unix_seconds(seconds)
 }
 
-pub fn timestamp_from_id(id: &str) -> Result<Timestamp> {
-    validate_id(id)?;
-
-    let year = &id[2..6];
-    let month = &id[6..8];
-    let day = &id[8..10];
-    let hour = &id[11..13];
-    let minute = &id[13..15];
-    let second = &id[15..17];
-
-    Ok(Timestamp {
-        id: id.to_string(),
-        iso: format!("{year}-{month}-{day}T{hour}:{minute}:{second}Z"),
-        day: format!("{year}-{month}-{day}"),
-    })
-}
-
 pub fn generate_unique_id(notes_dir: &Path, index: &Index) -> Result<Timestamp> {
     for _ in 0..5 {
         let timestamp = timestamp_now();

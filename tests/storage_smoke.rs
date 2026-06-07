@@ -16,42 +16,6 @@ fn nt_bin() -> PathBuf {
 }
 
 #[test]
-fn add_show_rebuild_show_uses_visible_storage() {
-    let root = temp_dir("storage-smoke");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-    assert!(home.join(".nt/AGENTS.md").exists());
-    assert!(home.join(".nt/skills/nt-skill-builder/SKILL.md").exists());
-
-    let saved = run_nt_with_stdin(
-        &home,
-        &["add"],
-        "# Smoke Title\n\nbodyonlyterm from first paragraph.\n",
-    );
-    let id = saved.trim().strip_prefix("saved ").unwrap();
-
-    let shown = run_nt(&home, &["show", id]);
-    assert!(shown.contains("kind note"));
-    assert!(shown.contains("status -"));
-    assert!(shown.contains("bodyonlyterm"));
-
-    run_nt(&home, &["rebuild"]);
-
-    let shown_after_rebuild = run_nt(&home, &["show", id]);
-    assert!(shown_after_rebuild.contains("Smoke Title"));
-    assert!(shown_after_rebuild.contains("bodyonlyterm"));
-
-    let index = fs::read_to_string(home.join(".nt/index.json")).unwrap();
-    let index: serde_json::Value = serde_json::from_str(&index).unwrap();
-    let term_ids = index["terms"]["bodyonlyterm"].as_array().unwrap();
-    assert!(term_ids.iter().any(|value| value.as_str() == Some(id)));
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
 fn config_show_prints_agent_workspace_files() {
     let root = temp_dir("config-agent-workspace");
     let home = root.join("home");

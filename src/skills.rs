@@ -120,7 +120,6 @@ nt edit <id>
 nt discuss <id>
 nt discuss <id> <prompt...>
 nt rm <id>
-nt rebuild
 nt ids
 nt tags
 nt tag <id> <tag>
@@ -179,8 +178,7 @@ metadata is known at creation time, pass it to `nt add` with expressions such as
 `link:NT20260605T101500`. Repeated fields and comma-separated values are
 equivalent for tags, collections, and links.
 When changing metadata after creation, use explicit commands such as `nt tag`,
-`nt collect`, `nt kind`, `nt status`, and `nt link`. Use `nt rebuild` when the
-JSON index appears stale.
+`nt collect`, `nt kind`, `nt status`, and `nt link`.
 "#;
 
 const NT_NOTE: &str = r#"---

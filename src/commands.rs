@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
@@ -9,11 +9,8 @@ use crate::completion::print_completion;
 use crate::config::Config;
 use crate::error::{NtError, Result};
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
-use crate::index::{Index, NoteMeta, NotebookMeta, terms_from_body};
-use crate::note::{
-    generate_unique_id, note_path, timestamp_from_id, timestamp_from_system_time, title_from_body,
-    validate_id,
-};
+use crate::index::{Index, NoteMeta, NotebookMeta};
+use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -26,7 +23,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Edit { id } => edit(&id),
         Command::Discuss { id, prompt } => discuss(&id, &prompt),
         Command::Rm { id } => rm(&id),
-        Command::Rebuild => rebuild(),
         Command::Ids => ids(),
         Command::Tags => tags(),
         Command::Tag { id, tag } => tag_note(&id, &tag),
@@ -63,7 +59,6 @@ fn init(notes_dir: &Path) -> Result<()> {
         .or_insert(NotebookMeta {
             created: timestamp.iso,
         });
-    refresh_derived_from_note_files(&mut index)?;
     index.save()?;
     crate::skills::ensure_defaults()?;
 
@@ -90,7 +85,6 @@ fn add(metadata: &[String]) -> Result<()> {
     atomic_write(&path, body.as_bytes())?;
 
     index.upsert_note(note);
-    refresh_derived_from_note_files(&mut index)?;
     index.save()?;
 
     println!("saved {}", timestamp.id);
@@ -171,7 +165,6 @@ fn edit(id: &str) -> Result<()> {
     updated.title = title_from_body(&body);
 
     index.upsert_note(updated);
-    refresh_derived_from_note_files(&mut index)?;
     index.save()?;
 
     println!("saved {id}");
@@ -267,70 +260,6 @@ fn collection(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn rebuild() -> Result<()> {
-    let index = Index::load()?;
-    let notes_dir = active_notes_dir(&index)?.to_path_buf();
-    let rebuilt = rebuild_index_from_dir(&notes_dir, &index)?;
-
-    rebuilt.save()?;
-    println!("indexed {}", rebuilt.notes.len());
-    Ok(())
-}
-
-fn rebuild_index_from_dir(notes_dir: &Path, previous_index: &Index) -> Result<Index> {
-    let mut rebuilt = Index {
-        active_notes_dir: Some(notes_dir.to_path_buf()),
-        notebooks: previous_index.notebooks.clone(),
-        ..Index::default()
-    };
-
-    for entry in fs::read_dir(&notes_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
-            continue;
-        }
-
-        let Some(id) = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(str::to_string)
-        else {
-            continue;
-        };
-
-        if validate_id(&id).is_err() {
-            continue;
-        }
-
-        let body = fs::read_to_string(&path)?;
-        let from_id = timestamp_from_id(&id)?;
-        let updated = file_updated_iso(&path)?.unwrap_or_else(|| from_id.iso.clone());
-        let previous = previous_index.notes.get(&id);
-        let mut note = NoteMeta::new_note(
-            id.clone(),
-            path,
-            from_id.iso,
-            updated,
-            title_from_body(&body),
-        );
-
-        if let Some(previous) = previous {
-            note.kind = previous.kind.clone();
-            note.status = previous.status.clone();
-            note.tags = previous.tags.clone();
-            note.collections = previous.collections.clone();
-            note.links = previous.links.clone();
-            note.sources = previous.sources.clone();
-        }
-
-        rebuilt.notes.insert(id, note);
-    }
-
-    refresh_derived_from_note_files(&mut rebuilt)?;
-    Ok(rebuilt)
-}
-
 fn rm(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
@@ -342,7 +271,6 @@ fn rm(id: &str) -> Result<()> {
 
     fs::remove_file(&note.path)?;
     index.remove_note(id);
-    refresh_derived_from_note_files(&mut index)?;
     index.save()?;
 
     println!("removed {id}");
@@ -640,20 +568,6 @@ fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {
     Ok(dir.join(file_name))
 }
 
-fn refresh_derived_from_note_files(index: &mut Index) -> Result<()> {
-    let mut body_terms = BTreeMap::new();
-
-    for note in index.notes.values() {
-        let Ok(body) = fs::read_to_string(&note.path) else {
-            continue;
-        };
-        body_terms.insert(note.id.clone(), terms_from_body(&body));
-    }
-
-    index.rebuild_derived_with_body_terms(&body_terms);
-    Ok(())
-}
-
 fn active_notes_dir(index: &Index) -> Result<&Path> {
     index.active_notes_dir().ok_or(NtError::MissingNotebook)
 }
@@ -664,7 +578,7 @@ where
 {
     let mut index = Index::load()?;
     mutate(&mut index)?;
-    refresh_derived_from_note_files(&mut index)?;
+    index.rebuild_derived();
     index.save()
 }
 
@@ -746,14 +660,6 @@ fn joined_or_dash(values: &[String]) -> String {
         "-".to_string()
     } else {
         values.join(",")
-    }
-}
-
-fn file_updated_iso(path: &Path) -> Result<Option<String>> {
-    let modified = fs::metadata(path)?.modified();
-    match modified {
-        Ok(time) => Ok(Some(timestamp_from_system_time(time).iso)),
-        Err(_) => Ok(None),
     }
 }
 
@@ -882,13 +788,11 @@ fn split_metadata_values(field: &str, raw: &str) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::path::PathBuf;
 
-    use crate::fs::atomic_write;
     use crate::index::{Index, NoteMeta};
 
-    use super::{CreationMetadata, rebuild_index_from_dir, summary_line};
+    use super::{CreationMetadata, summary_line};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -922,59 +826,6 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_preserves_non_derivable_metadata_for_known_notes() {
-        let dir = temp_dir("rebuild-preserves");
-        let id = "NT20260528T143012";
-        let path = dir.join(format!("{id}.md"));
-        atomic_write(&path, b"# Recovered title\n\nbody\n").unwrap();
-
-        let mut previous = Index::default();
-        let mut old_note = note(id);
-        old_note.path = path.clone();
-        old_note.title = "Old title".to_string();
-        old_note.kind = "decision".to_string();
-        old_note.status = Some("open".to_string());
-        old_note.tags = vec!["design".to_string()];
-        old_note.collections = vec!["projects/nt".to_string()];
-        old_note.links = vec!["NT20260527T120000".to_string()];
-        old_note.sources = vec!["https://example.com/spec".to_string()];
-        previous.upsert_note(old_note);
-
-        let rebuilt = rebuild_index_from_dir(&dir, &previous).unwrap();
-        let rebuilt_note = rebuilt.notes.get(id).unwrap();
-
-        assert_eq!(rebuilt_note.title, "Recovered title");
-        assert_eq!(rebuilt_note.kind, "decision");
-        assert_eq!(rebuilt_note.status.as_deref(), Some("open"));
-        assert_eq!(rebuilt_note.tags, vec!["design".to_string()]);
-        assert_eq!(rebuilt_note.collections, vec!["projects/nt".to_string()]);
-        assert_eq!(rebuilt_note.links, vec!["NT20260527T120000".to_string()]);
-        assert_eq!(
-            rebuilt_note.sources,
-            vec!["https://example.com/spec".to_string()]
-        );
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn rebuild_indexes_body_terms() {
-        let dir = temp_dir("rebuild-body-terms");
-        let id = "NT20260528T143012";
-        let path = dir.join(format!("{id}.md"));
-        atomic_write(&path, b"# Recovered title\n\nbodyonlyterm\n").unwrap();
-
-        let rebuilt = rebuild_index_from_dir(&dir, &Index::default()).unwrap();
-
-        assert_eq!(
-            rebuilt.terms.get("bodyonlyterm").unwrap(),
-            &vec![id.to_string()]
-        );
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
     fn creation_metadata_accepts_repeated_and_comma_separated_values() {
         let metadata = CreationMetadata::parse(
             &[
@@ -1005,12 +856,5 @@ mod tests {
             CreationMetadata::parse(&["topic:storage".to_string()], &Index::default()).unwrap_err();
 
         assert_eq!(err.to_string(), "unknown add metadata field `topic`");
-    }
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nt-test-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
     }
 }

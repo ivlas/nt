@@ -45,7 +45,6 @@ pub enum Command {
     Rm {
         id: String,
     },
-    Rebuild,
     Ids,
     Tags,
     Tag {
@@ -141,7 +140,6 @@ mod tests {
             &["nt", "discuss", "NT20260528T143012"],
             &["nt", "discuss", "NT20260528T143012", "what", "changed?"],
             &["nt", "rm", "NT20260528T143012"],
-            &["nt", "rebuild"],
             &["nt", "ids"],
             &["nt", "tags"],
             &["nt", "tag", "NT20260528T143012", "decision"],
@@ -208,7 +206,6 @@ mod tests {
                 "edit",
                 "discuss",
                 "rm",
-                "rebuild",
                 "ids",
                 "tags",
                 "tag",
