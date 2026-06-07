@@ -26,6 +26,21 @@ enum QueryExpr {
     Not(Box<QueryExpr>),
 }
 
+const QUERY_FIELDS: &[&str] = &[
+    "id",
+    "tag",
+    "title",
+    "day",
+    "since",
+    "before",
+    "kind",
+    "status",
+    "collection",
+    "link",
+    "source",
+    "body",
+];
+
 impl Query {
     pub fn parse(exprs: &[String]) -> Result<Self> {
         if exprs.is_empty() {
@@ -83,7 +98,7 @@ impl QueryExpr {
             "link" => Ok(Self::Link(value)),
             "source" => Ok(Self::Source(value)),
             "body" => Ok(Self::Body(value)),
-            _ => Err(NtError::Message(format!("unknown query field `{field}`"))),
+            _ => Err(NtError::Message(unknown_field_error(field))),
         }
     }
 
@@ -161,8 +176,48 @@ fn matches_body(note: &NoteMeta, needle: &str) -> bool {
     body.to_ascii_lowercase().contains(needle)
 }
 
+fn unknown_field_error(field: &str) -> String {
+    match query_field_suggestion(field) {
+        Some(suggestion) => {
+            format!("unknown query field `{field}`; did you mean `{suggestion}`?")
+        }
+        None => format!("unknown query field `{field}`"),
+    }
+}
+
+fn query_field_suggestion(field: &str) -> Option<&'static str> {
+    QUERY_FIELDS
+        .iter()
+        .copied()
+        .map(|known| (edit_distance(field, known), known))
+        .filter(|(distance, _)| *distance <= 2)
+        .min_by_key(|(distance, known)| (*distance, known.len()))
+        .map(|(_, known)| known)
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    let mut current = vec![0; right.len() + 1];
+
+    for (left_index, left_byte) in left.bytes().enumerate() {
+        current[0] = left_index + 1;
+
+        for (right_index, right_byte) in right.bytes().enumerate() {
+            let replace = previous[right_index] + usize::from(left_byte != right_byte);
+            let insert = current[right_index] + 1;
+            let delete = previous[right_index + 1] + 1;
+            current[right_index + 1] = replace.min(insert).min(delete);
+        }
+
+        previous.clone_from(&current);
+    }
+
+    previous[right.len()]
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
     use crate::index::{Index, NoteMeta};
@@ -182,7 +237,10 @@ mod tests {
     #[test]
     fn rejects_unknown_fields() {
         let err = Query::parse(&["collectiom:projects/nt".to_string()]).unwrap_err();
-        assert_eq!(err.to_string(), "unknown query field `collectiom`");
+        assert_eq!(
+            err.to_string(),
+            "unknown query field `collectiom`; did you mean `collection`?"
+        );
     }
 
     #[test]
@@ -230,5 +288,74 @@ mod tests {
         let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
 
         assert!(!query.matches(&index, &note));
+    }
+
+    #[test]
+    fn matches_tag_shorthand_id_prefix_title_day_and_multiword_body() {
+        let dir = temp_dir("query-multiword-body");
+        let path = dir.join("NT20260528T143012.md");
+        fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
+
+        let index = Index::default();
+        let mut note = note("NT20260528T143012");
+        note.path = path;
+        note.tags = vec!["QEMU".to_string()];
+
+        let query = Query::parse(&[
+            "#qemu".to_string(),
+            "id:NT20260528".to_string(),
+            "title:storage".to_string(),
+            "day:2026-05-28".to_string(),
+            "body:microvm jailer".to_string(),
+        ])
+        .unwrap();
+
+        assert!(query.matches(&index, &note));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bare_words_fall_back_to_body_search() {
+        let dir = temp_dir("query-bare-body");
+        let path = dir.join("NT20260528T143012.md");
+        fs::write(
+            &path,
+            "# Storage Decision\n\nOnly the body has bodyonlyterm.\n",
+        )
+        .unwrap();
+
+        let index = Index::default();
+        let mut note = note("NT20260528T143012");
+        note.path = path;
+
+        let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
+
+        assert!(query.matches(&index, &note));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn date_filters_include_since_and_exclude_before() {
+        let index = Index::default();
+        let note = note("NT20260528T143012");
+
+        let matching = Query::parse(&[
+            "since:2026-05-28".to_string(),
+            "before:2026-05-29".to_string(),
+        ])
+        .unwrap();
+        let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
+
+        assert!(matching.matches(&index, &note));
+        assert!(!too_late.matches(&index, &note));
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nt-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
 }

@@ -313,6 +313,78 @@ fn add_accepts_creation_metadata() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn find_supports_documented_query_forms() {
+    let root = temp_dir("find-query-syntax");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &[
+            "add",
+            "tag:qemu",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+            "source:https://firecracker.example/spec",
+        ],
+        "# QEMU Decision\n\nMicroVM jailer details.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let day = format!("{}-{}-{}", &id[2..6], &id[6..8], &id[8..10]);
+    let prefix = &id[..10];
+
+    let draft = run_nt_with_stdin(
+        &home,
+        &["add", "tag:qemu", "tag:draft"],
+        "# Draft\n\nQEMU draft note.\n",
+    );
+    let draft_id = draft.trim().strip_prefix("saved ").unwrap();
+
+    let found = run_nt(&home, &["find", "qemu", "firecracker"]);
+    assert!(found.contains(id));
+
+    let found = run_nt(&home, &["find", "#qemu", &format!("id:{prefix}")]);
+    assert!(found.contains(id));
+
+    let found = run_nt(
+        &home,
+        &[
+            "find",
+            "title:decision",
+            "kind:decision",
+            "status:open",
+            "collection:projects/nt",
+            "source:firecracker",
+            &format!("day:{day}"),
+            "since:1970-01-01",
+            "before:9999-01-01",
+        ],
+    );
+    assert!(found.contains(id));
+
+    let found = run_nt(&home, &["find", "body:microvm jailer"]);
+    assert!(found.contains(id));
+
+    let found = run_nt(&home, &["find", "not:tag:draft", "qemu"]);
+    assert!(found.contains(id));
+    assert!(!found.contains(draft_id));
+
+    let found = run_nt(&home, &["find", "qemu", "before:1970-01-01"]);
+    assert!(found.trim().is_empty());
+
+    assert_failed(
+        &home,
+        &["find", "collectiom:projects/nt"],
+        "did you mean `collection`",
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn assert_failed(home: &PathBuf, args: &[&str], expected: &str) {
     let output = Command::new(nt_bin())
         .env("HOME", home)
