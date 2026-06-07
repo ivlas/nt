@@ -87,7 +87,6 @@ nt find kind:meeting
 nt find status:open
 nt find collection:meetings
 nt find link:NT20260528T143012
-nt find backlink:NT20260528T143012
 nt find source:firecracker
 nt find body:'microvm jailer'
 nt find not:tag:draft qemu
@@ -118,7 +117,6 @@ Initial query fields:
 - `status:<status>`
 - `collection:<name>`
 - `link:<id>`
-- `backlink:<id>`
 - `source:<term>`
 - `body:<term>`
 - `not:<expr>`

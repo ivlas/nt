@@ -126,10 +126,6 @@ fn metadata_commands_route_through_visible_index() {
     );
     assert!(found.contains(first_id));
 
-    let backlink_found = run_nt(&home, &["find", &format!("backlink:{second_id}")]);
-    assert!(backlink_found.contains(first_id));
-    assert!(!backlink_found.contains(second_id));
-
     run_nt(&home, &["unlink", first_id, second_id]);
     run_nt(&home, &["untag", first_id, "storage"]);
     run_nt(&home, &["uncollect", first_id, "projects/nt"]);

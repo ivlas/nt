@@ -21,7 +21,6 @@ enum QueryExpr {
     Status(String),
     Collection(String),
     Link(String),
-    Backlink(String),
     Source(String),
     Body(String),
     Not(Box<QueryExpr>),
@@ -82,7 +81,6 @@ impl QueryExpr {
             "status" => Ok(Self::Status(value)),
             "collection" => Ok(Self::Collection(value)),
             "link" => Ok(Self::Link(value)),
-            "backlink" => Ok(Self::Backlink(value)),
             "source" => Ok(Self::Source(value)),
             "body" => Ok(Self::Body(value)),
             _ => Err(NtError::Message(format!("unknown query field `{field}`"))),
@@ -111,10 +109,6 @@ impl QueryExpr {
                 .is_some_and(|status| normalize(status) == *value),
             Self::Collection(value) => contains_normalized(&note.collections, value),
             Self::Link(value) => note.links.iter().any(|link| normalize(link) == *value),
-            Self::Backlink(value) => index
-                .backlinks
-                .iter()
-                .any(|(id, ids)| normalize(id) == *value && ids.iter().any(|id| id == &note.id)),
             Self::Source(value) => note
                 .sources
                 .iter()
@@ -214,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_link_and_backlink_direction() {
+    fn matches_link_direction() {
         let mut index = Index::default();
         let mut from = note("NT20260528T143012");
         let to = note("NT20260529T120000");
@@ -225,10 +219,6 @@ mod tests {
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
         assert!(link.matches(&index, &from));
         assert!(!link.matches(&index, &to));
-
-        let backlink = Query::parse(&[format!("backlink:{}", to.id)]).unwrap();
-        assert!(backlink.matches(&index, &from));
-        assert!(!backlink.matches(&index, &to));
     }
 
     #[test]

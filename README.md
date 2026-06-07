@@ -142,7 +142,6 @@ collection:projects/nt
 since:2026-05-01      created on or after day
 before:2026-06-01     created before day
 link:NT20260605T101500
-backlink:NT20260605T101500
 source:firecracker
 body:'microvm jailer'
 not:tag:draft

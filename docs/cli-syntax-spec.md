@@ -179,7 +179,6 @@ nt find kind:meeting status:open
 nt find collection:projects/nt
 nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
 nt find link:NT20260605T101500
-nt find backlink:NT20260605T101500
 nt find source:firecracker
 nt find body:'microvm jailer'
 nt find not:tag:draft qemu
@@ -216,7 +215,6 @@ kind:<kind>            exact kind
 status:<status>        exact status
 collection:<name>      exact collection
 link:<id>              outbound link to id
-backlink:<id>          inbound link to id
 source:<term>          source reference contains term
 body:<term>            Markdown body contains term
 not:<expr>             exclude simple expression

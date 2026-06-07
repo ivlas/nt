@@ -152,13 +152,12 @@ nt find tag:decision qemu
 nt find since:2026-05-01 before:2026-06-01 collection:projects/nt
 nt find kind:meeting status:open
 nt find link:NT20260528T143012
-nt find backlink:NT20260528T143012
 nt find body:'microvm jailer'
 nt find not:tag:draft qemu
 ```
 
 Fields: `id`, `tag`, `title`, `day`, `since`, `before`, `kind`, `status`,
-`collection`, `link`, `backlink`, `source`, `body`, and `not:<expr>`. `#tag` is
+`collection`, `link`, `source`, `body`, and `not:<expr>`. `#tag` is
 shorthand for `tag:<tag>`. Unknown fields are errors.
 
 ## Usage flow
