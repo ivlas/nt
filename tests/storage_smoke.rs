@@ -31,7 +31,7 @@ fn config_show_prints_agent_workspace_files() {
     assert!(shown.contains("[agent]"));
     assert!(shown.contains("output = \"format\""));
     assert!(!shown.contains("backend"));
-    assert!(shown.contains("notes_dir"));
+    assert!(shown.contains("vault notes"));
     assert!(shown.contains("agent_workspace"));
     assert!(shown.contains("skills_dir"));
     assert!(shown.contains("agents_md"));
@@ -41,6 +41,94 @@ fn config_show_prints_agent_workspace_files() {
     assert!(shown.contains("skill nt-note"));
     assert!(shown.contains("skill nt-recall"));
     assert!(shown.contains("skill nt-skill-builder"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_vault_lists_and_switches_active_vault() {
+    let root = temp_dir("config-vault-switch");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let research = root.join("research");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let first = run_nt_with_stdin(&home, &["add"], "# First vault\n\nbody one.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap().to_string();
+
+    run_nt(&home, &["init", research.to_str().unwrap()]);
+    let second = run_nt_with_stdin(&home, &["add"], "# Second vault\n\nbody two.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap().to_string();
+
+    let vaults = run_nt(&home, &["config", "vault"]);
+    assert!(vaults.contains(&format!("- notes {}", notes.display())));
+    assert!(vaults.contains(&format!("* research {}", research.display())));
+
+    let listed = run_nt(&home, &["list"]);
+    assert!(listed.contains(&second_id));
+    assert!(!listed.contains(&first_id));
+
+    let switched = run_nt(&home, &["config", "vault", "notes"]);
+    assert_eq!(
+        switched.trim(),
+        format!("configured vault notes {}", notes.display())
+    );
+    assert_failed(
+        &home,
+        &["config", "vault", "missing"],
+        "unknown vault `missing`; run `nt config vault`",
+    );
+
+    let listed = run_nt(&home, &["list"]);
+    assert!(listed.contains(&first_id));
+    assert!(!listed.contains(&second_id));
+
+    let index = read_index(&home);
+    assert_eq!(index["active_vault"].as_str(), Some("notes"));
+    assert_eq!(
+        index["vaults"]["notes"]["path"].as_str(),
+        Some(notes.to_str().unwrap())
+    );
+    assert!(index.get("notebooks").is_none());
+    assert!(index.get("active_notes_dir").is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_rejects_duplicate_vault_names() {
+    let root = temp_dir("init-duplicate-vault");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let research = root.join("research");
+    let duplicate_notes = root.join("other").join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    run_nt(&home, &["init", research.to_str().unwrap()]);
+
+    assert_failed(
+        &home,
+        &["init", duplicate_notes.to_str().unwrap()],
+        "vault `notes` already exists; choose another notes directory name",
+    );
+
+    let vaults = run_nt(&home, &["config", "vault"]);
+    assert!(vaults.contains(&format!("- notes {}", notes.display())));
+    assert!(vaults.contains(&format!("* research {}", research.display())));
+    assert!(!vaults.contains(&duplicate_notes.display().to_string()));
+    assert!(!duplicate_notes.exists());
+
+    let index = read_index(&home);
+    assert_eq!(index["active_vault"].as_str(), Some("research"));
+    assert!(index["vaults"]["notes"].is_object());
+    assert!(index["vaults"]["research"].is_object());
+    assert!(
+        index["vaults"]
+            .as_object()
+            .unwrap()
+            .get("notes-2")
+            .is_none()
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -182,6 +270,10 @@ fn help_is_a_flagless_command_with_examples() {
     let config_help = run_nt(&home, &["help", "config", "agent-output"]);
     assert!(config_help.contains("nt config agent-output <hidden|format|full>"));
     assert!(config_help.contains("nt config agent-output full"));
+
+    let vault_help = run_nt(&home, &["help", "config", "vault"]);
+    assert!(vault_help.contains("nt config vault [vault-name]"));
+    assert!(vault_help.contains("nt config vault notes"));
 
     assert_failed(&home, &["--help"], "unexpected argument '--help'");
     assert_failed(&home, &["list", "--help"], "unexpected argument '--help'");
