@@ -245,8 +245,8 @@ discussion from a specific note.
 
 Default `AGENTS.md` and nt skills should be created automatically during
 `nt init`; there should not be a separate skill install/list/show command group.
-`nt config show` should print the active config, active notes directory, agent
-workspace, `AGENTS.md`, and available skill names/paths.
+`nt config show` should print the active config, active vault, agent workspace,
+`AGENTS.md`, and available skill names/paths.
 
 Default skills:
 

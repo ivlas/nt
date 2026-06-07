@@ -9,13 +9,14 @@ query syntax contract.
 
 ## Setup
 
-Create or select a notes directory:
+Create a vault from a notes directory:
 
 ```sh
 nt init notes
 ```
 
-This creates the notes directory and configures it as active.
+This creates the notes directory and configures it as the active vault. The
+vault name is the directory basename and must be unique.
 
 ## Add Notes
 
@@ -207,16 +208,25 @@ Show command help:
 ```sh
 nt help
 nt help find
+nt help config vault
 nt help config agent-output
 ```
 
 ## Codex Agent
 
 Default `AGENTS.md` and nt skills are created by `nt init` in `$HOME/.nt`.
-Show the active config, agent workspace, `AGENTS.md`, and available skills:
+Show the active config, active vault, agent workspace, `AGENTS.md`, and
+available skills:
 
 ```sh
 nt config show
+```
+
+List known vaults or switch the active vault:
+
+```sh
+nt config vault
+nt config vault notes
 ```
 
 Use `nt agent <prompt...>` to launch Codex from that agent workspace with those

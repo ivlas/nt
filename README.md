@@ -84,6 +84,8 @@ nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
 nt agent <prompt...>
 nt config show
+nt config vault
+nt config vault <vault-name>
 nt config agent-output <hidden|format|full>
 nt completion <shell>
 nt help
@@ -93,6 +95,9 @@ nt help <command>
 Core commands use positional arguments, stdin, stdout, and `$EDITOR` instead of
 flags. See [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the full
 recommended command surface.
+
+`nt init <notes-dir>` creates a vault and makes it active. The vault name is the
+directory basename and must be unique.
 
 Examples:
 
@@ -307,8 +312,9 @@ implement natural-language retrieval itself; the agent is expected to call
 explicit commands such as `nt find`, `nt list`, and `nt show`.
 
 Default `AGENTS.md` and skill files are created by `nt init` and are editable
-Markdown files. Use `nt config show` to see the active notes directory, agent
-workspace, `AGENTS.md`, and available skills.
+Markdown files. Use `nt config show` to see the active vault, agent workspace,
+`AGENTS.md`, and available skills. Use `nt config vault` to list known vaults
+and `nt config vault <vault-name>` to switch the active vault.
 
 The default skills are:
 
@@ -326,6 +332,7 @@ nt config agent-output hidden
 nt config agent-output format
 nt config agent-output full
 nt config show
+nt config vault
 ```
 
 The config file is TOML:

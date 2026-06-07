@@ -47,6 +47,8 @@ nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
 nt agent <prompt...>
 nt config show
+nt config vault
+nt config vault <vault-name>
 nt config agent-output <hidden|format|full>
 nt completion <shell>
 nt help
