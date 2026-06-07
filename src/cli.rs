@@ -10,6 +10,7 @@ use crate::config::AgentOutputMode;
     version,
     about = "Small CLI note organizer and research workspace",
     disable_help_subcommand = true,
+    disable_help_flag = true,
     disable_version_flag = true
 )]
 pub struct Cli {
@@ -98,6 +99,10 @@ pub enum Command {
     Completion {
         shell: Shell,
     },
+    Help {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        topic: Vec<String>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -161,6 +166,9 @@ mod tests {
             &["nt", "config", "show"],
             &["nt", "config", "agent-output", "hidden"],
             &["nt", "completion", "zsh"],
+            &["nt", "help"],
+            &["nt", "help", "find"],
+            &["nt", "help", "config", "agent-output"],
         ];
 
         for case in cases {
@@ -222,10 +230,12 @@ mod tests {
                 "agent",
                 "config",
                 "completion",
+                "help",
             ]
         );
 
-        assert!(Cli::try_parse_from(["nt", "help"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "help"]).is_ok());
 
         let Command::Config {
             command: ConfigCommand::AgentOutput { .. },

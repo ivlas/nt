@@ -57,8 +57,6 @@ pub fn agents_md_path() -> Result<PathBuf> {
 }
 
 pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
-    let mut bodies = Vec::new();
-
     for name in REQUIRED_AGENT_SKILLS {
         let path = installed_skill_path(name)?;
         if !path.exists() {
@@ -66,7 +64,10 @@ pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
                 "missing skill {name}; run `nt init <notes-dir>`"
             )));
         }
+    }
 
+    let mut bodies = Vec::new();
+    for (name, path) in available_skill_paths()? {
         bodies.push((name.to_string(), fs::read_to_string(path)?));
     }
 
@@ -75,11 +76,34 @@ pub fn installed_agent_skill_bodies() -> Result<Vec<(String, String)>> {
 
 pub fn available_skill_paths() -> Result<Vec<(String, PathBuf)>> {
     let mut paths = Vec::new();
+    let dir = skills_dir()?;
 
-    for skill in BUILTIN_SKILLS {
-        paths.push((skill.name.to_string(), installed_skill_path(skill.name)?));
+    if !dir.exists() {
+        return Ok(paths);
     }
 
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            let skill_path = path.join("SKILL.md");
+            if skill_path.exists() {
+                if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                    paths.push((name.to_string(), skill_path));
+                }
+            }
+            continue;
+        }
+
+        if path.extension().and_then(|extension| extension.to_str()) == Some("md") {
+            if let Some(name) = path.file_stem().and_then(|name| name.to_str()) {
+                paths.push((name.to_string(), path));
+            }
+        }
+    }
+
+    paths.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(paths)
 }
 
@@ -87,7 +111,7 @@ fn installed_skill_path(name: &str) -> Result<PathBuf> {
     Ok(skills_dir()?.join(name).join("SKILL.md"))
 }
 
-fn skills_dir() -> Result<PathBuf> {
+pub fn skills_dir() -> Result<PathBuf> {
     Ok(nt_home()?.join("skills"))
 }
 
@@ -138,6 +162,8 @@ nt agent <prompt...>
 nt config show
 nt config agent-output <hidden|format|full>
 nt completion <shell>
+nt help
+nt help <command>
 ```
 
 ## Find syntax
@@ -267,7 +293,7 @@ Use visible `nt` commands first to inspect and repair the notebook or index.
 Workflow:
 
 1. Use `nt ids`, `nt tags`, and `nt list` to inspect the current index.
-2. Use `nt rebuild` when the index looks stale or missing entries.
+2. Use `nt find <expr...>` when metadata or body search is needed.
 3. Use `nt show <id>` to verify exact note contents.
 4. Only inspect `$HOME/.nt/index.json` when command output is insufficient.
 5. Report what changed and cite affected note ids when relevant.

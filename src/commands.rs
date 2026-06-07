@@ -12,6 +12,7 @@ use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta, NotebookMeta};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
+use crate::terminal::{Style, paint};
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
@@ -42,6 +43,7 @@ pub fn run(cli: Cli) -> Result<()> {
             print_completion(shell);
             Ok(())
         }
+        Command::Help { topic } => crate::help::print(&topic),
     }
 }
 
@@ -93,18 +95,34 @@ fn add(metadata: &[String]) -> Result<()> {
 
 fn list() -> Result<()> {
     let index = Index::load()?;
+    let color = crate::terminal::stdout_color_enabled();
 
     for id in &index.recent {
         let Some(note) = index.notes.get(id) else {
             continue;
         };
-        println!("{}", summary_line(note));
+        println!("{}", summary_line_for_display(note, color));
     }
 
     Ok(())
 }
 
 fn show(id: &str) -> Result<()> {
+    let text = show_text_for_display(id, crate::terminal::stdout_color_enabled())?;
+
+    print!("{text}");
+    if !text.ends_with('\n') {
+        println!();
+    }
+
+    Ok(())
+}
+
+fn show_text(id: &str) -> Result<String> {
+    show_text_for_display(id, false)
+}
+
+fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     validate_id(id)?;
     let index = Index::load()?;
     let note = index
@@ -113,23 +131,49 @@ fn show(id: &str) -> Result<()> {
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
     let body = fs::read_to_string(&note.path)?;
 
-    println!("{}  {}", note.id, note.title);
-    println!("path {}", relative_to_cwd(&note.path).display());
-    println!("created {}", note.created);
-    println!("updated {}", note.updated);
-    println!("kind {}", note.kind);
-    println!("status {}", note.status.as_deref().unwrap_or("-"));
-    println!("tags {}", joined_or_dash(&note.tags));
-    println!("collections {}", joined_or_dash(&note.collections));
-    println!("links {}", joined_or_dash(&note.links));
-    println!("sources {}", joined_or_dash(&note.sources));
-    println!();
-    print!("{body}");
-    if !body.ends_with('\n') {
-        println!();
+    let mut text = String::new();
+    text.push_str(&format!(
+        "{}  {}\n",
+        paint(&note.id, Style::BrightCyan, color),
+        note.title
+    ));
+    text.push_str(&format!(
+        "path {}\n",
+        paint(
+            &relative_to_cwd(&note.path).display().to_string(),
+            Style::Dim,
+            color
+        )
+    ));
+    text.push_str(&format!(
+        "created {}\n",
+        paint(&note.created, Style::Dim, color)
+    ));
+    text.push_str(&format!(
+        "updated {}\n",
+        paint(&note.updated, Style::Dim, color)
+    ));
+    text.push_str(&format!("kind {}\n", note.kind));
+    text.push_str(&format!(
+        "status {}\n",
+        note.status.as_deref().unwrap_or("-")
+    ));
+    text.push_str(&format!(
+        "tags {}\n",
+        paint(&joined_or_dash(&note.tags), Style::Green, color)
+    ));
+    text.push_str(&format!(
+        "collections {}\n",
+        joined_or_dash(&note.collections)
+    ));
+    text.push_str(&format!("links {}\n", joined_or_dash(&note.links)));
+    text.push_str(&format!("sources {}\n\n", joined_or_dash(&note.sources)));
+    text.push_str(&body);
+    if !text.ends_with('\n') {
+        text.push('\n');
     }
 
-    Ok(())
+    Ok(text)
 }
 
 fn edit(id: &str) -> Result<()> {
@@ -171,16 +215,10 @@ fn edit(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn discuss(id: &str, _prompt: &[String]) -> Result<()> {
-    validate_id(id)?;
-    let index = Index::load()?;
-    if !index.notes.contains_key(id) {
-        return Err(NtError::NoteNotFound(id.to_string()));
-    }
+fn discuss(id: &str, prompt: &[String]) -> Result<()> {
+    let note_context = show_text(id)?;
 
-    Err(NtError::Message(
-        "discuss is not implemented yet".to_string(),
-    ))
+    crate::agent::discuss(id, &note_context, prompt)
 }
 
 fn find(exprs: &[String]) -> Result<()> {
@@ -483,7 +521,8 @@ fn config(command: ConfigCommand) -> Result<()> {
 }
 
 fn config_show() -> Result<()> {
-    Config::load()?.print()?;
+    let config = Config::load()?;
+    config.print()?;
 
     let index = Index::load()?;
     let notes_dir = index
@@ -496,9 +535,14 @@ fn config_show() -> Result<()> {
     println!("notes_dir {notes_dir}");
     println!("agent_workspace {}", relative_to_cwd(&nt_home()?).display());
     println!(
+        "skills_dir {}",
+        relative_to_cwd(&crate::skills::skills_dir()?).display()
+    );
+    println!(
         "agents_md {}",
         relative_to_cwd(&crate::skills::agents_md_path()?).display()
     );
+    println!("agent_output {}", agent_output_name(config.agent.output));
     for (name, path) in skills {
         println!("skill {name} {}", relative_to_cwd(&path).display());
     }
@@ -649,10 +693,21 @@ fn validate_status(status: &str) -> Result<()> {
 }
 
 fn summary_line(note: &NoteMeta) -> String {
+    summary_line_for_display(note, false)
+}
+
+fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
     let day = note.created.get(0..10).unwrap_or("unknown");
     let tags = joined_or_dash(&note.tags);
+    let padded_tags = format!("{tags:<12}");
 
-    format!("{:<17}  {}  {:<12}  {}", note.id, day, tags, note.title)
+    format!(
+        "{}  {}  {}  {}",
+        paint(&format!("{:<17}", note.id), Style::BrightCyan, color),
+        paint(day, Style::Dim, color),
+        paint(&padded_tags, Style::Green, color),
+        note.title
+    )
 }
 
 fn joined_or_dash(values: &[String]) -> String {
@@ -792,7 +847,7 @@ mod tests {
 
     use crate::index::{Index, NoteMeta};
 
-    use super::{CreationMetadata, summary_line};
+    use super::{CreationMetadata, summary_line, summary_line_for_display};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -823,6 +878,19 @@ mod tests {
             summary_line(&note),
             "NT20260528T143012  2026-05-28  -             Storage shape"
         );
+    }
+
+    #[test]
+    fn summary_line_colors_human_display_when_enabled() {
+        let mut note = note("NT20260528T143012");
+        note.tags = vec!["design".to_string()];
+
+        let line = summary_line_for_display(&note, true);
+
+        assert!(line.contains("\x1b[96mNT20260528T143012\x1b[0m"));
+        assert!(line.contains("\x1b[2m2026-05-28\x1b[0m"));
+        assert!(line.contains("\x1b[32mdesign"));
+        assert!(line.ends_with("Storage shape"));
     }
 
     #[test]

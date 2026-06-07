@@ -13,7 +13,7 @@ pub struct Config {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentConfig {
-    pub backend: String,
+    #[serde(default = "default_agent_output")]
     pub output: AgentOutputMode,
 }
 
@@ -29,11 +29,14 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             agent: AgentConfig {
-                backend: "codex".to_string(),
-                output: AgentOutputMode::Format,
+                output: default_agent_output(),
             },
         }
     }
+}
+
+fn default_agent_output() -> AgentOutputMode {
+    AgentOutputMode::Format
 }
 
 impl Config {
@@ -78,11 +81,17 @@ mod tests {
         let text = toml::to_string_pretty(&config).unwrap();
 
         assert!(text.contains("[agent]"));
-        assert!(text.contains("backend = \"codex\""));
         assert!(text.contains("output = \"format\""));
+        assert!(!text.contains("backend"));
 
         let parsed: Config = toml::from_str(&text).unwrap();
-        assert_eq!(parsed.agent.backend, "codex");
+        assert_eq!(parsed.agent.output, AgentOutputMode::Format);
+    }
+
+    #[test]
+    fn config_defaults_missing_agent_output() {
+        let parsed: Config = toml::from_str("[agent]\n").unwrap();
+
         assert_eq!(parsed.agent.output, AgentOutputMode::Format);
     }
 }
