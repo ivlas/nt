@@ -54,7 +54,7 @@ _nt() {
     fi
 
     case "${COMP_WORDS[1]}:${COMP_CWORD}" in
-        show:2|edit:2|discuss:2|rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3|export:[3-9]|export:[1-9][0-9]*)
+        show:2|edit:2|rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3|export:[3-9]|export:[1-9][0-9]*)
             _nt_note_ids
             return 0
             ;;
@@ -84,10 +84,10 @@ mod tests {
     fn bash_completion_contains_commands_and_dynamic_note_ids() {
         let script = completion_script(Shell::Bash);
 
-        assert!(script.contains("init add list find show edit discuss"));
+        assert!(script.contains("init add list find show edit"));
         assert!(script.contains("_nt_note_ids"));
         assert!(script.contains("nt ids 2>/dev/null"));
-        assert!(script.contains("show:2|edit:2|discuss:2|rm:2"));
+        assert!(script.contains("show:2|edit:2|rm:2"));
         assert!(script.contains("link:2|link:3|unlink:2|unlink:3"));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }

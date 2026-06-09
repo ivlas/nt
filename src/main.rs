@@ -1,15 +1,12 @@
-mod agent;
 mod cli;
 mod commands;
 mod completion;
-mod config;
 mod error;
 mod fs;
 mod help;
 mod index;
 mod note;
 mod query;
-mod skills;
 mod terminal;
 
 use clap::Parser;

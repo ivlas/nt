@@ -6,7 +6,6 @@ use std::process::Command as ProcessCommand;
 
 use crate::cli::{Cli, Command, ConfigCommand, LinkMode};
 use crate::completion::print_completion;
-use crate::config::Config;
 use crate::error::{NtError, Result};
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
@@ -22,7 +21,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
         Command::Edit { id } => edit(&id),
-        Command::Discuss { id, prompt } => discuss(&id, &prompt),
         Command::Rm { id } => rm(&id),
         Command::Ids => ids(),
         Command::Tags => tags(),
@@ -38,7 +36,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Unlink { from_id, to_id } => unlink(&from_id, &to_id),
         Command::Links { id, mode } => links(&id, mode),
         Command::Export { path, ids } => export(&path, &ids),
-        Command::Agent { prompt } => crate::agent::run(&prompt),
         Command::Config { command } => config(command),
         Command::Completion { shell } => {
             print_completion(shell);
@@ -60,7 +57,6 @@ fn init(notes_dir: &Path) -> Result<()> {
 
     index.active_vault = Some(vault.clone());
     index.save()?;
-    crate::skills::ensure_defaults()?;
 
     println!(
         "initialized {vault} {}",
@@ -120,10 +116,6 @@ fn show(id: &str) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn show_text(id: &str) -> Result<String> {
-    show_text_for_display(id, false)
 }
 
 fn show_text_for_display(id: &str, color: bool) -> Result<String> {
@@ -210,12 +202,6 @@ fn edit(id: &str) -> Result<()> {
 
     println!("saved {id}");
     Ok(())
-}
-
-fn discuss(id: &str, prompt: &[String]) -> Result<()> {
-    let note_context = show_text(id)?;
-
-    crate::agent::discuss(id, &note_context, prompt)
 }
 
 fn find(exprs: &[String]) -> Result<()> {
@@ -639,20 +625,10 @@ fn config(command: ConfigCommand) -> Result<()> {
             Some(name) => config_set_vault(&name),
             None => config_list_vaults(),
         },
-        ConfigCommand::AgentOutput { mode } => {
-            let mut config = Config::load()?;
-            config.agent.output = mode;
-            config.save()?;
-            println!("configured agent-output {}", agent_output_name(mode));
-            Ok(())
-        }
     }
 }
 
 fn config_show() -> Result<()> {
-    let config = Config::load()?;
-    config.print()?;
-
     let index = Index::load()?;
     let vault = index.active_vault.as_deref().unwrap_or("-");
     let vault_path = index
@@ -660,22 +636,8 @@ fn config_show() -> Result<()> {
         .map(relative_to_cwd)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "-".to_string());
-    let skills = crate::skills::available_skill_paths()?;
 
     println!("vault {vault} {vault_path}");
-    println!("agent_workspace {}", relative_to_cwd(&nt_home()?).display());
-    println!(
-        "skills_dir {}",
-        relative_to_cwd(&crate::skills::skills_dir()?).display()
-    );
-    println!(
-        "agents_md {}",
-        relative_to_cwd(&crate::skills::agents_md_path()?).display()
-    );
-    println!("agent_output {}", agent_output_name(config.agent.output));
-    for (name, path) in skills {
-        println!("skill {name} {}", relative_to_cwd(&path).display());
-    }
 
     Ok(())
 }
@@ -711,14 +673,6 @@ fn config_set_vault(name: &str) -> Result<()> {
         relative_to_cwd(&path).display()
     );
     Ok(())
-}
-
-fn agent_output_name(mode: crate::config::AgentOutputMode) -> &'static str {
-    match mode {
-        crate::config::AgentOutputMode::Hidden => "hidden",
-        crate::config::AgentOutputMode::Format => "format",
-        crate::config::AgentOutputMode::Full => "full",
-    }
 }
 
 fn read_note_body_for_add() -> Result<String> {

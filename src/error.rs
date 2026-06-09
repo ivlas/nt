@@ -8,10 +8,6 @@ pub enum NtError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("toml decode error: {0}")]
-    TomlDecode(#[from] toml::de::Error),
-    #[error("toml encode error: {0}")]
-    TomlEncode(#[from] toml::ser::Error),
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run `nt init <notes-dir>` first")]

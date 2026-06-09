@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::config::AgentOutputMode;
-
 #[derive(Parser)]
 #[command(
     name = "nt",
@@ -37,11 +35,6 @@ pub enum Command {
     },
     Edit {
         id: String,
-    },
-    Discuss {
-        id: String,
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        prompt: Vec<String>,
     },
     Rm {
         id: String,
@@ -92,10 +85,6 @@ pub enum Command {
         path: PathBuf,
         ids: Vec<String>,
     },
-    Agent {
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        prompt: Vec<String>,
-    },
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -128,7 +117,6 @@ pub enum LinkMode {
 pub enum ConfigCommand {
     Show,
     Vault { name: Option<String> },
-    AgentOutput { mode: AgentOutputMode },
 }
 
 #[cfg(test)]
@@ -147,8 +135,6 @@ mod tests {
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
             &["nt", "edit", "NT20260528T143012"],
-            &["nt", "discuss", "NT20260528T143012"],
-            &["nt", "discuss", "NT20260528T143012", "what", "changed?"],
             &["nt", "rm", "NT20260528T143012"],
             &["nt", "ids"],
             &["nt", "tags"],
@@ -176,15 +162,12 @@ mod tests {
                 "NT20260528T143012",
                 "NT20260527T120000",
             ],
-            &["nt", "agent", "summarize", "recent", "notes"],
             &["nt", "config", "show"],
             &["nt", "config", "vault"],
             &["nt", "config", "vault", "notes"],
-            &["nt", "config", "agent-output", "hidden"],
             &["nt", "completion", "zsh"],
             &["nt", "help"],
             &["nt", "help", "find"],
-            &["nt", "help", "config", "agent-output"],
         ];
 
         for case in cases {
@@ -195,19 +178,13 @@ mod tests {
     }
 
     #[test]
-    fn find_and_prompts_use_trailing_positionals() {
+    fn find_uses_trailing_positionals() {
         let cli = Cli::parse_from(["nt", "find", "body:microvm jailer", "-hyphen"]);
         match cli.command {
             Command::Find { expr } => {
                 assert_eq!(expr, vec!["body:microvm jailer", "-hyphen"]);
             }
             _ => panic!("expected find"),
-        }
-
-        let cli = Cli::parse_from(["nt", "agent", "explain", "NT20260528T143012"]);
-        match cli.command {
-            Command::Agent { prompt } => assert_eq!(prompt, vec!["explain", "NT20260528T143012"]),
-            _ => panic!("expected agent"),
         }
     }
 
@@ -228,7 +205,6 @@ mod tests {
                 "find",
                 "show",
                 "edit",
-                "discuss",
                 "rm",
                 "ids",
                 "tags",
@@ -244,7 +220,6 @@ mod tests {
                 "unlink",
                 "links",
                 "export",
-                "agent",
                 "config",
                 "completion",
                 "help",
@@ -253,13 +228,6 @@ mod tests {
 
         assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
         assert!(Cli::try_parse_from(["nt", "help"]).is_ok());
-
-        let Command::Config {
-            command: ConfigCommand::AgentOutput { .. },
-        } = Cli::parse_from(["nt", "config", "agent-output", "full"]).command
-        else {
-            panic!("expected config agent-output");
-        };
 
         let Command::Config {
             command: ConfigCommand::Vault { name },

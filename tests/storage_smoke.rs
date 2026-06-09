@@ -19,8 +19,8 @@ fn nt_bin() -> PathBuf {
 }
 
 #[test]
-fn config_show_prints_agent_workspace_files() {
-    let root = temp_dir("config-agent-workspace");
+fn config_show_prints_active_vault() {
+    let root = temp_dir("config-active-vault");
     let home = root.join("home");
     let notes = root.join("notes");
 
@@ -28,19 +28,11 @@ fn config_show_prints_agent_workspace_files() {
 
     let shown = run_nt(&home, &["config", "show"]);
 
-    assert!(shown.contains("[agent]"));
-    assert!(shown.contains("output = \"format\""));
-    assert!(!shown.contains("backend"));
     assert!(shown.contains("vault notes"));
-    assert!(shown.contains("agent_workspace"));
-    assert!(shown.contains("skills_dir"));
-    assert!(shown.contains("agents_md"));
-    assert!(shown.contains("agent_output format"));
-    assert!(shown.contains("AGENTS.md"));
-    assert!(shown.contains("skill nt-maintain"));
-    assert!(shown.contains("skill nt-note"));
-    assert!(shown.contains("skill nt-recall"));
-    assert!(shown.contains("skill nt-skill-builder"));
+    assert!(shown.contains(&notes.display().to_string()));
+    assert!(!shown.contains("agent_workspace"));
+    assert!(!shown.contains("skills_dir"));
+    assert!(!shown.contains("agent_output"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -134,100 +126,16 @@ fn init_rejects_duplicate_vault_names() {
 }
 
 #[test]
-fn init_installs_default_editable_skills() {
-    let root = temp_dir("init-installs-skills");
+fn init_does_not_install_agent_workspace_files() {
+    let root = temp_dir("init-no-agent-workspace");
     let home = root.join("home");
     let notes = root.join("notes");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let agents = fs::read_to_string(home.join(".nt/AGENTS.md")).unwrap();
-    assert!(agents.contains("nt discuss <id>"));
-
-    for name in ["nt-note", "nt-recall", "nt-maintain", "nt-skill-builder"] {
-        let path = home.join(".nt/skills").join(name).join("SKILL.md");
-        let body = fs::read_to_string(&path).unwrap();
-        assert!(body.contains(&format!("name: {name}")));
-        assert!(body.contains("# "));
-    }
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn agent_reports_missing_required_skill_before_running_codex() {
-    let root = temp_dir("missing-agent-skill");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-    fs::remove_file(home.join(".nt/skills/nt-recall/SKILL.md")).unwrap();
-
-    assert_failed(
-        &home,
-        &["agent", "what", "did", "I", "save?"],
-        "missing skill nt-recall",
-    );
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[cfg(unix)]
-#[test]
-fn discuss_builds_exact_note_context_with_fake_codex() {
-    let root = temp_dir("discuss-context");
-    let home = root.join("home");
-    let notes = root.join("notes");
-    let bin = root.join("bin");
-    let prompt_path = root.join("prompt.txt");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-
-    let exact = run_nt_with_stdin(
-        &home,
-        &["add", "tag:exact", "kind:decision"],
-        "# Exact note\n\nOnly this note should be in context.\n",
-    );
-    let exact_id = exact.trim().strip_prefix("saved ").unwrap().to_string();
-    let other = run_nt_with_stdin(
-        &home,
-        &["add"],
-        "# Other note\n\nThis note must not be retrieved automatically.\n",
-    );
-    let other_id = other.trim().strip_prefix("saved ").unwrap().to_string();
-
-    fs::create_dir_all(&bin).unwrap();
-    let codex = bin.join("codex");
-    fs::write(
-        &codex,
-        "#!/bin/sh\nif [ \"$1\" != \"exec\" ]; then exit 2; fi\nprintf '%s' \"$2\" > \"$NT_FAKE_CODEX_PROMPT\"\n",
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&codex).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&codex, permissions).unwrap();
-
-    let current_path = std::env::var_os("PATH").unwrap_or_default();
-    let fake_path = format!("{}:{}", bin.display(), current_path.to_string_lossy());
-    run_nt_with_env(
-        &home,
-        &["discuss", &exact_id, "what", "is", "the", "decision?"],
-        &[
-            ("PATH", &fake_path),
-            ("NT_FAKE_CODEX_PROMPT", prompt_path.to_str().unwrap()),
-        ],
-    );
-
-    let prompt = fs::read_to_string(prompt_path).unwrap();
-    assert!(prompt.contains("Do not retrieve additional notes automatically"));
-    assert!(prompt.contains(&format!("`nt show {exact_id}`")));
-    assert!(prompt.contains(&format!("{exact_id}  Exact note")));
-    assert!(prompt.contains("tags exact"));
-    assert!(prompt.contains("kind decision"));
-    assert!(prompt.contains("# Exact note"));
-    assert!(prompt.contains("what is the decision?"));
-    assert!(!prompt.contains(&format!("{other_id}  Other note")));
-    assert!(!prompt.contains("This note must not be retrieved automatically."));
+    assert!(home.join(".nt/index.json").exists());
+    assert!(!home.join(".nt/AGENTS.md").exists());
+    assert!(!home.join(".nt/skills").exists());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -241,7 +149,7 @@ fn completion_outputs_dynamic_note_id_hooks() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
     let bash = run_nt(&home, &["completion", "bash"]);
-    assert!(bash.contains("init add list find show edit discuss"));
+    assert!(bash.contains("init add list find show edit"));
     assert!(bash.contains("_nt_note_ids"));
     assert!(bash.contains("nt ids 2>/dev/null"));
 
@@ -266,10 +174,6 @@ fn help_is_a_flagless_command_with_examples() {
     let find_help = run_nt(&home, &["help", "find"]);
     assert!(find_help.contains("nt find <expr...>"));
     assert!(find_help.contains("nt find tag:decision collection:projects/nt"));
-
-    let config_help = run_nt(&home, &["help", "config", "agent-output"]);
-    assert!(config_help.contains("nt config agent-output <hidden|format|full>"));
-    assert!(config_help.contains("nt config agent-output full"));
 
     let vault_help = run_nt(&home, &["help", "config", "vault"]);
     assert!(vault_help.contains("nt config vault [vault-name]"));

@@ -17,7 +17,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "find" => FIND,
         "show" => SHOW,
         "edit" => EDIT,
-        "discuss" => DISCUSS,
         "rm" => RM,
         "ids" => IDS,
         "tags" => TAGS,
@@ -33,11 +32,9 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "unlink" => UNLINK,
         "links" => LINKS,
         "export" => EXPORT,
-        "agent" => AGENT,
         "config" => CONFIG,
         "config show" => CONFIG_SHOW,
         "config vault" => CONFIG_VAULT,
-        "config agent-output" => CONFIG_AGENT_OUTPUT,
         "completion" => COMPLETION,
         "help" => HELP,
         _ => {
@@ -65,7 +62,6 @@ Commands:
   find         find notes by query expressions
   show         show one exact note
   edit         edit one note with $EDITOR
-  discuss      discuss one exact note with Codex
   rm           remove one note
   ids          print note ids
   tags         print known tags
@@ -81,8 +77,7 @@ Commands:
   unlink       remove a note link
   links        print note links
   export       export Markdown with front matter
-  agent        launch Codex with visible nt skills
-  config       inspect or edit nt config
+  config       inspect or select vaults
   completion   generate shell completion
   help         show help
 
@@ -150,16 +145,6 @@ Open one note in $EDITOR and save the edited Markdown body.
 Examples:
   nt edit NT20260528T143012
   EDITOR=vim nt edit NT20260528T143012
-"#;
-
-const DISCUSS: &str = r#"nt discuss <id> [prompt...]
-
-Launch Codex with the exact `nt show <id>` context and visible nt skills. It
-does not retrieve additional notes automatically.
-
-Examples:
-  nt discuss NT20260528T143012
-  nt discuss NT20260528T143012 what should I do next?
 "#;
 
 const RM: &str = r#"nt rm <id>
@@ -298,33 +283,20 @@ Examples:
   nt find collection:projects/nt | awk '{print $1}' | while read -r id; do nt export archive "$id"; done
 "#;
 
-const AGENT: &str = r#"nt agent <prompt...>
-
-Launch Codex from the nt agent workspace with visible nt skills. nt itself does
-not implement natural-language retrieval.
-
-Examples:
-  nt agent summarize recent notes
-  nt agent what did I note about storage?
-"#;
-
 const CONFIG: &str = r#"nt config show
 nt config vault [vault-name]
-nt config agent-output <hidden|format|full>
 
-Inspect or update documented nt config.
+Inspect vault state or select the active vault.
 
 Examples:
   nt config show
   nt config vault
   nt config vault notes
-  nt config agent-output format
 "#;
 
 const CONFIG_SHOW: &str = r#"nt config show
 
-Print active config, active vault, agent workspace, skills directory,
-AGENTS.md, available skills, and agent output mode.
+Print the active vault name and path.
 
 Examples:
   nt config show
@@ -337,16 +309,6 @@ List known vaults, or select the active vault by name.
 Examples:
   nt config vault
   nt config vault notes
-"#;
-
-const CONFIG_AGENT_OUTPUT: &str = r#"nt config agent-output <hidden|format|full>
-
-Set how Codex output is printed.
-
-Examples:
-  nt config agent-output hidden
-  nt config agent-output format
-  nt config agent-output full
 "#;
 
 const COMPLETION: &str = r#"nt completion <shell>
@@ -365,7 +327,7 @@ Show short command help with examples.
 Examples:
   nt help
   nt help find
-  nt help config agent-output
+  nt help config vault
 "#;
 
 #[cfg(test)]
@@ -382,7 +344,6 @@ mod tests {
             "find",
             "show",
             "edit",
-            "discuss",
             "rm",
             "ids",
             "tags",
@@ -398,11 +359,9 @@ mod tests {
             "unlink",
             "links",
             "export",
-            "agent",
             "config",
             "config show",
             "config vault",
-            "config agent-output",
             "completion",
             "help",
         ];
