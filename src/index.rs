@@ -162,6 +162,9 @@ impl Index {
 
     pub fn remove_note(&mut self, id: &str) {
         self.notes.remove(id);
+        for note in self.notes.values_mut() {
+            note.links.retain(|link| link != id);
+        }
         self.rebuild_derived();
     }
 
@@ -491,5 +494,21 @@ mod tests {
             index.backlinks.get("NT20260527T120000").unwrap(),
             &vec!["NT20260528T143012".to_string()]
         );
+    }
+
+    #[test]
+    fn removing_note_cleans_inbound_primary_links() {
+        let mut index = Index::default();
+        let mut first = note("NT20260528T143012");
+        first.links = vec!["NT20260529T120000".to_string()];
+        let second = note("NT20260529T120000");
+
+        index.upsert_note(first);
+        index.upsert_note(second);
+
+        index.remove_note("NT20260529T120000");
+
+        assert_eq!(index.notes["NT20260528T143012"].links, Vec::<String>::new());
+        assert!(index.backlinks.is_empty());
     }
 }
