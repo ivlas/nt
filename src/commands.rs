@@ -59,12 +59,57 @@ fn init(notes_dir: &Path) -> Result<()> {
     fs::create_dir_all(nt_home()?)?;
 
     index.active_vault = Some(vault.clone());
+    import_existing_notes(&mut index, &notes_dir)?;
     index.save()?;
 
     println!(
         "initialized {vault} {}",
         relative_to_cwd(&notes_dir).display()
     );
+    Ok(())
+}
+
+fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(notes_dir)? {
+        paths.push(entry?.path());
+    }
+    paths.sort();
+
+    for path in paths {
+        let id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                NtError::Message(format!("invalid note filename: {}", path.display()))
+            })?;
+        let created = crate::note::iso_from_id(&id)?;
+        let updated = fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .map(crate::note::timestamp_from_system_time)
+            .map(|timestamp| timestamp.iso)
+            .unwrap_or_else(|_| created.clone());
+        let body = fs::read_to_string(&path)?;
+
+        if let Some(existing) = index.notes.get(&id) {
+            if existing.path != path {
+                return Err(NtError::Message(format!(
+                    "note id `{id}` already exists in index at {}",
+                    existing.path.display()
+                )));
+            }
+        }
+
+        index.upsert_note(NoteMeta::new_note(
+            id,
+            path,
+            created,
+            updated,
+            title_from_body(&body),
+        ));
+    }
+
     Ok(())
 }
 

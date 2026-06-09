@@ -26,6 +26,19 @@ pub fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
     timestamp_from_unix_seconds(seconds)
 }
 
+pub fn iso_from_id(id: &str) -> Result<String> {
+    validate_id(id)?;
+    Ok(format!(
+        "{}-{}-{}T{}:{}:{}Z",
+        &id[2..6],
+        &id[6..8],
+        &id[8..10],
+        &id[11..13],
+        &id[13..15],
+        &id[15..17]
+    ))
+}
+
 pub fn generate_unique_id(notes_dir: &Path, index: &Index) -> Result<Timestamp> {
     for _ in 0..5 {
         let timestamp = timestamp_now();

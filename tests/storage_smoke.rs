@@ -160,6 +160,41 @@ fn init_rejects_non_flat_or_non_note_entries() {
 }
 
 #[test]
+fn init_imports_existing_flat_notes() {
+    let root = temp_dir("init-import-existing-notes");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let id = "NT20260528T143012";
+
+    fs::create_dir_all(&notes).unwrap();
+    fs::write(
+        notes.join(format!("{id}.md")),
+        "# Imported\n\nExisting body.\n",
+    )
+    .unwrap();
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let listed = run_nt(&home, &["list"]);
+    assert!(listed.contains(id));
+    assert!(listed.contains("Imported"));
+
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains(&format!("{id}  Imported")));
+    assert!(shown.contains("created 2026-05-28T14:30:12Z"));
+    assert!(shown.contains("# Imported\n\nExisting body."));
+
+    let index = read_index(&home);
+    assert_eq!(index["notes"][id]["title"].as_str(), Some("Imported"));
+    assert_eq!(
+        index["notes"][id]["path"].as_str(),
+        Some(notes.join(format!("{id}.md")).to_str().unwrap())
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_does_not_install_agent_workspace_files() {
     let root = temp_dir("init-no-agent-workspace");
     let home = root.join("home");
