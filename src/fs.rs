@@ -66,6 +66,21 @@ fn write_and_rename(tmp_path: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     }
 
     fs::rename(tmp_path, path)?;
+    sync_parent_dir(path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent_dir(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| NtError::Message(format!("path has no parent: {}", path.display())))?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir(_path: &Path) -> Result<()> {
     Ok(())
 }
 
