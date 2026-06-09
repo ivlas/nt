@@ -133,7 +133,7 @@ impl Index {
 
         let bytes = fs::read(path)?;
         let mut index: Self = serde_json::from_slice(&bytes)?;
-        index.migrate_legacy_vaults();
+        index.normalize_loaded();
         Ok(index)
     }
 
@@ -248,6 +248,11 @@ impl Index {
 }
 
 impl Index {
+    fn normalize_loaded(&mut self) {
+        self.migrate_legacy_vaults();
+        self.rebuild_derived();
+    }
+
     fn migrate_legacy_vaults(&mut self) {
         let legacy_vaults = std::mem::take(&mut self.legacy_vaults);
         for (path, meta) in legacy_vaults {
@@ -437,5 +442,54 @@ mod tests {
         assert!(note.collections.is_empty());
         assert!(note.links.is_empty());
         assert_eq!(note.sources, vec!["https://example.com/spec".to_string()]);
+    }
+
+    #[test]
+    fn normalizes_loaded_index_by_rebuilding_derived_maps() {
+        let json = r#"{
+            "version": 1,
+            "active_vault": "notes",
+            "vaults": {
+                "notes": {
+                    "path": "notes",
+                    "created": "2026-05-28T14:30:12Z"
+                }
+            },
+            "notes": {
+                "NT20260528T143012": {
+                    "id": "NT20260528T143012",
+                    "path": "notes/NT20260528T143012.md",
+                    "created": "2026-05-28T14:30:12Z",
+                    "updated": "2026-05-28T14:30:12Z",
+                    "title": "Storage",
+                    "kind": "decision",
+                    "status": "open",
+                    "tags": ["design"],
+                    "collections": ["projects/nt"],
+                    "links": ["NT20260527T120000"],
+                    "sources": []
+                }
+            },
+            "recent": [],
+            "tags": {}
+        }"#;
+
+        let mut index: Index = serde_json::from_str(json).unwrap();
+
+        index.normalize_loaded();
+
+        assert_eq!(index.recent, vec!["NT20260528T143012"]);
+        assert_eq!(
+            index.tags.get("design").unwrap(),
+            &vec!["NT20260528T143012".to_string()]
+        );
+        assert_eq!(
+            index.collections.get("projects/nt").unwrap(),
+            &vec!["NT20260528T143012".to_string()]
+        );
+        assert_eq!(
+            index.backlinks.get("NT20260527T120000").unwrap(),
+            &vec!["NT20260528T143012".to_string()]
+        );
     }
 }
