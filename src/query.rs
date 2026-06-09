@@ -56,8 +56,14 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub fn matches(&self, note: &NoteMeta) -> bool {
-        self.exprs.iter().all(|expr| expr.matches(note))
+    pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
+        for expr in &self.exprs {
+            if !expr.matches(note)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }
 
@@ -118,34 +124,40 @@ impl QueryExpr {
         }
     }
 
-    fn matches(&self, note: &NoteMeta) -> bool {
+    fn matches(&self, note: &NoteMeta) -> Result<bool> {
         match self {
-            Self::Bare(value) => matches_metadata(note, value) || matches_body(note, value),
-            Self::Id(value) => normalize(&note.id).starts_with(value),
-            Self::Tag(value) => contains_normalized(&note.tags, value),
-            Self::Title(value) => normalize(&note.title).contains(value),
-            Self::Day(value) => note.created.get(0..10).is_some_and(|day| day == value),
-            Self::Since(value) => note
+            Self::Bare(value) => {
+                if matches_metadata(note, value) {
+                    Ok(true)
+                } else {
+                    matches_body(note, value)
+                }
+            }
+            Self::Id(value) => Ok(normalize(&note.id).starts_with(value)),
+            Self::Tag(value) => Ok(contains_normalized(&note.tags, value)),
+            Self::Title(value) => Ok(normalize(&note.title).contains(value)),
+            Self::Day(value) => Ok(note.created.get(0..10).is_some_and(|day| day == value)),
+            Self::Since(value) => Ok(note
                 .created
                 .get(0..10)
-                .is_some_and(|day| day >= value.as_str()),
-            Self::Before(value) => note
+                .is_some_and(|day| day >= value.as_str())),
+            Self::Before(value) => Ok(note
                 .created
                 .get(0..10)
-                .is_some_and(|day| day < value.as_str()),
-            Self::Kind(value) => normalize(&note.kind) == *value,
-            Self::Status(value) => note
+                .is_some_and(|day| day < value.as_str())),
+            Self::Kind(value) => Ok(normalize(&note.kind) == *value),
+            Self::Status(value) => Ok(note
                 .status
                 .as_deref()
-                .is_some_and(|status| normalize(status) == *value),
-            Self::Collection(value) => contains_normalized(&note.collections, value),
-            Self::Link(value) => note.links.iter().any(|link| normalize(link) == *value),
-            Self::Source(value) => note
+                .is_some_and(|status| normalize(status) == *value)),
+            Self::Collection(value) => Ok(contains_normalized(&note.collections, value)),
+            Self::Link(value) => Ok(note.links.iter().any(|link| normalize(link) == *value)),
+            Self::Source(value) => Ok(note
                 .sources
                 .iter()
-                .any(|reference| normalize(reference).contains(value)),
+                .any(|reference| normalize(reference).contains(value))),
             Self::Body(value) => matches_body(note, value),
-            Self::Not(expr) => !expr.matches(note),
+            Self::Not(expr) => Ok(!expr.matches(note)?),
         }
     }
 }
@@ -244,12 +256,16 @@ fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
             .any(|reference| reference.to_ascii_lowercase().contains(needle))
 }
 
-fn matches_body(note: &NoteMeta, needle: &str) -> bool {
-    let Ok(body) = fs::read_to_string(&note.path) else {
-        return false;
-    };
+fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
+    let body = fs::read_to_string(&note.path).map_err(|err| {
+        NtError::Message(format!(
+            "note body not readable for {} at {}: {err}",
+            note.id,
+            note.path.display()
+        ))
+    })?;
 
-    body.to_ascii_lowercase().contains(needle)
+    Ok(body.to_ascii_lowercase().contains(needle))
 }
 
 fn unknown_field_error(field: &str) -> String {
@@ -337,7 +353,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&note));
+        assert!(query.matches(&note).unwrap());
     }
 
     #[test]
@@ -347,8 +363,8 @@ mod tests {
         from.links = vec![to.id.clone()];
 
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
-        assert!(link.matches(&from));
-        assert!(!link.matches(&to));
+        assert!(link.matches(&from).unwrap());
+        assert!(!link.matches(&to).unwrap());
     }
 
     #[test]
@@ -358,7 +374,7 @@ mod tests {
 
         let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
 
-        assert!(!query.matches(&note));
+        assert!(!query.matches(&note).unwrap());
     }
 
     #[test]
@@ -380,7 +396,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&note));
+        assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -400,7 +416,7 @@ mod tests {
 
         let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
 
-        assert!(query.matches(&note));
+        assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -416,8 +432,8 @@ mod tests {
         .unwrap();
         let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
 
-        assert!(matching.matches(&note));
-        assert!(!too_late.matches(&note));
+        assert!(matching.matches(&note).unwrap());
+        assert!(!too_late.matches(&note).unwrap());
     }
 
     #[test]

@@ -292,7 +292,7 @@ fn find(exprs: &[String]) -> Result<()> {
     let query = Query::parse(exprs)?;
 
     for note in index.active_recent_notes() {
-        if query.matches(note) {
+        if query.matches(note)? {
             println!("{}", summary_line(note));
         }
     }

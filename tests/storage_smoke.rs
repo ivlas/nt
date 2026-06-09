@@ -725,6 +725,27 @@ fn find_supports_documented_query_forms() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn find_reports_missing_note_bodies() {
+    let root = temp_dir("find-missing-body");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add"], "# Missing\n\nbodyonlyterm.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    fs::remove_file(notes.join(format!("{id}.md"))).unwrap();
+
+    assert_failed(
+        &home,
+        &["find", "body:bodyonlyterm"],
+        &format!("note body not readable for {id}"),
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn assert_failed(home: &PathBuf, args: &[&str], expected: &str) {
     let output = Command::new(nt_bin())
         .env("HOME", home)
