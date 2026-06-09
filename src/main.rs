@@ -1,7 +1,9 @@
 mod cli;
 mod commands;
 mod completion;
+mod display;
 mod error;
+mod export;
 mod fs;
 mod help;
 mod index;

@@ -6,7 +6,9 @@ use std::process::Command as ProcessCommand;
 
 use crate::cli::{Cli, Command, ConfigCommand, LinkMode};
 use crate::completion::print_completion;
+use crate::display::{joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
+use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
@@ -597,42 +599,6 @@ fn export_ids(index: &Index, ids: &[String]) -> Result<Vec<String>> {
     Ok(export_ids)
 }
 
-fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
-    let mut text = String::new();
-    text.push_str("---\n");
-    text.push_str(&format!("id: {}\n", json_value(&note.id)?));
-    text.push_str(&format!(
-        "path: {}\n",
-        json_value(&note.path.to_string_lossy())?
-    ));
-    text.push_str(&format!("created: {}\n", json_value(&note.created)?));
-    text.push_str(&format!("updated: {}\n", json_value(&note.updated)?));
-    text.push_str(&format!("title: {}\n", json_value(&note.title)?));
-    text.push_str(&format!("kind: {}\n", json_value(&note.kind)?));
-    text.push_str("status: ");
-    match &note.status {
-        Some(status) => text.push_str(&json_value(status)?),
-        None => text.push_str("null"),
-    }
-    text.push('\n');
-    text.push_str(&format!("tags: {}\n", json_list(&note.tags)?));
-    text.push_str(&format!("collections: {}\n", json_list(&note.collections)?));
-    text.push_str(&format!("links: {}\n", json_list(&note.links)?));
-    text.push_str(&format!("sources: {}\n", json_list(&note.sources)?));
-    text.push_str("---\n\n");
-    text.push_str(body);
-
-    Ok(text)
-}
-
-fn json_value(value: &str) -> Result<String> {
-    Ok(serde_json::to_string(value)?)
-}
-
-fn json_list(values: &[String]) -> Result<String> {
-    Ok(serde_json::to_string(values)?)
-}
-
 fn config(command: ConfigCommand) -> Result<()> {
     match command {
         ConfigCommand::Show => config_show(),
@@ -860,32 +826,6 @@ fn validate_status(status: &str) -> Result<()> {
     }
 }
 
-fn summary_line(note: &NoteMeta) -> String {
-    summary_line_for_display(note, false)
-}
-
-fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
-    let day = note.created.get(0..10).unwrap_or("unknown");
-    let tags = joined_or_dash(&note.tags);
-    let padded_tags = format!("{tags:<12}");
-
-    format!(
-        "{}  {}  {}  {}",
-        paint(&format!("{:<17}", note.id), Style::BrightCyan, color),
-        paint(day, Style::Dim, color),
-        paint(&padded_tags, Style::Green, color),
-        note.title
-    )
-}
-
-fn joined_or_dash(values: &[String]) -> String {
-    if values.is_empty() {
-        "-".to_string()
-    } else {
-        values.join(",")
-    }
-}
-
 #[derive(Debug, Default)]
 struct CreationMetadata {
     kind: Option<String>,
@@ -1018,7 +958,7 @@ mod tests {
 
     use crate::index::{Index, NoteMeta};
 
-    use super::{CreationMetadata, export_markdown, summary_line, summary_line_for_display};
+    use super::CreationMetadata;
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -1028,40 +968,6 @@ mod tests {
             "2026-05-28T14:30:12Z".to_string(),
             "Storage shape".to_string(),
         )
-    }
-
-    #[test]
-    fn summary_line_is_stable() {
-        let mut note = note("NT20260528T143012");
-        note.tags = vec!["design".to_string()];
-
-        assert_eq!(
-            summary_line(&note),
-            "NT20260528T143012  2026-05-28  design        Storage shape"
-        );
-    }
-
-    #[test]
-    fn summary_line_uses_dash_for_empty_tags() {
-        let note = note("NT20260528T143012");
-
-        assert_eq!(
-            summary_line(&note),
-            "NT20260528T143012  2026-05-28  -             Storage shape"
-        );
-    }
-
-    #[test]
-    fn summary_line_colors_human_display_when_enabled() {
-        let mut note = note("NT20260528T143012");
-        note.tags = vec!["design".to_string()];
-
-        let line = summary_line_for_display(&note, true);
-
-        assert!(line.contains("\x1b[96mNT20260528T143012\x1b[0m"));
-        assert!(line.contains("\x1b[2m2026-05-28\x1b[0m"));
-        assert!(line.contains("\x1b[32mdesign"));
-        assert!(line.ends_with("Storage shape"));
     }
 
     #[test]
@@ -1097,49 +1003,4 @@ mod tests {
         assert_eq!(err.to_string(), "unknown add metadata field `topic`");
     }
 
-    #[test]
-    fn export_markdown_adds_front_matter_from_note_metadata() {
-        let mut note = note("NT20260528T143012");
-        note.path = PathBuf::from("/tmp/notes/NT20260528T143012.md");
-        note.title = "Storage: \"shape\"".to_string();
-        note.kind = "decision".to_string();
-        note.status = Some("open".to_string());
-        note.tags = vec!["cli".to_string(), "storage".to_string()];
-        note.collections = vec!["projects/nt".to_string()];
-        note.links = vec!["NT20260527T120000".to_string()];
-        note.sources = vec!["https://example.com/a,b".to_string()];
-
-        let exported = export_markdown(&note, "# Storage\n\nBody.\n").unwrap();
-
-        assert_eq!(
-            exported,
-            "---\n\
-id: \"NT20260528T143012\"\n\
-path: \"/tmp/notes/NT20260528T143012.md\"\n\
-created: \"2026-05-28T14:30:12Z\"\n\
-updated: \"2026-05-28T14:30:12Z\"\n\
-title: \"Storage: \\\"shape\\\"\"\n\
-kind: \"decision\"\n\
-status: \"open\"\n\
-tags: [\"cli\",\"storage\"]\n\
-collections: [\"projects/nt\"]\n\
-links: [\"NT20260527T120000\"]\n\
-sources: [\"https://example.com/a,b\"]\n\
----\n\n\
-# Storage\n\n\
-Body.\n"
-        );
-    }
-
-    #[test]
-    fn export_markdown_uses_null_status_and_empty_lists() {
-        let note = note("NT20260528T143012");
-
-        let exported = export_markdown(&note, "# Storage\n").unwrap();
-
-        assert!(exported.contains("status: null\n"));
-        assert!(exported.contains("tags: []\n"));
-        assert!(exported.contains("collections: []\n"));
-        assert!(exported.ends_with("# Storage\n"));
-    }
 }
