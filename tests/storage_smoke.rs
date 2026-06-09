@@ -169,7 +169,7 @@ fn init_imports_existing_flat_notes() {
     fs::create_dir_all(&notes).unwrap();
     fs::write(
         notes.join(format!("{id}.md")),
-        "# Imported\n\nExisting body.\n",
+        "# Imported\n\nExisting body with [spec](https://example.com/import).\n",
     )
     .unwrap();
 
@@ -182,7 +182,8 @@ fn init_imports_existing_flat_notes() {
     let shown = run_nt(&home, &["show", id]);
     assert!(shown.contains(&format!("{id}  Imported")));
     assert!(shown.contains("created 2026-05-28T14:30:12Z"));
-    assert!(shown.contains("# Imported\n\nExisting body."));
+    assert!(shown.contains("sources https://example.com/import"));
+    assert!(shown.contains("# Imported\n\nExisting body with [spec](https://example.com/import)."));
 
     let index = read_index(&home);
     assert_eq!(index["notes"][id]["title"].as_str(), Some("Imported"));
@@ -269,7 +270,7 @@ fn edit_uses_editor_and_updates_visible_note() {
 
     fs::write(
         &editor,
-        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n# Edited\n\nbody two.\nEOF\n",
+        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n# Edited\n\nbody two with https://example.com/edited.\nEOF\n",
     )
     .unwrap();
     let mut permissions = fs::metadata(&editor).unwrap().permissions();
@@ -285,11 +286,15 @@ fn edit_uses_editor_and_updates_visible_note() {
 
     let shown = run_nt(&home, &["show", &id]);
     assert!(shown.contains(&format!("{id}  Edited")));
-    assert!(shown.contains("# Edited\n\nbody two."));
+    assert!(shown.contains("sources https://example.com/edited"));
+    assert!(shown.contains("# Edited\n\nbody two with https://example.com/edited."));
     assert!(!shown.contains("\x1b["));
 
     let body = fs::read_to_string(notes.join(format!("{id}.md"))).unwrap();
-    assert_eq!(body, "# Edited\n\nbody two.\n");
+    assert_eq!(
+        body,
+        "# Edited\n\nbody two with https://example.com/edited.\n"
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -581,9 +586,10 @@ fn add_accepts_creation_metadata() {
             "kind:decision",
             "status:open",
             "collection:projects/nt",
+            "source:https://manual.example/spec",
             &links,
         ],
-        "# VM decision\n\nPrefer visible metadata at creation time.\n",
+        "# VM decision\n\nPrefer visible metadata at creation time: https://example.com/vm.\n",
     );
     let id = saved.trim().strip_prefix("saved ").unwrap();
 
@@ -593,6 +599,7 @@ fn add_accepts_creation_metadata() {
     assert!(shown.contains("tags firecracker,qemu,research"));
     assert!(shown.contains("collections projects/nt"));
     assert!(shown.contains(&format!("links {first_id},{second_id}")));
+    assert!(shown.contains("sources https://example.com/vm,https://manual.example/spec"));
 
     let tags = run_nt(&home, &["tags"]);
     assert!(tags.contains("firecracker\t1"));
@@ -607,6 +614,7 @@ fn add_accepts_creation_metadata() {
             "kind:decision",
             "status:open",
             "collection:projects/nt",
+            "source:example.com/vm",
         ],
     );
     assert!(found.contains(id));

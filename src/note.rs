@@ -96,6 +96,47 @@ pub fn title_from_body(body: &str) -> String {
     "(untitled)".to_string()
 }
 
+pub fn sources_from_body(body: &str) -> Vec<String> {
+    let mut sources = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < body.len() {
+        let Some(offset) = next_url_offset(&body[cursor..]) else {
+            break;
+        };
+        let start = cursor + offset;
+        let end = body[start..]
+            .char_indices()
+            .find_map(|(index, ch)| url_terminator(ch).then_some(start + index))
+            .unwrap_or(body.len());
+        let source = body[start..end].trim_end_matches(trailing_url_punctuation);
+        if !source.is_empty() && !sources.iter().any(|value| value == source) {
+            sources.push(source.to_string());
+        }
+        cursor = end.max(start + 1);
+    }
+
+    sources.sort();
+    sources
+}
+
+fn next_url_offset(text: &str) -> Option<usize> {
+    match (text.find("http://"), text.find("https://")) {
+        (Some(http), Some(https)) => Some(http.min(https)),
+        (Some(http), None) => Some(http),
+        (None, Some(https)) => Some(https),
+        (None, None) => None,
+    }
+}
+
+fn url_terminator(ch: char) -> bool {
+    ch.is_whitespace() || matches!(ch, ')' | ']' | '>' | '"' | '\'')
+}
+
+fn trailing_url_punctuation(ch: char) -> bool {
+    matches!(ch, '.' | ',' | ':' | ';' | '!' | '?')
+}
+
 fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
     let days = seconds.div_euclid(SECONDS_PER_DAY);
     let second_of_day = seconds.rem_euclid(SECONDS_PER_DAY);
@@ -130,7 +171,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{timestamp_from_system_time, title_from_body, validate_id};
+    use super::{sources_from_body, timestamp_from_system_time, title_from_body, validate_id};
 
     #[test]
     fn validates_note_id_shape() {
@@ -150,5 +191,18 @@ mod tests {
     #[test]
     fn extracts_title_from_markdown_heading() {
         assert_eq!(title_from_body("\n# Hello\nbody"), "Hello");
+    }
+
+    #[test]
+    fn extracts_http_sources_from_markdown_body() {
+        let body = "# Links\n\n[Spec](https://example.com/spec), <http://example.com/a>.\n";
+
+        assert_eq!(
+            sources_from_body(body),
+            vec![
+                "http://example.com/a".to_string(),
+                "https://example.com/spec".to_string()
+            ]
+        );
     }
 }

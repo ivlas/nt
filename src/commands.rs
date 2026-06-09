@@ -101,13 +101,9 @@ fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
             }
         }
 
-        index.upsert_note(NoteMeta::new_note(
-            id,
-            path,
-            created,
-            updated,
-            title_from_body(&body),
-        ));
+        let mut note = NoteMeta::new_note(id, path, created, updated, title_from_body(&body));
+        add_body_sources(&mut note, &body);
+        index.upsert_note(note);
     }
 
     Ok(())
@@ -161,6 +157,7 @@ fn add(metadata: &[String]) -> Result<()> {
         title_from_body(&body),
     );
     metadata.apply(&mut note);
+    add_body_sources(&mut note, &body);
 
     atomic_write(&path, body.as_bytes())?;
 
@@ -276,6 +273,7 @@ fn edit(id: &str) -> Result<()> {
     let mut updated = note;
     updated.updated = timestamp.iso;
     updated.title = title_from_body(&body);
+    add_body_sources(&mut updated, &body);
 
     index.upsert_note(updated);
     if let Err(err) = index.save() {
@@ -815,6 +813,12 @@ fn push_unique_sorted(values: &mut Vec<String>, value: String) {
     if !values.contains(&value) {
         values.push(value);
         values.sort();
+    }
+}
+
+fn add_body_sources(note: &mut NoteMeta, body: &str) {
+    for source in crate::note::sources_from_body(body) {
+        push_unique_sorted(&mut note.sources, source);
     }
 }
 
