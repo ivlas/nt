@@ -183,13 +183,29 @@ fn validate_date_value(field: &str, value: &str) -> Result<()> {
 
     let month: u32 = value[5..7].parse().unwrap_or(0);
     let day: u32 = value[8..10].parse().unwrap_or(0);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    let year: u32 = value[0..4].parse().unwrap_or(0);
+    let max_day = days_in_month(year, month);
+    if max_day == 0 || day == 0 || day > max_day {
         return Err(NtError::Message(format!(
             "invalid `{field}` date `{value}`; use YYYY-MM-DD"
         )));
     }
 
     Ok(())
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: u32) -> bool {
+    year % 4 == 0 && year % 100 != 0 || year % 400 == 0
 }
 
 fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
@@ -437,12 +453,34 @@ mod tests {
     }
 
     #[test]
+    fn date_filters_accept_valid_leap_days() {
+        let mut note = note("NT20240229T120000");
+        note.created = "2024-02-29T12:00:00Z".to_string();
+
+        let query = Query::parse(&["day:2024-02-29".to_string()]).unwrap();
+
+        assert!(query.matches(&note).unwrap());
+    }
+
+    #[test]
     fn rejects_invalid_typed_query_values() {
         assert_eq!(
             Query::parse(&["day:2026-99-01".to_string()])
                 .unwrap_err()
                 .to_string(),
             "invalid `day` date `2026-99-01`; use YYYY-MM-DD"
+        );
+        assert_eq!(
+            Query::parse(&["day:2026-02-31".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid `day` date `2026-02-31`; use YYYY-MM-DD"
+        );
+        assert_eq!(
+            Query::parse(&["day:2025-02-29".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid `day` date `2025-02-29`; use YYYY-MM-DD"
         );
         assert_eq!(
             Query::parse(&["id:bad".to_string()])
