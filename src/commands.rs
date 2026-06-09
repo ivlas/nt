@@ -47,6 +47,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
 fn init(notes_dir: &Path) -> Result<()> {
     let notes_dir = absolute_path(notes_dir)?;
+    ensure_notes_dir_is_flat(&notes_dir)?;
 
     let mut index = Index::load()?;
     let timestamp = crate::note::timestamp_now();
@@ -62,6 +63,39 @@ fn init(notes_dir: &Path) -> Result<()> {
         "initialized {vault} {}",
         relative_to_cwd(&notes_dir).display()
     );
+    Ok(())
+}
+
+fn ensure_notes_dir_is_flat(notes_dir: &Path) -> Result<()> {
+    if !notes_dir.exists() {
+        return Ok(());
+    }
+
+    if !notes_dir.is_dir() {
+        return Err(NtError::Message(format!(
+            "notes path is not a directory: {}",
+            notes_dir.display()
+        )));
+    }
+
+    for entry in fs::read_dir(notes_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        let stem = path.file_stem().and_then(|value| value.to_str());
+        let extension = path.extension().and_then(|value| value.to_str());
+
+        if !file_type.is_file()
+            || extension != Some("md")
+            || !stem.is_some_and(|value| validate_id(value).is_ok())
+        {
+            return Err(NtError::Message(format!(
+                "notes directory must contain only NTYYYYMMDDTHHmmss.md files; invalid entry: {}",
+                path.display()
+            )));
+        }
+    }
+
     Ok(())
 }
 

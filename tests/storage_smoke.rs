@@ -134,6 +134,32 @@ fn init_rejects_duplicate_vault_names() {
 }
 
 #[test]
+fn init_rejects_non_flat_or_non_note_entries() {
+    let root = temp_dir("init-invalid-notes-dir");
+    let home = root.join("home");
+    let stray_notes = root.join("stray-notes");
+    let nested_notes = root.join("nested-notes");
+
+    fs::create_dir_all(&stray_notes).unwrap();
+    fs::write(stray_notes.join("draft.md"), "# Draft\n").unwrap();
+
+    assert_failed(
+        &home,
+        &["init", stray_notes.to_str().unwrap()],
+        "notes directory must contain only NTYYYYMMDDTHHmmss.md files",
+    );
+
+    fs::create_dir_all(nested_notes.join("nested")).unwrap();
+    assert_failed(
+        &home,
+        &["init", nested_notes.to_str().unwrap()],
+        "notes directory must contain only NTYYYYMMDDTHHmmss.md files",
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_does_not_install_agent_workspace_files() {
     let root = temp_dir("init-no-agent-workspace");
     let home = root.join("home");
