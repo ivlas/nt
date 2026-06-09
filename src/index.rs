@@ -154,6 +154,13 @@ impl Index {
             .is_some_and(|path| note.path.starts_with(path))
     }
 
+    pub fn active_recent_notes(&self) -> impl Iterator<Item = &NoteMeta> {
+        self.recent
+            .iter()
+            .filter_map(|id| self.notes.get(id))
+            .filter(|note| self.note_is_in_active_vault(note))
+    }
+
     pub fn upsert_note(&mut self, note: NoteMeta) {
         let id = note.id.clone();
         self.notes.insert(id, note);

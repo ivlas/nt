@@ -131,13 +131,7 @@ fn list() -> Result<()> {
     let index = Index::load()?;
     let color = crate::terminal::stdout_color_enabled();
 
-    for id in &index.recent {
-        let Some(note) = index.notes.get(id) else {
-            continue;
-        };
-        if !index.note_is_in_active_vault(note) {
-            continue;
-        }
+    for note in index.active_recent_notes() {
         println!("{}", summary_line_for_display(note, color));
     }
 
@@ -250,14 +244,7 @@ fn find(exprs: &[String]) -> Result<()> {
     let index = Index::load()?;
     let query = Query::parse(exprs)?;
 
-    for id in &index.recent {
-        let Some(note) = index.notes.get(id) else {
-            continue;
-        };
-        if !index.note_is_in_active_vault(note) {
-            continue;
-        }
-
+    for note in index.active_recent_notes() {
         if query.matches(note) {
             println!("{}", summary_line(note));
         }
@@ -268,12 +255,8 @@ fn find(exprs: &[String]) -> Result<()> {
 
 fn ids() -> Result<()> {
     let index = Index::load()?;
-    for id in &index.recent {
-        if let Some(note) = index.notes.get(id)
-            && index.note_is_in_active_vault(note)
-        {
-            println!("{id}");
-        }
+    for note in index.active_recent_notes() {
+        println!("{}", note.id);
     }
     Ok(())
 }
@@ -281,13 +264,7 @@ fn ids() -> Result<()> {
 fn tags() -> Result<()> {
     let index = Index::load()?;
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
-    for id in &index.recent {
-        let Some(note) = index.notes.get(id) else {
-            continue;
-        };
-        if !index.note_is_in_active_vault(note) {
-            continue;
-        }
+    for note in index.active_recent_notes() {
         for tag in &note.tags {
             *counts.entry(tag.clone()).or_default() += 1;
         }
@@ -324,13 +301,7 @@ fn untag_note(id: &str, tag: &str) -> Result<()> {
 fn collections() -> Result<()> {
     let index = Index::load()?;
     let mut collections = BTreeSet::new();
-    for id in &index.recent {
-        let Some(note) = index.notes.get(id) else {
-            continue;
-        };
-        if !index.note_is_in_active_vault(note) {
-            continue;
-        }
+    for note in index.active_recent_notes() {
         for collection in &note.collections {
             collections.insert(collection.clone());
         }
@@ -423,14 +394,7 @@ fn route_status(args: &[String]) -> Result<()> {
 fn print_status() -> Result<()> {
     let index = Index::load()?;
 
-    for id in &index.recent {
-        let Some(note) = index.notes.get(id) else {
-            continue;
-        };
-        if !index.note_is_in_active_vault(note) {
-            continue;
-        }
-
+    for note in index.active_recent_notes() {
         if note
             .status
             .as_deref()
