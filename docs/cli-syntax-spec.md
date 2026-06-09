@@ -214,6 +214,13 @@ Repeat `source:` for multiple source references:
 nt add source:https://a.example/spec source:https://b.example/spec
 ```
 
+Completion may complete comma-separated metadata values when the expression
+stays one shell word:
+
+```sh
+nt add tag:qemu,fire<TAB>
+```
+
 ## Find
 
 ```text

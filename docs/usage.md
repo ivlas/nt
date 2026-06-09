@@ -156,7 +156,17 @@ nt help config vault
 ```
 
 Completion uses `clap_complete` and dynamic note id completion backed by
-visible `nt ids` output.
+visible `nt ids` output. It also completes query and metadata expressions such
+as `tag:`, `status:`, `collection:`, and comma-separated values:
+
+```sh
+nt find sta<TAB>
+nt find tag:<TAB>
+nt add tag:qemu,fire<TAB>
+```
+
+Keep comma-separated metadata in one shell word, without a space after the
+comma.
 
 ## Agent Use
 
