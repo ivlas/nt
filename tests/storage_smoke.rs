@@ -516,7 +516,13 @@ fn collection_and_status_commands_validate_and_update_index_only() {
     let status = run_nt(&home, &["status"]);
     assert_eq!(summary_ids(&status), vec![second_id, first_id]);
 
+    let cleared = run_nt(&home, &["status", first_id, "-"]);
+    assert_eq!(cleared.trim(), format!("status {first_id} -"));
+    let status = run_nt(&home, &["status"]);
+    assert_eq!(summary_ids(&status), vec![second_id]);
+
     let index = read_index(&home);
+    assert_eq!(index["notes"][first_id]["status"], serde_json::Value::Null);
     assert_eq!(
         index["notes"][first_id]["collections"]
             .as_array()
@@ -532,13 +538,7 @@ fn collection_and_status_commands_validate_and_update_index_only() {
         index["kinds"]["todo"].as_array().unwrap(),
         &vec![serde_json::Value::String(first_id.to_string())]
     );
-    assert!(
-        index["statuses"]["open"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value.as_str() == Some(first_id))
-    );
+    assert!(index["statuses"].get("open").is_none());
 
     let uncollected = run_nt(&home, &["uncollect", first_id, "projects/nt"]);
     assert_eq!(

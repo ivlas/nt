@@ -453,6 +453,16 @@ fn print_status() -> Result<()> {
 }
 
 fn set_status(id: &str, status: &str) -> Result<()> {
+    if status == "-" {
+        mutate_note(id, |note| {
+            note.status = None;
+            Ok(())
+        })?;
+
+        println!("status {id} -");
+        return Ok(());
+    }
+
     validate_status(status)?;
     mutate_note(id, |note| {
         note.status = Some(status.to_string());

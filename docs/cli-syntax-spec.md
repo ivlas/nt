@@ -323,6 +323,8 @@ done
 dropped
 ```
 
+Use `nt status <id> -` to clear the optional status field.
+
 Completion shells:
 
 ```text

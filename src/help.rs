@@ -237,12 +237,13 @@ Examples:
 const STATUS: &str = r#"nt status
 nt status <id> <status>
 
-List open and waiting notes, or set one note status.
+List open and waiting notes, set one note status, or clear status with -.
 
 Examples:
   nt status
   nt status NT20260528T143012 open
   nt status NT20260528T143012 done
+  nt status NT20260528T143012 -
 "#;
 
 const LINK: &str = r#"nt link <from-id> <to-id>
