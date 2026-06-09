@@ -33,7 +33,6 @@ nt find <expr...>
 nt show <id>
 nt edit <id>
 nt tags
-nt agent <prompt...>
 ```
 
 Core workflows should remain flagless and composable. The canonical CLI command
@@ -52,8 +51,8 @@ Commands should keep a small, regular grammar:
 - Keep mutations to one short lowercase status line.
 
 Avoid broader commands such as `search`, `grep`, `graph`, `open`, `browse`,
-workflow orchestration, or runtime management until real usage proves they are
-necessary.
+`agent`, `discuss`, workflow orchestration, or runtime management until real
+usage proves they are necessary.
 
 Metadata mutations should go through explicit commands, such as `nt collect`,
 `nt tag`, `nt kind`, `nt status`, and `nt link`, instead of direct edits to
@@ -237,28 +236,27 @@ Tag rules:
 - Avoid plural/singular duplicates when possible.
 - Avoid overly broad tags such as `misc`, `notes`, and `important`.
 
-## Agent Model
+## Agent Use
 
-Agents should retrieve and cite notes through visible commands. `nt agent
-<prompt...>` is a thin Codex launcher that shells out to `codex exec` from the
-`$HOME/.nt` agent workspace; it must not implement natural-language retrieval
-itself.
+Agents should retrieve and cite notes through the same visible commands humans
+use. `nt` itself must not launch Codex or any other agent, install skills,
+generate `AGENTS.md`, implement natural-language retrieval, or maintain an
+agent-specific workspace.
 
-`nt discuss <id>` is the interactive counterpart. It should open Codex with
-`nt show <id>` output and visible metadata as context so the user can continue a
-discussion from a specific note.
+Useful agent instructions can live outside `nt` as documentation, copied skill
+files, shell snippets, or the host agent's native configuration. The examples in
+`docs/examples/agent-skills.md` are documentation only.
 
-Default `AGENTS.md` and nt skills should be created automatically during
-`nt init`; there should not be a separate skill install/list/show command group.
-`nt config show` should print the active config, active vault, agent workspace,
-`AGENTS.md`, and available skill names/paths.
+Agent-friendly flow:
 
-Default skills:
-
-- `nt-note`: capture useful research, context, decisions, and observations.
-- `nt-recall`: retrieve with visible nt commands and cite note ids.
-- `nt-maintain`: inspect and repair metadata with visible nt commands.
-- `nt-skill-builder`: help the user create or refine custom nt skills.
+```sh
+nt help
+nt list
+nt tags
+nt collections
+nt find <expr...>
+nt show <id>
+```
 
 Agent-driven writes require approval before mutation:
 
@@ -269,16 +267,6 @@ Agent-driven writes require approval before mutation:
   `nt tag`, `nt kind`, or `nt status` before running them.
 
 Rejection must leave notes and metadata unchanged.
-
-Agent output is controlled by `$HOME/.nt/config.toml`:
-
-```text
-hidden
-format
-full
-```
-
-The config file is human-editable TOML. The metadata index remains JSON.
 
 ## Output Model
 

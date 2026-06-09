@@ -1,11 +1,10 @@
 # nt Usage Guide
 
-`nt` is a small note organizer and CLI research workspace for humans and
-agents. Notes are plain Markdown files, while metadata lives in
-`$HOME/.nt/index.json`.
+`nt` is a small note organizer for humans and agents. Notes are plain Markdown
+files, while metadata lives in `$HOME/.nt/index.json`.
 
-See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact CLI command and
-query syntax contract.
+See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact command and query
+syntax contract.
 
 ## Setup
 
@@ -15,12 +14,12 @@ Create a vault from a notes directory:
 nt init notes
 ```
 
-This creates the notes directory and configures it as the active vault. The
-vault name is the directory basename and must be unique.
+The vault name is the directory basename and must be unique. The notes directory
+is flat and contains only `<id>.md` note files.
 
 ## Add Notes
 
-Add a multiline Markdown note from stdin:
+Add a Markdown note from stdin:
 
 ```sh
 cat <<'EOF' | nt add
@@ -30,7 +29,7 @@ Keep note metadata outside Markdown.
 EOF
 ```
 
-Attach visible metadata while creating the note:
+Attach metadata while creating the note:
 
 ```sh
 cat <<'EOF' | nt add tag:storage kind:decision status:open collection:projects/nt
@@ -48,7 +47,7 @@ nt add tag:qemu,firecracker,research kind:decision
 nt add tag:qemu tag:firecracker tag:research kind:decision
 ```
 
-Link the new note to one or more existing notes during creation:
+Link the new note to existing notes during creation:
 
 ```sh
 cat <<'EOF' | nt add link:NT20260605T101500,NT20260605T103000 tag:followup
@@ -58,94 +57,24 @@ Connect this note to two earlier notes.
 EOF
 ```
 
-If stdin is a terminal, `nt add` opens `$EDITOR`:
-
-```sh
-nt add
-```
-
-Successful writes print the note id:
-
-```text
-saved NT20260528T143012
-```
-
-The note is stored as:
-
-```text
-notes/NT20260528T143012.md
-```
+If stdin is a terminal, `nt add` opens `$EDITOR`.
 
 ## Find And Read
 
-List recent notes:
-
 ```sh
 nt list
-```
-
-Search metadata and note bodies:
-
-```sh
+nt ids
+nt tags
+nt collections
 nt find storage
-nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
-```
-
-Show one exact note:
-
-```sh
+nt find since:2026-05-01 before:2026-06-01 tag:decision
 nt show NT20260528T143012
 ```
 
-Print ids for completion, scripts, or agents:
-
-```sh
-nt ids
-```
-
-Print known tags:
-
-```sh
-nt tags
-```
-
-## Export
-
-Export all notes in the active vault as Markdown files with generated front
-matter:
-
-```sh
-nt export archive
-```
-
-Export one or more exact notes:
-
-```sh
-nt export archive NT20260528T143012
-nt export archive NT20260528T143012 NT20260527T120000
-```
-
-Export a query result by piping ids from the normal summary output:
-
-```sh
-nt find since:2026-05-01 before:2026-06-01 collection:projects/nt \
-  | awk '{print $1}' \
-  | while read -r id; do nt export archive "$id"; done
-```
-
-Exported files are copies named `<id>.md`. The active note files stay plain
-Markdown, and `$HOME/.nt/index.json` remains the source of truth for metadata.
+Use `nt show <id>` for exact retrieval. It prints identity and metadata before
+the CommonMark body.
 
 ## Organize Metadata
-
-List and inspect collections:
-
-```sh
-nt collections
-nt collection projects/nt
-```
-
-Update visible JSON metadata with explicit commands:
 
 ```sh
 nt collect NT20260528T143012 projects/nt
@@ -158,156 +87,103 @@ nt link NT20260528T143012 NT20260527T120000
 nt unlink NT20260528T143012 NT20260527T120000
 ```
 
-Print note links for scripts and agents:
+List open and waiting notes:
 
 ```sh
+nt status
+```
+
+Inspect collections and links:
+
+```sh
+nt collection projects/nt
 nt links NT20260528T143012 out
 nt links NT20260528T143012 in
 nt links NT20260528T143012 self
 nt links NT20260528T143012 all
 ```
 
-`out` prints notes the id links to. `in` prints notes that link to the id.
-`self` prints direct neighbors with direction prefixes. `all` walks the
-connected note graph and prints distance, direction, and id.
-
-Show actionable open and waiting notes:
-
-```sh
-nt status
-```
-
-## Agent Research Flow
-
-Agents use the same visible commands as humans. Start with stable, cheap
-retrieval:
-
-```sh
-nt find qemu
-nt show NT20260528T143012
-```
-
-Then answer from the retrieved Markdown and cite the supporting note ids. For
-agent-assisted work, launch Codex through `nt agent`:
-
-```sh
-nt agent "what did I previously decide about Firecracker vs QEMU?"
-nt agent "research this topic and save a compact note"
-```
-
-`nt agent` shells out to `codex exec` and gives Codex visible nt skills from the
-active workspace. `nt` itself does not implement hidden natural-language
-retrieval, embeddings, RAG, or external memory. If an answer depends on notes,
-the agent should retrieve them with commands such as `nt find`, `nt list`,
-`nt tags`, and `nt show`.
-
 ## Edit And Remove
-
-Edit a note with `$EDITOR`:
 
 ```sh
 nt edit NT20260528T143012
-```
-
-Remove a note:
-
-```sh
 nt rm NT20260528T143012
 ```
 
-## Shell Completion
+`nt edit` opens `$EDITOR`, saves the Markdown body atomically, and refreshes
+the visible title metadata.
 
-Generate completion scripts with `clap_complete`:
+## Export
 
-```sh
-nt completion zsh
-nt completion bash
-```
-
-Note id completion should be backed by:
+Export active notes as Markdown copies with generated front matter:
 
 ```sh
-nt ids
+nt export archive
+nt export archive NT20260528T143012
+nt export archive NT20260528T143012 NT20260527T120000
 ```
 
-Show command help:
+Export query results with normal shell composition:
 
 ```sh
-nt help
-nt help find
-nt help config vault
-nt help config agent-output
+nt find since:2026-05-01 before:2026-06-01 collection:projects/nt \
+  | awk '{print $1}' \
+  | while read -r id; do nt export archive "$id"; done
 ```
 
-## Codex Agent
+The active note files stay plain Markdown. `$HOME/.nt/index.json` remains the
+metadata source of truth.
 
-Default `AGENTS.md` and nt skills are created by `nt init` in `$HOME/.nt`.
-Show the active config, active vault, agent workspace, `AGENTS.md`, and
-available skills:
+## Vaults
 
 ```sh
 nt config show
-```
-
-List known vaults or switch the active vault:
-
-```sh
 nt config vault
 nt config vault notes
 ```
 
-Use `nt agent <prompt...>` to launch Codex from that agent workspace with those
-skills:
+`nt config show` prints the active vault. `nt config vault` lists known vaults,
+and `nt config vault <vault-name>` switches the active vault.
+
+## Completion And Help
 
 ```sh
-nt agent note this decision about metadata outside markdown
-nt agent what did I note about storage?
+nt completion zsh
+nt completion bash
+nt help
+nt help find
+nt help config vault
 ```
 
-`nt agent` is a launcher, not an agent framework or retrieval layer.
+Completion uses `clap_complete` and dynamic note id completion backed by
+visible `nt ids` output.
 
-Configure Codex output:
+## Agent Use
+
+Agents should use the same visible commands as humans:
 
 ```sh
-nt config agent-output hidden
-nt config agent-output format
-nt config agent-output full
+nt help
+nt list
+nt tags
+nt collections
+nt find meeting
+nt show NT20260528T143012
 ```
 
-This writes `$HOME/.nt/config.toml`:
+When answering from notes, cite supporting note ids. When writing notes, draft
+CommonMark and save through `nt add`; update metadata with explicit commands.
 
-```toml
-[agent]
-output = "format"
-```
-
-Modes:
-
-- `hidden`: show status only.
-- `format`: show the extracted Codex answer.
-- `full`: show the full Codex output.
-
-Show current config:
-
-```sh
-nt config show
-```
+There is no `nt agent`, `nt discuss`, built-in skill installer, hidden
+retrieval, embedding store, daemon, or agent-specific behavior. Optional skill
+examples are documentation only:
+[examples/agent-skills.md](examples/agent-skills.md).
 
 ## Unix Composition
-
-Use normal shell tools around stable one-record-per-line output:
 
 ```sh
 nt ids | head
 nt find meeting | awk '{print $1}'
 nt tags | sort
+nt collections | sort
 ```
-
-Agents should prefer the same visible flow:
-
-```sh
-nt find meeting
-nt show NT20260528T143012
-```
-
-No embeddings, daemon, database, vector store, or hidden retrieval is required.

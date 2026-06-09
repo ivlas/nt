@@ -1,46 +1,38 @@
 # nt
 
-`nt` is a small note organizer and CLI research workspace for humans and
-agents.
+`nt` is a small CLI note organizer: plain Markdown notes, visible JSON metadata,
+deterministic search, and shell-friendly commands.
 
-Its primary design target is agent use: plain-text knowledge, visible commands,
-deterministic retrieval, editable Markdown, and no hidden memory layer. Humans
-use the same Unix-like interface: read stdin, write stdout, use `$EDITOR`, store
-plain files, and compose with shell tools.
+It is intentionally useful to both humans and coding agents because it behaves
+like a normal Unix tool. It reads stdin, writes stdout, opens `$EDITOR`, exposes
+stable one-record-per-line commands, and does not keep a hidden memory layer.
 
-In spirit, `nt` is org-mode for agents, but smaller and CLI-native. It is a
-knowledge substrate, note organizer, and "from CLI" research assistant layer. It
-is not an agent framework, RAG system, vector database, daemon, server, browser
-runtime, microVM orchestrator, or Hermes replacement.
+`nt` is not an agent framework, RAG system, vector database, daemon, server,
+browser/runtime orchestrator, workflow engine, or launcher for a specific agent.
+Agents can still use it directly through zsh/bash by reading `nt help`, running
+`nt find`, and inspecting exact notes with `nt show`.
 
-Notes are atomic Markdown files. Metadata is a visible JSON index under
-`$HOME/.nt`. There is no database, daemon, embeddings, vector store, hidden
-retrieval, or RAG.
-
-See [docs/usage.md](docs/usage.md) for a compact usage guide,
-[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the CLI command and query syntax, and
-[docs/design.md](docs/design.md) for the project boundaries.
+See [docs/usage.md](docs/usage.md) for a compact guide,
+[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
+contract, [docs/design.md](docs/design.md) for boundaries, and
+[docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
+agent skill examples.
 
 ## Goals
 
 - Capture notes quickly.
-- Make agent recall explicit, inspectable, and reproducible.
-- Retrieve a note by id in one direct path lookup.
-- Keep notes readable and editable without `nt`.
-- Keep metadata simple, visible, and derivable from note files where possible.
-- Make agent use predictable with plain, grep-friendly output.
+- Organize notes with explicit metadata.
+- Retrieve by id, metadata, body text, date, collection, and links.
+- Keep note files readable and editable without `nt`.
+- Keep metadata visible in `$HOME/.nt/index.json`.
 - Stay flagless for core workflows.
-- Provide shell completion for commands and note ids.
+- Compose cleanly with shell tools and completion.
 
-## Design Loop
-
-The core loop is:
+## Core Loop
 
 ```text
 capture -> organize -> retrieve -> inspect -> revise
 ```
-
-`nt` keeps that loop visible:
 
 ```sh
 nt add [metadata...]
@@ -49,14 +41,10 @@ nt find <expr...>
 nt show <id>
 nt edit <id>
 nt tags
-nt agent <prompt...>
+nt collections
 ```
 
-Agents should use the same commands humans use. For example, an agent can find
-candidate notes with `nt find qemu`, inspect exact Markdown with
-`nt show NT20260528T143012`, and revise a note with `nt edit <id>`.
-
-## Core Commands
+## Commands
 
 ```sh
 nt init <notes-dir>
@@ -65,8 +53,6 @@ nt list
 nt find <expr...>
 nt show <id>
 nt edit <id>
-nt discuss <id>
-nt discuss <id> <prompt...>
 nt rm <id>
 nt ids
 nt tags
@@ -83,84 +69,32 @@ nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
 nt export <path> [id...]
-nt agent <prompt...>
 nt config show
 nt config vault
 nt config vault <vault-name>
-nt config agent-output <hidden|format|full>
 nt completion <shell>
 nt help
 nt help <command>
 ```
 
-Core commands use positional arguments, stdin, stdout, and `$EDITOR` instead of
-flags. See [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the full
-recommended command surface.
-
-`nt init <notes-dir>` creates a vault and makes it active. The vault name is the
-directory basename and must be unique.
-
-Examples:
+## Quick Start
 
 ```sh
 nt init notes
-cat <<'EOF' | nt add tag:storage kind:decision status:open
+
+cat <<'EOF' | nt add tag:storage kind:decision status:open collection:projects/nt
 # Storage shape
 
-Remember the storage shape.
+Keep note metadata outside Markdown.
 EOF
-cat <<'EOF' | nt add link:NT20260605T101500,NT20260605T103000 tag:followup
-# Follow-up
 
-Connect this note to two earlier notes.
-EOF
 nt list
-nt ids
+nt find tag:storage
 nt show NT20260528T143012
-nt find storage
 nt edit NT20260528T143012
-nt export archive NT20260528T143012
-nt completion zsh
-nt agent note this decision about metadata outside markdown
-nt help find
 ```
 
-## Find Syntax
-
-`nt find` takes positional query expressions:
-
-```sh
-nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
-```
-
-Every expression is combined with `AND`, order does not matter, and search is
-case-insensitive. Bare words match searchable metadata or note bodies.
-
-Common expressions:
-
-```text
-qemu                  metadata or body contains qemu
-#vm                   exact tag vm
-tag:decision          exact tag
-kind:meeting          exact kind
-status:open           exact status
-collection:projects/nt
-since:2026-05-01      created on or after day
-before:2026-06-01     created before day
-link:NT20260605T101500
-source:firecracker
-body:'microvm jailer'
-not:tag:draft
-```
-
-Unknown fields are errors, so typos such as `collectiom:projects/nt` should not
-silently become bare text searches. See
-[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the full CLI syntax
-contract.
-
-## Note Files
-
-The notes directory contains only note files:
+Note files are flat CommonMark files:
 
 ```text
 notes/
@@ -168,189 +102,65 @@ notes/
   NT20260528T150501.md
 ```
 
-The filename stem is the note id:
-
-```text
-NTYYYYMMDDTHHmmss
-```
-
-A note file contains only Markdown content, with no front matter:
-
-```markdown
-# Storage shape
-
-Keep the note format simple.
-```
-
-Writes should be atomic: create a temporary file in the same directory, write
-the complete note, sync it, then rename it to `NTYYYYMMDDTHHmmss.md`.
-
-## Metadata
-
-Metadata lives in `$HOME/.nt/index.json`, not in Markdown front matter. The
-index stores small metadata and derived lookup maps for ids, dates, tags,
-kinds, statuses, collections, links, references, and terms. It does not store
-note bodies.
-
-The index should be written atomically the same way as notes. Derived metadata
-such as tags, collections, kinds, statuses, and backlinks is rebuilt from primary
-note metadata on every index load and on every mutation. Body-term indexes from
-headings, Markdown links, and the first paragraph are refreshed after `nt edit`.
-Explicit metadata (kind, status, tags, collections, links, sources) should be
-updated through dedicated commands such as `nt collect`, `nt tag`, `nt kind`,
-`nt status`, and `nt link`.
-
-`nt export <path> [id...]` writes Markdown copies with generated front matter for
-interoperability and archiving. The JSON index remains the source of truth, and
-the active note files are not modified.
-
-## Retrieval And Scale
-
-The index is allowed to duplicate cheap metadata so common operations stay fast:
-
-- `nt show <id>` reads `notes[id].path` and opens one file.
-- `nt ids` reads keys or the `recent` list from the index.
-- `nt list` reads metadata only, not note bodies.
-- `nt tags` reads the tag map.
-- `nt find <expr...>` checks metadata first, then streams note bodies when
-  needed.
-
-For 10k to 100k notes, avoid loading note bodies into the index. Keep the index
-small enough to rewrite atomically, and keep full-text search as a streaming file
-operation unless a plain, rebuildable on-disk index becomes necessary.
-
-For large note sets, commands should avoid pretty output internally and expose
-agent-friendly streams:
+Metadata lives in `$HOME/.nt/index.json`, not Markdown front matter. Export can
+generate interoperable front-matter copies without changing active notes:
 
 ```sh
-nt ids
+nt export archive NT20260528T143012
+```
+
+## Search
+
+`nt find` takes positional query expressions. All expressions are combined with
+`AND`; order does not matter; search is case-insensitive.
+
+```sh
+nt find qemu firecracker
+nt find tag:decision collection:projects/nt
+nt find since:2026-05-01 before:2026-06-01 not:tag:draft
+nt find body:'microvm jailer'
+```
+
+Common expressions:
+
+```text
+qemu                  metadata or body contains qemu
+#vm                   shorthand for tag:vm
+tag:decision          exact tag
+title:storage         title contains storage
+kind:meeting          exact kind
+status:open           exact status
+collection:projects/nt
+day:2026-05-28
+since:2026-05-01
+before:2026-06-01
+link:NT20260605T101500
+source:firecracker
+body:'microvm jailer'
+not:tag:draft
+```
+
+Unknown fields are errors so typos do not silently become broad text searches.
+
+## Agent Use
+
+`nt` has no built-in agent command. That is deliberate. Any agent that can run
+shell commands can use the same visible workflow:
+
+```sh
+nt help
 nt list
-nt find rust
 nt tags
+nt collections
+nt find collection:projects/nt status:open
+nt show NT20260528T143012
 ```
 
-These commands should print stable, grep-friendly lines so agents can compose
-them with normal Unix tools.
-
-## Terminal Style
-
-`nt` should feel fast, quiet, and sharp.
-
-Use compact one-line output for successful commands:
-
-```text
-saved NT20260528T143012
-removed NT20260528T143012
-```
-
-Use aligned list output for humans:
-
-```text
-NT20260528T143012  2026-05-28  design       Storage shape
-NT20260528T150501  2026-05-28  rust,cli     Completion behavior
-```
-
-Use direct note output for `show`:
-
-```text
-NT20260528T143012  Storage shape
-path notes/NT20260528T143012.md
-created 2026-05-28T14:30:12Z
-updated 2026-05-28T14:30:12Z
-kind note
-status -
-tags design
-collections -
-links -
-sources -
-
-# Storage shape
-
-Keep the note format simple.
-```
-
-For command output:
-
-- Prefer lowercase verbs: `saved`, `removed`, `indexed`, `missing`.
-- Keep ids visually dominant.
-- Keep dates short in lists.
-- Keep paths relative when possible.
-- Avoid decorative boxes, banners, spinners, and progress bars.
-- Use ANSI color only when stdout is a TTY.
-- Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-
-Suggested TTY color style:
-
-- ids: bright cyan
-- titles: default foreground
-- dates and paths: dim
-- tags: green
-- errors: red
-
-Machine-facing output should stay plain and stable:
-
-```sh
-nt ids
-nt find rust
-nt tags
-```
-
-These commands should avoid ANSI styling and print one record per line.
-
-## Completion
-
-Use `clap_complete` for shell command completion:
-
-```sh
-nt completion zsh
-nt completion bash
-```
-
-Note id completion should be dynamic and backed by the JSON index. The generated
-completion script can call `nt ids` to complete note ids without a daemon.
-
-## Codex Agent
-
-`nt agent <prompt...>` is a thin Codex launcher. It runs Codex from the
-`$HOME/.nt` agent workspace, loads visible nt skills, builds a prompt, and runs
-`codex exec`. `nt` does not
-implement natural-language retrieval itself; the agent is expected to call
-explicit commands such as `nt find`, `nt list`, and `nt show`.
-
-Default `AGENTS.md` and skill files are created by `nt init` and are editable
-Markdown files. Use `nt config show` to see the active vault, agent workspace,
-`AGENTS.md`, and available skills. Use `nt config vault` to list known vaults
-and `nt config vault <vault-name>` to switch the active vault.
-
-The default skills are:
-
-- `nt-note`: capture compact research, context, and decisions with `nt add`.
-- `nt-recall`: retrieve with visible `nt list`, `nt find`, and `nt show`
-  commands, then cite note ids.
-- `nt-maintain`: inspect and repair the workspace/index with `nt ids`
-  and `nt tags`.
-- `nt-skill-builder`: help create or refine custom nt skills for the workspace.
-
-Agent output is configured in `$HOME/.nt/config.toml`:
-
-```sh
-nt config agent-output hidden
-nt config agent-output format
-nt config agent-output full
-nt config show
-nt config vault
-```
-
-The config file is TOML:
-
-```toml
-[agent]
-output = "format"
-```
-
-`format` is the default. It hides Codex session metadata and prints the
-extracted assistant answer. `full` streams the complete Codex output. `hidden`
-prints only status lines.
+When an agent writes notes, it should draft CommonMark, ask before mutation when
+appropriate, then save through `nt add` or edit through `nt edit`. Optional
+skill examples live in [docs/examples/agent-skills.md](docs/examples/agent-skills.md)
+so users can adapt them to Codex, Claude Code, Cursor, or any other agent
+system without `nt` owning that runtime.
 
 ## Development
 

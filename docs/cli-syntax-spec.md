@@ -28,8 +28,6 @@ nt list
 nt find <expr...>
 nt show <id>
 nt edit <id>
-nt discuss <id>
-nt discuss <id> <prompt...>
 nt rm <id>
 nt ids
 nt tags
@@ -46,18 +44,18 @@ nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
 nt links <id> <out|in|self|all>
 nt export <path> [id...]
-nt agent <prompt...>
 nt config show
 nt config vault
 nt config vault <vault-name>
-nt config agent-output <hidden|format|full>
 nt completion <shell>
 nt help
 nt help <command>
 ```
 
-Avoid adding broader commands such as `search`, `grep`, `graph`, `open`, or
-`browse` until real usage proves they are necessary.
+Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
+`browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
+itself. Agent integrations should live outside `nt` as docs, skills, shell
+wrappers, or agent-specific configuration.
 
 ## Links
 

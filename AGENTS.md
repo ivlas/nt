@@ -2,16 +2,17 @@
 
 ## Project
 
-`nt` is a small CLI-native note organizer and research workspace for humans and
-agents. The primary design target is coding agents: visible commands,
-deterministic retrieval, editable CommonMark notes, and no hidden memory layer.
+`nt` is a small CLI-native note organizer for humans and agents. It is built
+around visible commands, deterministic retrieval, editable CommonMark notes, and
+no hidden memory layer.
 
-Humans use the same Unix-like interface. Commands should read stdin, write
-stdout, use `$EDITOR`, and compose with grep, awk, pipes, and shell completion.
+Humans and agents use the same Unix-like interface. Commands should read stdin,
+write stdout, use `$EDITOR`, and compose with grep, awk, pipes, and shell
+completion.
 
 `nt` is not an agent framework, RAG system, vector database, daemon, server,
-browser/runtime orchestrator, microVM orchestrator, workflow engine, or Hermes
-replacement.
+browser/runtime orchestrator, microVM orchestrator, workflow engine, Codex
+launcher, or Hermes replacement.
 
 ## Rules
 
@@ -29,15 +30,16 @@ replacement.
 - Do not add a database, daemon, embeddings, vector store, RAG, or hidden
   retrieval layer.
 - Do not add hidden agent-only behavior.
+- Do not add built-in agent launchers such as `nt agent` or `nt discuss`.
+- Do not create `AGENTS.md`, skill files, or agent workspaces during `nt init`.
 - Provide command and note id completion.
 - Use `clap` and `clap_complete` for CLI behavior.
 - Use `serde` and `serde_json` for JSON.
-- Use `toml` for `$HOME/.nt/config.toml`.
 - Use `thiserror` for application errors.
 
 ## Commands
 
-Recommended command surface:
+Current command surface:
 
 - `nt init <notes-dir>`
 - `nt add [metadata...]`
@@ -45,8 +47,6 @@ Recommended command surface:
 - `nt find <expr...>`
 - `nt show <id>`
 - `nt edit <id>`
-- `nt discuss <id>`
-- `nt discuss <id> <prompt...>`
 - `nt rm <id>`
 - `nt ids`
 - `nt tags`
@@ -62,16 +62,17 @@ Recommended command surface:
 - `nt link <from-id> <to-id>`
 - `nt unlink <from-id> <to-id>`
 - `nt links <id> <out|in|self|all>`
-- `nt agent <prompt...>`
+- `nt export <path> [id...]`
 - `nt config show`
-- `nt config agent-output <hidden|format|full>`
+- `nt config vault`
+- `nt config vault <vault-name>`
 - `nt completion <shell>`
 - `nt help`
 - `nt help <command>`
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
-`browse`, workflow orchestration, or runtime management until real usage proves
-they are necessary.
+`browse`, `agent`, `discuss`, workflow orchestration, or runtime management
+until real usage proves they are necessary.
 
 ## Query Syntax
 
@@ -122,8 +123,6 @@ Initial query fields:
 - `body:<term>`
 - `not:<expr>`
 
-Use `docs/cli-syntax-spec.md` as the source of truth if this summary drifts.
-
 ## Storage
 
 - Store note bodies under the configured notes directory.
@@ -161,10 +160,6 @@ Derived maps may include:
 
 Derived maps must be rebuildable from primary metadata and, where useful, from
 CommonMark note bodies.
-
-Metadata fields that cannot be derived from CommonMark must be updated through
-explicit commands such as `nt collect`, `nt tag`, `nt kind`, `nt status`, and
-`nt link`.
 
 ## Metadata Model
 
@@ -204,17 +199,6 @@ Agents should retrieve notes through cheap, visible operations:
 
 When answering from notes, cite supporting note ids.
 
-No command should require hidden retrieval, embeddings, external services, or
-private agent memory.
-
-`nt agent <prompt...>` is a thin Codex launcher. It must rely on nt skills from
-the active workspace and shell out to `codex exec`; it must not implement natural
-language retrieval itself.
-
-`nt discuss <id>` is the interactive counterpart. It should open Codex with
-`nt show <id>` output and visible metadata as context so the user can continue a
-discussion from a specific note.
-
 Agent-driven writes require approval before mutation:
 
 - New notes: produce a CommonMark draft and ask before saving with `nt add`.
@@ -225,29 +209,9 @@ Agent-driven writes require approval before mutation:
 
 Rejection must leave notes and metadata unchanged.
 
-Default nt skills should be created automatically by `nt init`; there should be
-no separate skill install/list/show command group. `nt config show` should show
-the active notes directory, agent workspace, and available skill names/paths.
-
-Default self-referential nt skills:
-
-- `nt-note`
-- `nt-recall`
-- `nt-maintain`
-- `nt-skill-builder`
-
-These skills describe how an agent should navigate `nt` commands. They are
-editable Markdown files and should stay agent-agnostic where possible.
-
-`nt-skill-builder` helps the user create or refine custom nt skills for the
-current workspace. Custom skills are plain editable Markdown files in the active
-nt skills directory.
-
-Agent output is controlled by `$HOME/.nt/config.toml`:
-
-- `hidden`: print status only.
-- `format`: print the extracted Codex answer.
-- `full`: print the full Codex output.
+Agent skill examples belong in docs, not runtime initialization. See
+`docs/examples/agent-skills.md` for copyable examples that users can adapt to
+their agent system.
 
 ## Terminal UX
 
