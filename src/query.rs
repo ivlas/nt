@@ -2,6 +2,7 @@ use std::fs;
 
 use crate::error::{NtError, Result};
 use crate::index::NoteMeta;
+use crate::note::validate_id;
 
 #[derive(Debug)]
 pub struct Query {
@@ -86,16 +87,31 @@ impl QueryExpr {
 
         let value = normalize(value);
         match field {
-            "id" => Ok(Self::Id(value)),
+            "id" => {
+                validate_id_prefix(&value)?;
+                Ok(Self::Id(value))
+            }
             "tag" => Ok(Self::Tag(value)),
             "title" => Ok(Self::Title(value)),
-            "day" => Ok(Self::Day(value)),
-            "since" => Ok(Self::Since(value)),
-            "before" => Ok(Self::Before(value)),
+            "day" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Day(value))
+            }
+            "since" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Since(value))
+            }
+            "before" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Before(value))
+            }
             "kind" => Ok(Self::Kind(value)),
             "status" => Ok(Self::Status(value)),
             "collection" => Ok(Self::Collection(value)),
-            "link" => Ok(Self::Link(value)),
+            "link" => {
+                validate_note_id_value(field, &value)?;
+                Ok(Self::Link(value))
+            }
             "source" => Ok(Self::Source(value)),
             "body" => Ok(Self::Body(value)),
             _ => Err(NtError::Message(unknown_field_error(field))),
@@ -136,6 +152,66 @@ impl QueryExpr {
 
 fn normalize(value: &str) -> String {
     value.to_ascii_lowercase()
+}
+
+fn validate_date_value(field: &str, value: &str) -> Result<()> {
+    let valid_shape = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .chars()
+            .enumerate()
+            .all(|(index, ch)| matches!(index, 4 | 7) || ch.is_ascii_digit());
+
+    if !valid_shape {
+        return Err(NtError::Message(format!(
+            "invalid `{field}` date `{value}`; use YYYY-MM-DD"
+        )));
+    }
+
+    let month: u32 = value[5..7].parse().unwrap_or(0);
+    let day: u32 = value[8..10].parse().unwrap_or(0);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Err(NtError::Message(format!(
+            "invalid `{field}` date `{value}`; use YYYY-MM-DD"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
+    validate_id(&value.to_ascii_uppercase()).map_err(|_| {
+        NtError::Message(format!(
+            "invalid `{field}` note id `{value}`; use NTYYYYMMDDTHHmmss"
+        ))
+    })
+}
+
+fn validate_id_prefix(value: &str) -> Result<()> {
+    if value.len() > 17 || !value.starts_with("nt") {
+        return Err(invalid_id_prefix(value));
+    }
+
+    for (index, byte) in value.bytes().enumerate() {
+        let valid = match index {
+            0 => byte == b'n',
+            1 | 10 => byte == b't',
+            2..=9 | 11..=16 => byte.is_ascii_digit(),
+            _ => false,
+        };
+        if !valid {
+            return Err(invalid_id_prefix(value));
+        }
+    }
+
+    Ok(())
+}
+
+fn invalid_id_prefix(value: &str) -> NtError {
+    NtError::Message(format!(
+        "invalid `id` prefix `{value}`; use a prefix of NTYYYYMMDDTHHmmss"
+    ))
 }
 
 fn contains_normalized(values: &[String], needle: &str) -> bool {
@@ -342,6 +418,28 @@ mod tests {
 
         assert!(matching.matches(&note));
         assert!(!too_late.matches(&note));
+    }
+
+    #[test]
+    fn rejects_invalid_typed_query_values() {
+        assert_eq!(
+            Query::parse(&["day:2026-99-01".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid `day` date `2026-99-01`; use YYYY-MM-DD"
+        );
+        assert_eq!(
+            Query::parse(&["id:bad".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid `id` prefix `bad`; use a prefix of NTYYYYMMDDTHHmmss"
+        );
+        assert_eq!(
+            Query::parse(&["link:NT20260528T14301".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid `link` note id `nt20260528t14301`; use NTYYYYMMDDTHHmmss"
+        );
     }
 
     fn temp_dir(name: &str) -> PathBuf {
