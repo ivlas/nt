@@ -84,7 +84,10 @@ fn add(metadata: &[String]) -> Result<()> {
     atomic_write(&path, body.as_bytes())?;
 
     index.upsert_note(note);
-    index.save()?;
+    if let Err(err) = index.save() {
+        let _ = fs::remove_file(&path);
+        return Err(err);
+    }
 
     println!("saved {}", timestamp.id);
     Ok(())
@@ -175,6 +178,7 @@ fn edit(id: &str) -> Result<()> {
     let note = note_ref(&index, id)?.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let body = fs::read_to_string(&note.path)?;
+    let original_body = body.as_bytes().to_vec();
     let edit_path = edit_temp_path(id)?;
     atomic_write(&edit_path, body.as_bytes())?;
 
@@ -193,12 +197,16 @@ fn edit(id: &str) -> Result<()> {
     let _ = fs::remove_file(&edit_path);
 
     let timestamp = crate::note::timestamp_now();
+    let note_path = note.path.clone();
     let mut updated = note;
     updated.updated = timestamp.iso;
     updated.title = title_from_body(&body);
 
     index.upsert_note(updated);
-    index.save()?;
+    if let Err(err) = index.save() {
+        let _ = atomic_write(&note_path, &original_body);
+        return Err(err);
+    }
 
     println!("saved {id}");
     Ok(())
@@ -320,10 +328,14 @@ fn rm(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
+    let body = fs::read(&note.path)?;
 
     fs::remove_file(&note.path)?;
     index.remove_note(id);
-    index.save()?;
+    if let Err(err) = index.save() {
+        let _ = atomic_write(&note.path, &body);
+        return Err(err);
+    }
 
     println!("removed {id}");
     Ok(())
