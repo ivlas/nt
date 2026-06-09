@@ -440,6 +440,16 @@ fn collection_and_status_commands_validate_and_update_index_only() {
         &["collect", first_id, "Projects/nt"],
         "invalid collection",
     );
+    assert_failed(
+        &home,
+        &["collect", first_id, "projects,nt"],
+        "without spaces or commas",
+    );
+    assert_failed(
+        &home,
+        &["tag", first_id, "Storage"],
+        "invalid tag",
+    );
     assert_failed(&home, &["kind", first_id, "unknown"], "invalid kind");
     assert_failed(&home, &["status", first_id, "blocked"], "invalid status");
 
@@ -589,6 +599,30 @@ fn add_accepts_creation_metadata() {
 }
 
 #[test]
+fn add_rejects_invalid_creation_metadata_tokens() {
+    let root = temp_dir("add-invalid-metadata");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    assert_failed_with_stdin(
+        &home,
+        &["add", "tag:Storage"],
+        "# Invalid\n\nbody.\n",
+        "invalid tag",
+    );
+    assert_failed_with_stdin(
+        &home,
+        &["add", "collection:Projects/nt"],
+        "# Invalid\n\nbody.\n",
+        "invalid collection",
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn find_supports_documented_query_forms() {
     let root = temp_dir("find-query-syntax");
     let home = root.join("home");
@@ -667,6 +701,42 @@ fn assert_failed(home: &PathBuf, args: &[&str], expected: &str) {
         .output()
         .unwrap();
 
+    assert!(
+        !output.status.success(),
+        "nt {:?} unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected),
+        "nt {:?} stderr did not contain {:?}:\n{}",
+        args,
+        expected,
+        stderr
+    );
+}
+
+fn assert_failed_with_stdin(home: &PathBuf, args: &[&str], stdin: &str, expected: &str) {
+    let mut child = Command::new(nt_bin())
+        .env("HOME", home)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
     assert!(
         !output.status.success(),
         "nt {:?} unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",

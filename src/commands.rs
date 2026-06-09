@@ -300,6 +300,7 @@ fn tags() -> Result<()> {
 }
 
 fn tag_note(id: &str, tag: &str) -> Result<()> {
+    validate_tag(tag)?;
     mutate_note(id, |note| {
         push_unique_sorted(&mut note.tags, tag.to_string());
         Ok(())
@@ -310,6 +311,7 @@ fn tag_note(id: &str, tag: &str) -> Result<()> {
 }
 
 fn untag_note(id: &str, tag: &str) -> Result<()> {
+    validate_tag(tag)?;
     mutate_note(id, |note| {
         note.tags.retain(|value| value != tag);
         Ok(())
@@ -848,10 +850,27 @@ fn validate_collection(collection: &str) -> Result<()> {
 
     if collection
         .chars()
-        .any(|ch| ch.is_whitespace() || ch.is_uppercase())
+        .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
     {
         return Err(NtError::Message(format!(
-            "invalid collection `{collection}`; use lowercase names"
+            "invalid collection `{collection}`; use lowercase names without spaces or commas"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_tag(tag: &str) -> Result<()> {
+    if tag.trim().is_empty() {
+        return Err(NtError::Message("empty tag".to_string()));
+    }
+
+    if tag
+        .chars()
+        .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
+    {
+        return Err(NtError::Message(format!(
+            "invalid tag `{tag}`; use lowercase names without spaces or commas"
         )));
     }
 
@@ -977,6 +996,9 @@ impl CreationMetadata {
 
 fn push_value_list(values: &mut Vec<String>, field: &str, raw: &str) -> Result<()> {
     for value in split_metadata_values(field, raw)? {
+        if field == "tag" {
+            validate_tag(&value)?;
+        }
         push_unique_sorted(values, value);
     }
     Ok(())
