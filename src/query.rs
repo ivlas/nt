@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::error::{NtError, Result};
-use crate::index::{Index, NoteMeta};
+use crate::index::NoteMeta;
 
 #[derive(Debug)]
 pub struct Query {
@@ -55,8 +55,8 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub fn matches(&self, index: &Index, note: &NoteMeta) -> bool {
-        self.exprs.iter().all(|expr| expr.matches(index, note))
+    pub fn matches(&self, note: &NoteMeta) -> bool {
+        self.exprs.iter().all(|expr| expr.matches(note))
     }
 }
 
@@ -102,7 +102,7 @@ impl QueryExpr {
         }
     }
 
-    fn matches(&self, index: &Index, note: &NoteMeta) -> bool {
+    fn matches(&self, note: &NoteMeta) -> bool {
         match self {
             Self::Bare(value) => matches_metadata(note, value) || matches_body(note, value),
             Self::Id(value) => normalize(&note.id).starts_with(value),
@@ -129,7 +129,7 @@ impl QueryExpr {
                 .iter()
                 .any(|reference| normalize(reference).contains(value)),
             Self::Body(value) => matches_body(note, value),
-            Self::Not(expr) => !expr.matches(index, note),
+            Self::Not(expr) => !expr.matches(note),
         }
     }
 }
@@ -220,7 +220,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::index::{Index, NoteMeta};
+    use crate::index::NoteMeta;
 
     use super::Query;
 
@@ -245,7 +245,6 @@ mod tests {
 
     #[test]
     fn matches_metadata_fields_with_and_semantics() {
-        let index = Index::default();
         let mut note = note("NT20260528T143012");
         note.kind = "decision".to_string();
         note.status = Some("open".to_string());
@@ -262,32 +261,28 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&index, &note));
+        assert!(query.matches(&note));
     }
 
     #[test]
     fn matches_link_direction() {
-        let mut index = Index::default();
         let mut from = note("NT20260528T143012");
         let to = note("NT20260529T120000");
         from.links = vec![to.id.clone()];
-        index.upsert_note(from.clone());
-        index.upsert_note(to.clone());
 
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
-        assert!(link.matches(&index, &from));
-        assert!(!link.matches(&index, &to));
+        assert!(link.matches(&from));
+        assert!(!link.matches(&to));
     }
 
     #[test]
     fn negates_simple_expressions() {
-        let index = Index::default();
         let mut note = note("NT20260528T143012");
         note.tags = vec!["draft".to_string()];
 
         let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
 
-        assert!(!query.matches(&index, &note));
+        assert!(!query.matches(&note));
     }
 
     #[test]
@@ -296,7 +291,6 @@ mod tests {
         let path = dir.join("NT20260528T143012.md");
         fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
 
-        let index = Index::default();
         let mut note = note("NT20260528T143012");
         note.path = path;
         note.tags = vec!["QEMU".to_string()];
@@ -310,7 +304,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&index, &note));
+        assert!(query.matches(&note));
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -325,20 +319,18 @@ mod tests {
         )
         .unwrap();
 
-        let index = Index::default();
         let mut note = note("NT20260528T143012");
         note.path = path;
 
         let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
 
-        assert!(query.matches(&index, &note));
+        assert!(query.matches(&note));
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn date_filters_include_since_and_exclude_before() {
-        let index = Index::default();
         let note = note("NT20260528T143012");
 
         let matching = Query::parse(&[
@@ -348,8 +340,8 @@ mod tests {
         .unwrap();
         let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
 
-        assert!(matching.matches(&index, &note));
-        assert!(!too_late.matches(&index, &note));
+        assert!(matching.matches(&note));
+        assert!(!too_late.matches(&note));
     }
 
     fn temp_dir(name: &str) -> PathBuf {

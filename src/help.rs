@@ -49,7 +49,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
 
 const ROOT: &str = r#"nt
 
-Small CLI note organizer and research workspace.
+Small CLI note organizer.
 
 Usage:
   nt <command> [positional...]

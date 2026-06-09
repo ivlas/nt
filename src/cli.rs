@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[command(
     name = "nt",
     version,
-    about = "Small CLI note organizer and research workspace",
+    about = "Small CLI note organizer",
     disable_help_subcommand = true,
     disable_help_flag = true,
     disable_version_flag = true

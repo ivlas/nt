@@ -216,7 +216,7 @@ fn find(exprs: &[String]) -> Result<()> {
             continue;
         }
 
-        if query.matches(&index, note) {
+        if query.matches(note) {
             println!("{}", summary_line(note));
         }
     }
@@ -379,6 +379,9 @@ fn print_status() -> Result<()> {
         let Some(note) = index.notes.get(id) else {
             continue;
         };
+        if !index.note_is_in_active_vault(note) {
+            continue;
+        }
 
         if note
             .status

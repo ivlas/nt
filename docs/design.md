@@ -1,8 +1,8 @@
 # nt Design
 
-`nt` is a small CLI-native note organizer and research workspace for humans and
-agents. It is built around visible commands, deterministic retrieval, editable
-CommonMark notes, and no hidden memory layer.
+`nt` is a small CLI-native note organizer for humans and agents. It is built
+around visible commands, deterministic retrieval, editable CommonMark notes, and
+no hidden memory layer.
 
 Humans and agents use the same Unix-like interface: stdin, stdout, `$EDITOR`,
 plain files, and normal shell composition.

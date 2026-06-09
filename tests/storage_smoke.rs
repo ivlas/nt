@@ -47,10 +47,12 @@ fn config_vault_lists_and_switches_active_vault() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
     let first = run_nt_with_stdin(&home, &["add"], "# First vault\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap().to_string();
+    run_nt(&home, &["status", &first_id, "open"]);
 
     run_nt(&home, &["init", research.to_str().unwrap()]);
     let second = run_nt_with_stdin(&home, &["add"], "# Second vault\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap().to_string();
+    run_nt(&home, &["status", &second_id, "open"]);
 
     let vaults = run_nt(&home, &["config", "vault"]);
     assert!(vaults.contains(&format!("- notes {}", notes.display())));
@@ -59,6 +61,9 @@ fn config_vault_lists_and_switches_active_vault() {
     let listed = run_nt(&home, &["list"]);
     assert!(listed.contains(&second_id));
     assert!(!listed.contains(&first_id));
+    let status = run_nt(&home, &["status"]);
+    assert!(status.contains(&second_id));
+    assert!(!status.contains(&first_id));
 
     let switched = run_nt(&home, &["config", "vault", "notes"]);
     assert_eq!(
@@ -74,6 +79,9 @@ fn config_vault_lists_and_switches_active_vault() {
     let listed = run_nt(&home, &["list"]);
     assert!(listed.contains(&first_id));
     assert!(!listed.contains(&second_id));
+    let status = run_nt(&home, &["status"]);
+    assert!(status.contains(&first_id));
+    assert!(!status.contains(&second_id));
 
     let index = read_index(&home);
     assert_eq!(index["active_vault"].as_str(), Some("notes"));
