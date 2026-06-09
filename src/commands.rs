@@ -1002,5 +1002,4 @@ mod tests {
 
         assert_eq!(err.to_string(), "unknown add metadata field `topic`");
     }
-
 }

@@ -445,11 +445,7 @@ fn collection_and_status_commands_validate_and_update_index_only() {
         &["collect", first_id, "projects,nt"],
         "without spaces or commas",
     );
-    assert_failed(
-        &home,
-        &["tag", first_id, "Storage"],
-        "invalid tag",
-    );
+    assert_failed(&home, &["tag", first_id, "Storage"], "invalid tag");
     assert_failed(&home, &["kind", first_id, "unknown"], "invalid kind");
     assert_failed(&home, &["status", first_id, "blocked"], "invalid status");
 
