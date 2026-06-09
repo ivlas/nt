@@ -63,8 +63,10 @@ Metadata mutations should go through explicit commands, such as `nt collect`,
 `nt find` uses positional query expressions. All expressions are combined with
 `AND`, order does not matter, and search is case-insensitive.
 
-Bare words match searchable metadata or note bodies. Implementations should use
-indexed metadata first and stream Markdown bodies only when needed.
+Bare words match searchable metadata or note bodies. The current implementation
+keeps derived metadata maps and a metadata `terms` map, then streams Markdown
+bodies for bare-word and `body:` matches. That keeps v1 search deterministic and
+simple while note sets are small.
 
 Unknown query fields should be errors, not bare-word searches. This keeps
 filters trustworthy when users or agents mistype field names.
@@ -115,17 +117,17 @@ terms
 Derived maps must be rebuildable from primary metadata and, where useful, from
 CommonMark note bodies.
 
-Search should use three tiers:
+As note sets grow, search should evolve toward three tiers:
 
 1. Exact id lookup through `notes`.
 2. Indexed metadata lookup through kinds, statuses, tags, collections, days,
    links, sources, titles, and terms.
 3. Streaming body search as fallback.
 
-The `terms` map is a rebuildable inverted index from normalized words to note
-ids. Start with cheap words from titles, kinds, statuses, tags, collections,
-note ids, links, headings, references, and possibly the first paragraph. Indexing
-every body word can wait until real note set size requires it.
+The `terms` map is a rebuildable inverted index from normalized metadata words
+to note ids. Body-derived terms can be added later from cheap sources such as
+headings, references, and possibly the first paragraph. Indexing every body word
+can wait until real note set size requires it.
 
 Metadata fields that cannot be derived from CommonMark should be updated through
 explicit commands.
