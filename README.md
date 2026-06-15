@@ -115,14 +115,16 @@ generate interoperable front-matter copies without changing active notes:
 nt export archive NT20260528T143012
 ```
 
-Run `nt rebuild` to reconstruct active-vault metadata from Markdown note files
-and visible JSON metadata after out-of-band file edits or deletes. It preserves
-existing sources and merges URLs currently found in Markdown body.
+Run `nt rebuild` to reconstruct active-vault metadata and text term indexes
+from Markdown note files and visible JSON metadata after out-of-band file edits
+or deletes. It preserves existing sources and merges URLs currently found in
+Markdown body.
 
 ## Search
 
 `nt find` takes positional query expressions. All expressions are combined with
-`AND`; order does not matter; search is case-insensitive.
+`AND`; order does not matter; search is case-insensitive. Body terms are looked
+up through visible indexes in `$HOME/.nt/index.json` where available.
 
 ```sh
 nt find qemu firecracker
@@ -134,7 +136,7 @@ nt find body:'microvm jailer'
 Common expressions:
 
 ```text
-qemu                  metadata or body contains qemu
+qemu                  metadata or indexed body contains qemu
 #vm                   shorthand for tag:vm
 tag:decision          exact tag
 title:storage         title contains storage
@@ -155,7 +157,7 @@ Unknown fields are errors so typos do not silently become broad text searches.
 ## Search Philosophy
 
 - Use exact metadata filters first.
-- Evolve toward indexed text search before file scanning.
+- Use indexed text search before file scanning.
 - Return deterministic results.
 - Keep machine-facing output stable and one-record-per-line.
 - Compose with normal shell tools.

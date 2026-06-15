@@ -37,6 +37,12 @@ pub struct Index {
     pub backlinks: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub terms: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub body_terms: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub heading_terms: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub body_indexed: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -96,6 +102,9 @@ impl Default for Index {
             days: BTreeMap::new(),
             backlinks: BTreeMap::new(),
             terms: BTreeMap::new(),
+            body_terms: BTreeMap::new(),
+            heading_terms: BTreeMap::new(),
+            body_indexed: Vec::new(),
         }
     }
 }
@@ -161,27 +170,60 @@ impl Index {
             .filter(|note| self.note_is_in_active_vault(note))
     }
 
+    #[cfg(test)]
     pub fn upsert_note(&mut self, note: NoteMeta) {
         let id = note.id.clone();
         self.notes.insert(id, note);
         self.rebuild_derived();
     }
 
+    pub fn upsert_note_with_body(&mut self, note: NoteMeta, body: &str) {
+        let id = note.id.clone();
+        self.refresh_text_terms(&id, body);
+        self.notes.insert(id, note);
+        self.rebuild_derived();
+    }
+
     pub fn remove_note(&mut self, id: &str) {
         self.notes.remove(id);
+        self.remove_text_terms(id);
         for note in self.notes.values_mut() {
             note.links.retain(|link| link != id);
         }
         self.rebuild_derived();
     }
 
-    pub fn replace_active_vault_notes(&mut self, notes: BTreeMap<String, NoteMeta>) {
+    pub fn replace_active_vault_notes_with_bodies(
+        &mut self,
+        notes: BTreeMap<String, NoteMeta>,
+        bodies: &BTreeMap<String, String>,
+    ) {
         let active_vault = self.active_vault_path().map(Path::to_path_buf);
+        let active_ids: Vec<String> = self
+            .notes
+            .values()
+            .filter(|note| {
+                active_vault
+                    .as_deref()
+                    .is_some_and(|path| note.path.starts_with(path))
+            })
+            .map(|note| note.id.clone())
+            .collect();
+
+        for id in active_ids {
+            self.remove_text_terms(&id);
+        }
+
         self.notes.retain(|_, note| {
             active_vault
                 .as_deref()
                 .is_none_or(|path| !note.path.starts_with(path))
         });
+
+        for (id, body) in bodies {
+            self.refresh_text_terms(id, body);
+        }
+
         self.notes.extend(notes);
 
         let existing_ids: BTreeSet<String> = self.notes.keys().cloned().collect();
@@ -193,13 +235,6 @@ impl Index {
     }
 
     pub fn rebuild_derived(&mut self) {
-        self.rebuild_derived_with_body_terms(&BTreeMap::new());
-    }
-
-    pub fn rebuild_derived_with_body_terms(
-        &mut self,
-        body_terms: &BTreeMap<String, BTreeSet<String>>,
-    ) {
         let mut notes: Vec<&NoteMeta> = self.notes.values().collect();
         notes.sort_by(|left, right| {
             right
@@ -261,16 +296,45 @@ impl Index {
             for term in terms_for_note(note) {
                 self.terms.entry(term).or_default().push(note.id.clone());
             }
-
-            if let Some(terms) = body_terms.get(&note.id) {
-                for term in terms {
-                    self.terms
-                        .entry(term.clone())
-                        .or_default()
-                        .push(note.id.clone());
-                }
-            }
         }
+    }
+
+    pub fn body_terms_match(&self, id: &str, terms: &[String]) -> Option<bool> {
+        if terms.is_empty() || !self.body_indexed.iter().any(|indexed_id| indexed_id == id) {
+            return None;
+        }
+
+        Some(terms.iter().all(|term| {
+            self.body_terms
+                .get(term)
+                .is_some_and(|ids| ids.iter().any(|indexed_id| indexed_id == id))
+        }))
+    }
+
+    pub fn metadata_term_matches(&self, id: &str, term: &str) -> bool {
+        self.terms
+            .get(term)
+            .is_some_and(|ids| ids.iter().any(|indexed_id| indexed_id == id))
+    }
+
+    fn refresh_text_terms(&mut self, id: &str, body: &str) {
+        self.remove_text_terms(id);
+
+        for term in tokenize_text(body) {
+            push_indexed_id(self.body_terms.entry(term).or_default(), id);
+        }
+
+        for term in heading_terms_from_body(body) {
+            push_indexed_id(self.heading_terms.entry(term).or_default(), id);
+        }
+
+        push_indexed_id(&mut self.body_indexed, id);
+    }
+
+    fn remove_text_terms(&mut self, id: &str) {
+        remove_indexed_id(&mut self.body_terms, id);
+        remove_indexed_id(&mut self.heading_terms, id);
+        self.body_indexed.retain(|indexed_id| indexed_id != id);
     }
 }
 
@@ -367,15 +431,17 @@ fn terms_for_note(note: &NoteMeta) -> BTreeSet<String> {
 }
 
 fn insert_terms(terms: &mut BTreeSet<String>, text: &str) {
+    terms.extend(tokenize_text(text));
+}
+
+pub fn tokenize_text(text: &str) -> BTreeSet<String> {
+    let mut terms = BTreeSet::new();
     let mut term = String::new();
 
     for char in text.chars() {
-        if char.is_ascii_alphanumeric() {
-            term.push(char.to_ascii_lowercase());
-            continue;
-        }
-
-        if !term.is_empty() {
+        if char.is_alphanumeric() {
+            term.extend(char.to_lowercase());
+        } else if !term.is_empty() {
             terms.insert(std::mem::take(&mut term));
         }
     }
@@ -383,13 +449,48 @@ fn insert_terms(terms: &mut BTreeSet<String>, text: &str) {
     if !term.is_empty() {
         terms.insert(term);
     }
+
+    terms
+}
+
+fn heading_terms_from_body(body: &str) -> BTreeSet<String> {
+    let mut terms = BTreeSet::new();
+
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('#') {
+            continue;
+        }
+
+        let heading = trimmed.trim_start_matches('#').trim();
+        terms.extend(tokenize_text(heading));
+    }
+
+    terms
+}
+
+fn push_indexed_id(ids: &mut Vec<String>, id: &str) {
+    if ids.iter().any(|existing| existing == id) {
+        return;
+    }
+
+    ids.push(id.to_string());
+    ids.sort();
+}
+
+fn remove_indexed_id(index: &mut BTreeMap<String, Vec<String>>, id: &str) {
+    index.retain(|_, ids| {
+        ids.retain(|indexed_id| indexed_id != id);
+        !ids.is_empty()
+    });
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
-    use super::{Index, NoteMeta};
+    use super::{Index, NoteMeta, tokenize_text};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -534,5 +635,56 @@ mod tests {
 
         assert_eq!(index.notes["NT20260528T143012"].links, Vec::<String>::new());
         assert!(index.backlinks.is_empty());
+    }
+
+    #[test]
+    fn tokenizes_text_to_lowercase_unique_terms() {
+        assert_eq!(
+            tokenize_text("QEMU, qemu; Firecracker/v1"),
+            BTreeSet::from([
+                "firecracker".to_string(),
+                "qemu".to_string(),
+                "v1".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn indexes_body_and_heading_terms_without_full_body() {
+        let mut index = Index::default();
+        let id = "NT20260528T143012";
+
+        index.upsert_note_with_body(
+            note(id),
+            "# Runtime Notes\n\nMicroVM jailer details and microvm follow-up.\n",
+        );
+
+        assert_eq!(index.body_terms["microvm"], vec![id.to_string()]);
+        assert_eq!(index.heading_terms["runtime"], vec![id.to_string()]);
+        assert_eq!(index.body_indexed, vec![id.to_string()]);
+        assert!(index.body_terms_match(id, &["jailer".to_string()]).unwrap());
+
+        let json = serde_json::to_string(&index).unwrap();
+        assert!(!json.contains("MicroVM jailer details"));
+    }
+
+    #[test]
+    fn refreshing_and_removing_note_updates_text_terms() {
+        let mut index = Index::default();
+        let id = "NT20260528T143012";
+
+        index.upsert_note_with_body(note(id), "# Old\n\nalpha beta.\n");
+        index.upsert_note_with_body(note(id), "# New\n\nbeta gamma.\n");
+
+        assert!(index.body_terms.get("alpha").is_none());
+        assert_eq!(index.body_terms["gamma"], vec![id.to_string()]);
+        assert!(index.heading_terms.get("old").is_none());
+        assert_eq!(index.heading_terms["new"], vec![id.to_string()]);
+
+        index.remove_note(id);
+
+        assert!(index.body_terms.is_empty());
+        assert!(index.heading_terms.is_empty());
+        assert!(index.body_indexed.is_empty());
     }
 }

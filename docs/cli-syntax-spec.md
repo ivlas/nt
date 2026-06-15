@@ -66,8 +66,8 @@ nt rebuild
 `NTYYYYMMDDTHHmmss.md` files and visible JSON metadata. It preserves primary
 metadata, refreshes titles and file `updated` times, preserves existing sources
 and merges URLs currently found in Markdown body, removes stale active-vault
-entries, cleans links to deleted notes, rebuilds derived maps, and prints
-`rebuilt <count>`.
+entries, cleans links to deleted notes, rebuilds derived maps and text term
+indexes, and prints `rebuilt <count>`.
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
@@ -246,9 +246,9 @@ nt find <expr...>
 ```
 
 Each `<expr>` is one query expression. All expressions are combined with `AND`.
-Expression order does not matter. Search is case-insensitive. Search/filter
-speed is a first-class design constraint, so exact metadata predicates and
-indexed text should be preferred before broad file scans.
+Expression order does not matter. Search is case-insensitive. `nt find` uses
+visible metadata and body term indexes from `$HOME/.nt/index.json` where
+available, with Markdown file scans reserved for missing text index entries.
 
 Examples:
 
@@ -277,7 +277,7 @@ AND belongs to collection projects/nt
 ## Query Expressions
 
 ```text
-word                   match searchable metadata or body
+word                   match searchable metadata or indexed body terms
 #tag                   exact tag match
 field:value            field predicate
 not:expr               negate one simple expression
@@ -297,7 +297,7 @@ status:<status>        exact status
 collection:<name>      exact collection
 link:<id>              outbound link to id
 source:<term>          source reference contains term
-body:<term>            Markdown body contains term
+body:<term>            indexed Markdown body terms contain term
 not:<expr>             exclude simple expression
 ```
 

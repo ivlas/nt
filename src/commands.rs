@@ -82,8 +82,8 @@ fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
             }
         }
 
-        let note = note_meta_from_markdown(index.notes.get(&id), &path)?;
-        index.upsert_note(note);
+        let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
+        index.upsert_note_with_body(note, &body);
     }
 
     Ok(())
@@ -93,15 +93,17 @@ fn rebuild() -> Result<()> {
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     let mut rebuilt_notes = BTreeMap::new();
+    let mut rebuilt_bodies = BTreeMap::new();
 
     for path in valid_note_paths(&notes_dir)? {
         let id = id_from_note_path(&path)?;
-        let note = note_meta_from_markdown(index.notes.get(&id), &path)?;
+        let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
+        rebuilt_bodies.insert(id.clone(), body);
         rebuilt_notes.insert(id, note);
     }
 
     let count = rebuilt_notes.len();
-    index.replace_active_vault_notes(rebuilt_notes);
+    index.replace_active_vault_notes_with_bodies(rebuilt_notes, &rebuilt_bodies);
     index.save()?;
 
     println!("rebuilt {count}");
@@ -134,7 +136,7 @@ fn id_from_note_path(path: &Path) -> Result<String> {
         .ok_or_else(|| NtError::Message(format!("invalid note filename: {}", path.display())))
 }
 
-fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<NoteMeta> {
+fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<(NoteMeta, String)> {
     let id = id_from_note_path(path)?;
     let created = crate::note::iso_from_id(&id)?;
     let updated = fs::metadata(path)
@@ -160,7 +162,7 @@ fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<N
         note.sources = existing.sources.clone();
     }
     add_body_sources(&mut note, &body);
-    Ok(note)
+    Ok((note, body))
 }
 
 fn ensure_notes_dir_is_flat(notes_dir: &Path) -> Result<()> {
@@ -215,7 +217,7 @@ fn add(metadata: &[String]) -> Result<()> {
 
     atomic_write(&path, body.as_bytes())?;
 
-    index.upsert_note(note);
+    index.upsert_note_with_body(note, &body);
     if let Err(err) = index.save() {
         let _ = fs::remove_file(&path);
         return Err(err);
@@ -329,7 +331,7 @@ fn edit(id: &str) -> Result<()> {
     updated.title = title_from_body(&body);
     add_body_sources(&mut updated, &body);
 
-    index.upsert_note(updated);
+    index.upsert_note_with_body(updated, &body);
     if let Err(err) = index.save() {
         let _ = atomic_write(&note_path, &original_body);
         return Err(err);
@@ -344,7 +346,7 @@ fn find(exprs: &[String]) -> Result<()> {
     let query = Query::parse(exprs)?;
 
     for note in index.active_recent_notes() {
-        if query.matches(note)? {
+        if query.matches(&index, note)? {
             println!("{}", summary_line(note));
         }
     }

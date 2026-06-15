@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::error::{NtError, Result};
-use crate::index::NoteMeta;
+use crate::index::{Index, NoteMeta, tokenize_text};
 use crate::note::validate_id;
 
 #[derive(Debug)]
@@ -56,9 +56,9 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
+    pub fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
         for expr in &self.exprs {
-            if !expr.matches(note)? {
+            if !expr.matches(index, note)? {
                 return Ok(false);
             }
         }
@@ -124,13 +124,13 @@ impl QueryExpr {
         }
     }
 
-    fn matches(&self, note: &NoteMeta) -> Result<bool> {
+    fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
         match self {
             Self::Bare(value) => {
-                if matches_metadata(note, value) {
+                if index.metadata_term_matches(&note.id, value) || matches_metadata(note, value) {
                     Ok(true)
                 } else {
-                    matches_body(note, value)
+                    matches_body(index, note, value)
                 }
             }
             Self::Id(value) => Ok(normalize(&note.id).starts_with(value)),
@@ -156,8 +156,8 @@ impl QueryExpr {
                 .sources
                 .iter()
                 .any(|reference| normalize(reference).contains(value))),
-            Self::Body(value) => matches_body(note, value),
-            Self::Not(expr) => Ok(!expr.matches(note)?),
+            Self::Body(value) => matches_body(index, note, value),
+            Self::Not(expr) => Ok(!expr.matches(index, note)?),
         }
     }
 }
@@ -272,16 +272,28 @@ fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
             .any(|reference| reference.to_ascii_lowercase().contains(needle))
 }
 
-fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
-    let body = fs::read_to_string(&note.path).map_err(|err| {
+fn matches_body(index: &Index, note: &NoteMeta, needle: &str) -> Result<bool> {
+    let terms: Vec<String> = tokenize_text(needle).into_iter().collect();
+    if let Some(matches) = index.body_terms_match(&note.id, &terms) {
+        if matches && !note.path.exists() {
+            read_body(note)?;
+        }
+        return Ok(matches);
+    }
+
+    let body = read_body(note)?;
+
+    Ok(body.to_ascii_lowercase().contains(needle))
+}
+
+fn read_body(note: &NoteMeta) -> Result<String> {
+    fs::read_to_string(&note.path).map_err(|err| {
         NtError::Message(format!(
             "note body not readable for {} at {}: {err}",
             note.id,
             note.path.display()
         ))
-    })?;
-
-    Ok(body.to_ascii_lowercase().contains(needle))
+    })
 }
 
 fn unknown_field_error(field: &str) -> String {
@@ -328,7 +340,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::index::NoteMeta;
+    use crate::index::{Index, NoteMeta};
 
     use super::Query;
 
@@ -353,11 +365,13 @@ mod tests {
 
     #[test]
     fn matches_metadata_fields_with_and_semantics() {
+        let mut index = Index::default();
         let mut note = note("NT20260528T143012");
         note.kind = "decision".to_string();
         note.status = Some("open".to_string());
         note.collections = vec!["projects/nt".to_string()];
         note.sources = vec!["https://example.com/spec".to_string()];
+        index.upsert_note(note.clone());
 
         let query = Query::parse(&[
             "kind:decision".to_string(),
@@ -369,39 +383,47 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&note).unwrap());
+        assert!(query.matches(&index, &note).unwrap());
     }
 
     #[test]
     fn matches_link_direction() {
+        let mut index = Index::default();
         let mut from = note("NT20260528T143012");
         let to = note("NT20260529T120000");
         from.links = vec![to.id.clone()];
+        index.upsert_note(from.clone());
+        index.upsert_note(to.clone());
 
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
-        assert!(link.matches(&from).unwrap());
-        assert!(!link.matches(&to).unwrap());
+        assert!(link.matches(&index, &from).unwrap());
+        assert!(!link.matches(&index, &to).unwrap());
     }
 
     #[test]
     fn negates_simple_expressions() {
+        let mut index = Index::default();
         let mut note = note("NT20260528T143012");
         note.tags = vec!["draft".to_string()];
+        index.upsert_note(note.clone());
 
         let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
 
-        assert!(!query.matches(&note).unwrap());
+        assert!(!query.matches(&index, &note).unwrap());
     }
 
     #[test]
     fn matches_tag_shorthand_id_prefix_title_day_and_multiword_body() {
+        let mut index = Index::default();
         let dir = temp_dir("query-multiword-body");
         let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
+        let body = "# Storage Decision\n\nMicroVM jailer notes.\n";
+        fs::write(&path, body).unwrap();
 
         let mut note = note("NT20260528T143012");
         note.path = path;
         note.tags = vec!["QEMU".to_string()];
+        index.upsert_note_with_body(note.clone(), body);
 
         let query = Query::parse(&[
             "#qemu".to_string(),
@@ -412,13 +434,14 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&note).unwrap());
+        assert!(query.matches(&index, &note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn bare_words_fall_back_to_body_search() {
+        let index = Index::default();
         let dir = temp_dir("query-bare-body");
         let path = dir.join("NT20260528T143012.md");
         fs::write(
@@ -432,14 +455,35 @@ mod tests {
 
         let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
 
-        assert!(query.matches(&note).unwrap());
+        assert!(query.matches(&index, &note).unwrap());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bare_words_match_indexed_body_terms() {
+        let mut index = Index::default();
+        let dir = temp_dir("query-indexed-bare-body");
+        let path = dir.join("NT20260528T143012.md");
+        let body = "# Body\n\nOnly bodyonlyterm appears here.\n";
+        fs::write(&path, body).unwrap();
+
+        let mut note = note("NT20260528T143012");
+        note.path = path;
+        index.upsert_note_with_body(note.clone(), body);
+
+        let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
+
+        assert!(query.matches(&index, &note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn date_filters_include_since_and_exclude_before() {
+        let mut index = Index::default();
         let note = note("NT20260528T143012");
+        index.upsert_note(note.clone());
 
         let matching = Query::parse(&[
             "since:2026-05-28".to_string(),
@@ -448,18 +492,20 @@ mod tests {
         .unwrap();
         let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
 
-        assert!(matching.matches(&note).unwrap());
-        assert!(!too_late.matches(&note).unwrap());
+        assert!(matching.matches(&index, &note).unwrap());
+        assert!(!too_late.matches(&index, &note).unwrap());
     }
 
     #[test]
     fn date_filters_accept_valid_leap_days() {
+        let mut index = Index::default();
         let mut note = note("NT20240229T120000");
         note.created = "2024-02-29T12:00:00Z".to_string();
+        index.upsert_note(note.clone());
 
         let query = Query::parse(&["day:2024-02-29".to_string()]).unwrap();
 
-        assert!(query.matches(&note).unwrap());
+        assert!(query.matches(&index, &note).unwrap());
     }
 
     #[test]

@@ -79,8 +79,9 @@ Use `nt show <id>` for exact retrieval. It prints identity and metadata before
 the CommonMark body.
 
 Search/filter speed is a first-class design constraint. Start with exact
-metadata filters when possible. `nt find` should evolve toward indexed text
-search, while shell file scanning remains the fallback for ad hoc inspection.
+metadata filters when possible. `nt find` uses visible body term indexes in
+`$HOME/.nt/index.json` where available, while shell file scanning remains the
+fallback for ad hoc inspection.
 
 ## Rebuild Metadata
 
@@ -91,12 +92,13 @@ nt rebuild
 `nt rebuild` scans the active vault's valid note files, refreshes title and
 updated metadata, preserves existing sources and merges URLs currently found in
 Markdown body, removes stale active-vault entries, cleans links to deleted
-notes, rebuilds derived maps, and prints `rebuilt <count>`.
+notes, rebuilds derived maps and text term indexes, and prints
+`rebuilt <count>`.
 
 ## Search Philosophy
 
 - Exact metadata filters first.
-- Evolve toward indexed text search before file scanning.
+- Use indexed text search before file scanning.
 - Deterministic results.
 - Stable one-record-per-line output.
 - Shell composition.

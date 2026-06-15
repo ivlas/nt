@@ -268,6 +268,24 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
         Some("Refreshed")
     );
     assert_eq!(
+        index["body_terms"]["body"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+    assert_eq!(
+        index["body_terms"]["two"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+    assert_eq!(
+        index["heading_terms"]["refreshed"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+    assert!(index["body_terms"].get("deleted").is_none());
+    assert!(
+        !serde_json::to_string(&index)
+            .unwrap()
+            .contains("# Refreshed\\n\\nBody with")
+    );
+    assert_eq!(
         index["notes"][first_id]["created"].as_str(),
         Some("2000-01-01T00:00:00Z")
     );
@@ -413,6 +431,18 @@ fn edit_uses_editor_and_updates_visible_note() {
     assert!(shown.contains("sources https://example.com/edited"));
     assert!(shown.contains("# Edited\n\nbody two with https://example.com/edited."));
     assert!(!shown.contains("\x1b["));
+
+    let index = read_index(&home);
+    assert!(index["body_terms"].get("one").is_none());
+    assert_eq!(
+        index["body_terms"]["two"].as_array().unwrap(),
+        &vec![serde_json::Value::String(id.to_string())]
+    );
+    assert!(index["heading_terms"].get("original").is_none());
+    assert_eq!(
+        index["heading_terms"]["edited"].as_array().unwrap(),
+        &vec![serde_json::Value::String(id.to_string())]
+    );
 
     let body = fs::read_to_string(notes.join(format!("{id}.md"))).unwrap();
     assert_eq!(
@@ -853,6 +883,77 @@ fn find_supports_documented_query_forms() {
         &["find", "collectiom:projects/nt"],
         "did you mean `collection`",
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn find_uses_visible_body_term_indexes() {
+    let root = temp_dir("find-body-index");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &["add"],
+        "# Runtime Heading\n\nAlpha-only body term with beta details.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let index = read_index(&home);
+    assert_eq!(
+        index["body_terms"]["alpha"].as_array().unwrap(),
+        &vec![serde_json::Value::String(id.to_string())]
+    );
+    assert_eq!(
+        index["heading_terms"]["runtime"].as_array().unwrap(),
+        &vec![serde_json::Value::String(id.to_string())]
+    );
+    assert!(
+        !serde_json::to_string(&index)
+            .unwrap()
+            .contains("Alpha-only body term")
+    );
+
+    let body_found = run_nt(&home, &["find", "body:alpha"]);
+    assert_eq!(summary_ids(&body_found), vec![id]);
+
+    let bare_found = run_nt(&home, &["find", "beta"]);
+    assert_eq!(summary_ids(&bare_found), vec![id]);
+
+    let heading_found = run_nt(&home, &["find", "body:runtime"]);
+    assert_eq!(summary_ids(&heading_found), vec![id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rm_removes_deleted_ids_from_text_indexes() {
+    let root = temp_dir("rm-text-index");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let removed = run_nt_with_stdin(&home, &["add"], "# Removed\n\nshared uniquegone.\n");
+    let removed_id = removed.trim().strip_prefix("saved ").unwrap();
+    let kept = run_nt_with_stdin(&home, &["add"], "# Kept\n\nshared uniquekept.\n");
+    let kept_id = kept.trim().strip_prefix("saved ").unwrap();
+
+    run_nt(&home, &["rm", removed_id]);
+
+    let index = read_index(&home);
+    assert_eq!(
+        index["body_terms"]["shared"].as_array().unwrap(),
+        &vec![serde_json::Value::String(kept_id.to_string())]
+    );
+    assert!(index["body_terms"].get("uniquegone").is_none());
+    assert!(index["heading_terms"].get("removed").is_none());
+
+    let found = run_nt(&home, &["find", "shared"]);
+    assert_eq!(summary_ids(&found), vec![kept_id]);
 
     let _ = fs::remove_dir_all(root);
 }
