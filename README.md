@@ -149,7 +149,7 @@ Unknown fields are errors so typos do not silently become broad text searches.
 ## Search Philosophy
 
 - Use exact metadata filters first.
-- Use indexed text search before file scanning.
+- Evolve toward indexed text search before file scanning.
 - Return deterministic results.
 - Keep machine-facing output stable and one-record-per-line.
 - Compose with normal shell tools.

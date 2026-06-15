@@ -79,13 +79,13 @@ Use `nt show <id>` for exact retrieval. It prints identity and metadata before
 the CommonMark body.
 
 Search/filter speed is a first-class design constraint. Start with exact
-metadata filters when possible, use indexed text search through `nt find`, and
-fall back to shell file scanning only for ad hoc inspection.
+metadata filters when possible. `nt find` should evolve toward indexed text
+search, while shell file scanning remains the fallback for ad hoc inspection.
 
 ## Search Philosophy
 
 - Exact metadata filters first.
-- Indexed text search before file scanning.
+- Evolve toward indexed text search before file scanning.
 - Deterministic results.
 - Stable one-record-per-line output.
 - Shell composition.

@@ -53,8 +53,8 @@ description: Retrieve notes with visible nt commands and cite note ids.
 
 # nt-recall
 
-Retrieve through visible commands only. Prefer exact metadata filters and
-indexed text search before file scanning.
+Retrieve through visible commands only. Prefer exact metadata filters and treat
+indexed text search as the direction before falling back to file scanning.
 
 Workflow:
 

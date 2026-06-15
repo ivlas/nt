@@ -90,7 +90,7 @@ prefer narrow, deterministic filters over broad, ranked retrieval.
 
 - Exact metadata filters come first: ids, tags, kinds, statuses, collections,
   days, links, and sources.
-- Indexed text search should run before file scanning.
+- Text search should evolve toward indexed lookup before file scanning.
 - Results should be deterministic, not scored or personalized.
 - Machine-facing output should remain stable and one-record-per-line.
 - Shell composition should stay the escape hatch for ad hoc inspection.
