@@ -88,10 +88,10 @@ search, while shell file scanning remains the fallback for ad hoc inspection.
 nt rebuild
 ```
 
-`nt rebuild` scans the active vault's valid note files, refreshes title, source,
-and updated metadata from Markdown and file metadata, removes stale active-vault
-entries, cleans links to deleted notes, rebuilds derived maps, and prints
-`rebuilt <count>`.
+`nt rebuild` scans the active vault's valid note files, refreshes title and
+updated metadata, preserves existing sources and merges URLs currently found in
+Markdown body, removes stale active-vault entries, cleans links to deleted
+notes, rebuilds derived maps, and prints `rebuilt <count>`.
 
 ## Search Philosophy
 

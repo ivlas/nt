@@ -115,8 +115,9 @@ Examples:
 const REBUILD: &str = r#"nt rebuild
 
 Rebuild the active vault index from canonical Markdown note files and visible
-JSON metadata. Preserves primary metadata, refreshes body-derived fields,
-removes stale active-vault entries, and cleans links to deleted notes.
+JSON metadata. Preserves primary metadata, preserves existing sources and merges
+URLs currently found in Markdown body, removes stale active-vault entries, and
+cleans links to deleted notes.
 
 Examples:
   nt rebuild
@@ -354,6 +355,7 @@ mod tests {
             "",
             "init",
             "add",
+            "rebuild",
             "list",
             "find",
             "show",
@@ -396,5 +398,16 @@ mod tests {
             err.to_string(),
             "unknown help topic `unknown`; run `nt help`"
         );
+    }
+
+    #[test]
+    fn rebuild_help_documents_persistent_source_semantics() {
+        let text = topic_text("rebuild").unwrap();
+
+        assert!(text.contains(
+            "preserves existing sources and merges\nURLs currently found in Markdown body"
+        ));
+        assert!(!text.contains("refreshes current body URL sources"));
+        assert!(!text.contains("refreshes body-derived fields"));
     }
 }

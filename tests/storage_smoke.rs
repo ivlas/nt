@@ -225,7 +225,16 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
     run_nt(&home, &["link", first_id, deleted_id]);
 
     let mut index = read_index(&home);
-    index["notes"][first_id]["sources"] = serde_json::json!(["https://example.com/explicit"]);
+    assert_eq!(
+        index["notes"][first_id]["sources"].as_array().unwrap(),
+        &vec![serde_json::Value::String(
+            "https://example.com/body-one".to_string()
+        )]
+    );
+    index["notes"][first_id]["sources"] = serde_json::json!([
+        "https://example.com/body-one",
+        "https://example.com/explicit"
+    ]);
     write_index(&home, &index);
 
     fs::write(
@@ -247,7 +256,9 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
     assert!(shown.contains("tags storage"));
     assert!(shown.contains("collections projects/nt"));
     assert!(shown.contains("links -"));
-    assert!(shown.contains("sources https://example.com/body-two,https://example.com/explicit"));
+    assert!(shown.contains(
+        "sources https://example.com/body-one,https://example.com/body-two,https://example.com/explicit"
+    ));
 
     let index = read_index(&home);
     assert!(index["notes"].get(first_id).is_some());
@@ -265,6 +276,14 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
         Some("2000-01-01T00:00:00Z")
     );
     assert!(index["backlinks"].as_object().unwrap().is_empty());
+    assert_eq!(
+        index["notes"][first_id]["sources"].as_array().unwrap(),
+        &vec![
+            serde_json::Value::String("https://example.com/body-one".to_string()),
+            serde_json::Value::String("https://example.com/body-two".to_string()),
+            serde_json::Value::String("https://example.com/explicit".to_string()),
+        ]
+    );
     assert_eq!(
         index["tags"]["storage"].as_array().unwrap(),
         &vec![serde_json::Value::String(first_id.to_string())]
@@ -330,11 +349,34 @@ fn help_is_a_flagless_command_with_examples() {
     let vault_help = run_nt(&home, &["help", "config", "vault"]);
     assert!(vault_help.contains("nt config vault [vault-name]"));
     assert!(vault_help.contains("nt config vault notes"));
+    let rebuild_help = run_nt(&home, &["help", "rebuild"]);
+    assert!(
+        rebuild_help.contains(
+            "preserves existing sources and merges\nURLs currently found in Markdown body"
+        )
+    );
 
     assert_failed(&home, &["--help"], "unexpected argument '--help'");
     assert_failed(&home, &["list", "--help"], "unexpected argument '--help'");
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rebuild_docs_document_persistent_source_semantics() {
+    let expected = "preserves existing sources and merges URLs currently found in";
+    for path in ["docs/cli-syntax-spec.md", "docs/usage.md", "README.md"] {
+        let text = fs::read_to_string(path).unwrap();
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains(expected),
+            "{path} should document rebuild source semantics"
+        );
+        assert!(
+            !text.contains("refreshes current body URL sources"),
+            "{path} should not claim rebuild refreshes body URL sources"
+        );
+    }
 }
 
 #[cfg(unix)]

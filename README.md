@@ -116,7 +116,8 @@ nt export archive NT20260528T143012
 ```
 
 Run `nt rebuild` to reconstruct active-vault metadata from Markdown note files
-and visible JSON metadata after out-of-band file edits or deletes.
+and visible JSON metadata after out-of-band file edits or deletes. It preserves
+existing sources and merges URLs currently found in Markdown body.
 
 ## Search
 

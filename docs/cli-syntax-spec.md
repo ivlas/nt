@@ -64,9 +64,10 @@ nt rebuild
 
 `nt rebuild` reconstructs the active vault index from valid
 `NTYYYYMMDDTHHmmss.md` files and visible JSON metadata. It preserves primary
-metadata, refreshes titles, current body URL sources, and file `updated` times,
-removes stale active-vault entries, cleans links to deleted notes, rebuilds
-derived maps, and prints `rebuilt <count>`.
+metadata, refreshes titles and file `updated` times, preserves existing sources
+and merges URLs currently found in Markdown body, removes stale active-vault
+entries, cleans links to deleted notes, rebuilds derived maps, and prints
+`rebuilt <count>`.
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
