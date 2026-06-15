@@ -70,10 +70,13 @@ Metadata mutations should go through explicit commands, such as `nt collect`,
 `nt find` uses positional query expressions. All expressions are combined with
 `AND`, order does not matter, and search is case-insensitive.
 
-Bare words match searchable metadata or note bodies. The current implementation
-keeps derived metadata maps and a metadata `terms` map, then streams Markdown
-bodies for bare-word and `body:` matches. That keeps v1 search deterministic and
-simple while note sets are small.
+Bare words match searchable metadata or indexed note body terms. The current
+implementation keeps derived metadata maps, a metadata `terms` map, and visible
+body term indexes in `$HOME/.nt/index.json`. Quoted multiword `body:` values
+match all indexed terms, not an exact phrase.
+
+`heading_terms` is indexed for future/internal use only. There is no
+`heading:<term>` query field yet.
 
 Unknown query fields should be errors, not bare-word searches. This keeps
 filters trustworthy when users or agents mistype field names.
@@ -90,7 +93,7 @@ prefer narrow, deterministic filters over broad, ranked retrieval.
 
 - Exact metadata filters come first: ids, tags, kinds, statuses, collections,
   days, links, and sources.
-- Text search should evolve toward indexed lookup before file scanning.
+- Text search should use indexed lookup before file scanning.
 - Results should be deterministic, not scored or personalized.
 - Machine-facing output should remain stable and one-record-per-line.
 - Shell composition should stay the escape hatch for ad hoc inspection.

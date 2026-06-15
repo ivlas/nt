@@ -81,7 +81,8 @@ the CommonMark body.
 Search/filter speed is a first-class design constraint. Start with exact
 metadata filters when possible. `nt find` uses visible body term indexes in
 `$HOME/.nt/index.json` where available, while shell file scanning remains the
-fallback for ad hoc inspection.
+fallback for ad hoc inspection. Quoted multiword `body:` values match all
+indexed terms, not an exact phrase.
 
 ## Rebuild Metadata
 

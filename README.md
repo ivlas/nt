@@ -124,7 +124,8 @@ Markdown body.
 
 `nt find` takes positional query expressions. All expressions are combined with
 `AND`; order does not matter; search is case-insensitive. Body terms are looked
-up through visible indexes in `$HOME/.nt/index.json` where available.
+up through visible indexes in `$HOME/.nt/index.json` where available. Quoted
+multiword `body:` values match all indexed terms, not an exact phrase.
 
 ```sh
 nt find qemu firecracker
@@ -148,7 +149,7 @@ since:2026-05-01
 before:2026-06-01
 link:NT20260605T101500
 source:firecracker
-body:'microvm jailer'
+body:'microvm jailer'  body contains terms microvm AND jailer
 not:tag:draft
 ```
 

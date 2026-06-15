@@ -249,6 +249,9 @@ Each `<expr>` is one query expression. All expressions are combined with `AND`.
 Expression order does not matter. Search is case-insensitive. `nt find` uses
 visible metadata and body term indexes from `$HOME/.nt/index.json` where
 available, with Markdown file scans reserved for missing text index entries.
+Quoted multiword `body:` values match all indexed terms, not an exact phrase.
+The visible `heading_terms` index is for future/internal use; there is no
+`heading:<term>` query field yet.
 
 Examples:
 
@@ -297,7 +300,7 @@ status:<status>        exact status
 collection:<name>      exact collection
 link:<id>              outbound link to id
 source:<term>          source reference contains term
-body:<term>            indexed Markdown body terms contain term
+body:<term>            indexed Markdown body contains all terms
 not:<expr>             exclude simple expression
 ```
 
@@ -308,7 +311,8 @@ nt find body:'microvm jailer'
 ```
 
 `nt` receives `body:microvm jailer` as one argument. The query language does not
-need a separate quoting syntax.
+need a separate quoting syntax. This matches notes containing both indexed terms
+`microvm` and `jailer`; it does not require the exact phrase `microvm jailer`.
 
 Unknown fields are errors, not bare-word searches:
 

@@ -135,11 +135,13 @@ Examples:
 const FIND: &str = r#"nt find <expr...>
 
 Find notes with AND-combined query expressions. Bare words match searchable
-metadata and note bodies.
+metadata and indexed note body terms. Quoted multiword body: values match all
+indexed terms, not an exact phrase.
 
 Examples:
   nt find qemu firecracker
   nt find tag:decision collection:projects/nt
+  nt find body:'microvm jailer'
   nt find since:2026-05-01 before:2026-06-01 not:tag:draft
 "#;
 

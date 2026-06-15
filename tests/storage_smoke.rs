@@ -363,6 +363,12 @@ fn help_is_a_flagless_command_with_examples() {
     let find_help = run_nt(&home, &["help", "find"]);
     assert!(find_help.contains("nt find <expr...>"));
     assert!(find_help.contains("nt find tag:decision collection:projects/nt"));
+    assert!(
+        find_help.contains(
+            "Quoted multiword body: values match all\nindexed terms, not an exact phrase"
+        )
+    );
+    assert!(!find_help.contains("exact phrase search"));
 
     let vault_help = run_nt(&home, &["help", "config", "vault"]);
     assert!(vault_help.contains("nt config vault [vault-name]"));
@@ -395,6 +401,33 @@ fn rebuild_docs_document_persistent_source_semantics() {
             "{path} should not claim rebuild refreshes body URL sources"
         );
     }
+}
+
+#[test]
+fn find_docs_document_body_terms_not_phrase_search() {
+    let expected = "Quoted multiword `body:` values match all indexed terms, not an exact phrase.";
+    for path in [
+        "docs/cli-syntax-spec.md",
+        "docs/usage.md",
+        "docs/design.md",
+        "README.md",
+    ] {
+        let text = fs::read_to_string(path).unwrap();
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains(expected),
+            "{path} should document multiword body term semantics"
+        );
+        assert!(
+            !normalized.contains("exact phrase search"),
+            "{path} should not imply phrase search"
+        );
+    }
+
+    let syntax = fs::read_to_string("docs/cli-syntax-spec.md").unwrap();
+    let syntax = syntax.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(syntax.contains("The visible `heading_terms` index is for future/internal use"));
+    assert!(syntax.contains("there is no `heading:<term>` query field yet."));
 }
 
 #[cfg(unix)]
@@ -925,6 +958,36 @@ fn find_uses_visible_body_term_indexes() {
 
     let heading_found = run_nt(&home, &["find", "body:runtime"]);
     assert_eq!(summary_ids(&heading_found), vec![id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn body_multiword_queries_match_all_terms_not_exact_phrase() {
+    let root = temp_dir("find-body-all-terms");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let separated = run_nt_with_stdin(
+        &home,
+        &["add"],
+        "# Separated\n\nThe jailer notes mention another microvm detail later.\n",
+    );
+    let separated_id = separated.trim().strip_prefix("saved ").unwrap();
+    let missing = run_nt_with_stdin(
+        &home,
+        &["add"],
+        "# Missing\n\nThis microvm note omits the other term.\n",
+    );
+    let missing_id = missing.trim().strip_prefix("saved ").unwrap();
+
+    let found = run_nt(&home, &["find", "body:microvm jailer"]);
+
+    assert_eq!(summary_ids(&found), vec![separated_id]);
+    assert!(found.contains(separated_id));
+    assert!(!found.contains(missing_id));
 
     let _ = fs::remove_dir_all(root);
 }
