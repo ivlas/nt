@@ -1,7 +1,11 @@
 # nt Usage Guide
 
-`nt` is a small note organizer for humans and agents. Notes are plain Markdown
-files, while metadata lives in `$HOME/.nt/index.json`.
+`nt` is a Markdown-first, Git-friendly personal knowledge index for humans and
+agents. Notes are plain Markdown files, while metadata lives in
+`$HOME/.nt/index.json`.
+
+The core goal is `time-to-knowledge`: the shortest path from vague memory to an
+exact note id and the note content behind it.
 
 See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact command and query
 syntax contract.
@@ -59,7 +63,7 @@ EOF
 
 If stdin is a terminal, `nt add` opens `$EDITOR`.
 
-## Find And Read
+## Filter And Read
 
 ```sh
 nt list
@@ -73,6 +77,18 @@ nt show NT20260528T143012
 
 Use `nt show <id>` for exact retrieval. It prints identity and metadata before
 the CommonMark body.
+
+Search/filter speed is a first-class design constraint. Start with exact
+metadata filters when possible, use indexed text search through `nt find`, and
+fall back to shell file scanning only for ad hoc inspection.
+
+## Search Philosophy
+
+- Exact metadata filters first.
+- Indexed text search before file scanning.
+- Deterministic results.
+- Stable one-record-per-line output.
+- Shell composition.
 
 ## Organize Metadata
 
@@ -186,8 +202,9 @@ When answering from notes, cite supporting note ids. When writing notes, draft
 CommonMark and save through `nt add`; update metadata with explicit commands.
 
 There is no `nt agent`, `nt discuss`, built-in skill installer, hidden
-retrieval, embedding store, daemon, or agent-specific behavior. Optional skill
-examples are documentation only:
+retrieval, embedding store, daemon, app framework, agent runtime, vector/RAG
+system, or agent-specific behavior. Active notes are Markdown files, and
+metadata is JSON. Optional skill examples are documentation only:
 [examples/agent-skills.md](examples/agent-skills.md).
 
 ## Unix Composition

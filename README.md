@@ -1,16 +1,19 @@
 # nt
 
-`nt` is a small CLI note organizer: plain Markdown notes, visible JSON metadata,
-deterministic search, and shell-friendly commands.
+`nt` is a Markdown-first, Git-friendly personal knowledge index: plain
+Markdown notes, visible JSON metadata, deterministic search, and shell-friendly
+commands. Its core goal is `time-to-knowledge`: the shortest path from vague
+memory to an exact note id and the note content behind it.
 
 It is intentionally useful to both humans and coding agents because it behaves
 like a normal Unix tool. It reads stdin, writes stdout, opens `$EDITOR`, exposes
 stable one-record-per-line commands, and does not keep a hidden memory layer.
 
-`nt` is not an agent framework, RAG system, vector database, daemon, server,
-browser/runtime orchestrator, workflow engine, or launcher for a specific agent.
-Agents can still use it directly through zsh/bash by reading `nt help`, running
-`nt find`, and inspecting exact notes with `nt show`.
+`nt` keeps notes as plain Markdown and metadata as visible JSON. It is not an
+app framework, agent runtime, RAG system, vector database, daemon, server,
+browser/runtime orchestrator, workflow engine, or launcher for a specific
+agent. Agents can still use it directly through zsh/bash by reading `nt help`,
+running `nt find`, and inspecting exact notes with `nt show`.
 
 See [docs/usage.md](docs/usage.md) for a compact guide,
 [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
@@ -20,18 +23,19 @@ agent skill examples.
 
 ## Goals
 
-- Capture notes quickly.
-- Organize notes with explicit metadata.
-- Retrieve by id, metadata, body text, date, collection, and links.
+- Capture notes quickly as canonical CommonMark files.
+- Index visible metadata and rebuildable derived maps.
+- Filter by id, metadata, body text, date, collection, and links.
 - Keep note files readable and editable without `nt`.
 - Keep metadata visible in `$HOME/.nt/index.json`.
+- Make search/filter speed a first-class design constraint.
 - Stay flagless for core workflows.
 - Compose cleanly with shell tools and completion.
 
 ## Core Loop
 
 ```text
-capture -> organize -> retrieve -> inspect -> revise
+capture -> index -> filter -> inspect -> connect -> revise
 ```
 
 ```sh
@@ -141,6 +145,14 @@ not:tag:draft
 ```
 
 Unknown fields are errors so typos do not silently become broad text searches.
+
+## Search Philosophy
+
+- Use exact metadata filters first.
+- Use indexed text search before file scanning.
+- Return deterministic results.
+- Keep machine-facing output stable and one-record-per-line.
+- Compose with normal shell tools.
 
 ## Agent Use
 

@@ -42,7 +42,8 @@ EOF
 ## nt-recall
 
 Use when the user asks what they noted, saved, decided, discussed, or captured
-earlier.
+earlier. Optimize for `time-to-knowledge`: get from vague memory to exact note
+ids and the note content behind them quickly.
 
 ````markdown
 ---
@@ -52,13 +53,14 @@ description: Retrieve notes with visible nt commands and cite note ids.
 
 # nt-recall
 
-Retrieve through visible commands only.
+Retrieve through visible commands only. Prefer exact metadata filters and
+indexed text search before file scanning.
 
 Workflow:
 
 1. Start with cheap indexes: `nt list`, `nt tags`, `nt collections`, or
    `nt ids`.
-2. Use `nt find <expr...>` for candidate notes.
+2. Use exact metadata filters and `nt find <expr...>` for candidate notes.
 3. Use `nt show <id>` before relying on a note.
 4. Answer from shown note content and cite supporting note ids.
 5. Do not rely on hidden memory, embeddings, or direct index edits.

@@ -1,6 +1,9 @@
 # nt CLI Syntax
 
-This is the compact CLI command and query syntax contract for `nt`.
+This is the compact CLI command and query syntax contract for `nt`, a
+Markdown-first personal knowledge index optimized for `time-to-knowledge`: the
+shortest path from vague memory to an exact note id and the note content behind
+it.
 
 ## General Form
 
@@ -54,8 +57,9 @@ nt help <command>
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
-itself. Agent integrations should live outside `nt` as docs, skills, shell
-wrappers, or agent-specific configuration.
+itself. `nt` keeps notes as Markdown and metadata as JSON. It is not an app
+framework, agent runtime, or vector/RAG system. Agent integrations should live
+outside `nt` as docs, skills, shell wrappers, or agent-specific configuration.
 
 ## Links
 
@@ -228,7 +232,9 @@ nt find <expr...>
 ```
 
 Each `<expr>` is one query expression. All expressions are combined with `AND`.
-Expression order does not matter. Search is case-insensitive.
+Expression order does not matter. Search is case-insensitive. Search/filter
+speed is a first-class design constraint, so exact metadata predicates and
+indexed text should be preferred before broad file scans.
 
 Examples:
 
@@ -299,6 +305,14 @@ error: unknown query field `collectiom`
 Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
 default. If `OR` becomes necessary, add it later with explicit grouping instead
 of overloading the v1 `AND` model.
+
+## Search Philosophy
+
+- Exact metadata filters first.
+- Indexed text search before file scanning.
+- Deterministic results.
+- Stable one-record-per-line output.
+- Shell composition for ad hoc expansion.
 
 ## Values
 

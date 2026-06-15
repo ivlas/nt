@@ -1,15 +1,22 @@
 # nt Design
 
-`nt` is a small CLI-native note organizer for humans and agents. It is built
-around visible commands, deterministic retrieval, editable CommonMark notes, and
-no hidden memory layer.
+`nt` is a Markdown-first, Git-friendly personal knowledge index for humans and
+agents. It is built around visible commands, deterministic retrieval, editable
+CommonMark notes, and no hidden memory layer.
+
+The core product goal is `time-to-knowledge`: the shortest path from vague
+memory to an exact note id and the note content behind it. In practice, this
+means a user or agent should be able to start with partial memory, apply cheap
+filters, inspect a small candidate set, and land on the right Markdown note
+quickly.
 
 Humans and agents use the same Unix-like interface: stdin, stdout, `$EDITOR`,
 plain files, and normal shell composition.
 
 ## Boundaries
 
-`nt` is not an agent framework, RAG system, vector database, daemon, server,
+`nt` keeps notes as plain Markdown and metadata as visible JSON. It is not an
+app framework, agent runtime, RAG system, vector database, daemon, server,
 browser/runtime orchestrator, microVM orchestrator, workflow engine, or Hermes
 replacement.
 
@@ -21,7 +28,7 @@ agent-only paths, or framework complexity.
 The core workflow is:
 
 ```text
-capture -> organize -> retrieve -> inspect -> revise
+capture -> index -> filter -> inspect -> connect -> revise
 ```
 
 It maps to small commands such as:
@@ -74,6 +81,19 @@ filters trustworthy when users or agents mistype field names.
 Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
 default. If `OR` becomes necessary, add it later with explicit grouping instead
 of overloading the v1 `AND` model.
+
+## Search Philosophy
+
+Search/filter speed is a first-class design constraint because the useful unit
+of work is getting from a vague memory to the exact note id quickly. `nt` should
+prefer narrow, deterministic filters over broad, ranked retrieval.
+
+- Exact metadata filters come first: ids, tags, kinds, statuses, collections,
+  days, links, and sources.
+- Indexed text search should run before file scanning.
+- Results should be deterministic, not scored or personalized.
+- Machine-facing output should remain stable and one-record-per-line.
+- Shell composition should stay the escape hatch for ad hoc inspection.
 
 ## Storage Model
 
@@ -240,10 +260,10 @@ Tag rules:
 
 ## Agent Use
 
-Agents should retrieve and cite notes through the same visible commands humans
-use. `nt` itself must not launch Codex or any other agent, install skills,
-generate `AGENTS.md`, implement natural-language retrieval, or maintain an
-agent-specific workspace.
+Agents should filter, inspect, and cite notes through the same visible commands
+humans use. `nt` itself must not launch Codex or any other agent, install
+skills, generate `AGENTS.md`, implement natural-language retrieval, or maintain
+an agent-specific workspace.
 
 Useful agent instructions can live outside `nt` as documentation, copied skill
 files, shell snippets, or the host agent's native configuration. The examples in
