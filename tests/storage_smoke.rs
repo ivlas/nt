@@ -196,6 +196,88 @@ fn init_imports_existing_flat_notes() {
 }
 
 #[test]
+fn rebuild_reconstructs_active_vault_index_from_markdown() {
+    let root = temp_dir("rebuild-active-vault");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let first_id = "NT20000101T000000";
+    let deleted_id = "NT20000102T000000";
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    fs::write(
+        notes.join(format!("{first_id}.md")),
+        "# Imported\n\nBody with https://example.com/body-one.\n",
+    )
+    .unwrap();
+    fs::write(
+        notes.join(format!("{deleted_id}.md")),
+        "# Deleted\n\nThis file will be removed.\n",
+    )
+    .unwrap();
+
+    let rebuilt = run_nt(&home, &["rebuild"]);
+    assert_eq!(rebuilt.trim(), "rebuilt 2");
+
+    run_nt(&home, &["tag", first_id, "storage"]);
+    run_nt(&home, &["collect", first_id, "projects/nt"]);
+    run_nt(&home, &["kind", first_id, "decision"]);
+    run_nt(&home, &["status", first_id, "open"]);
+    run_nt(&home, &["link", first_id, deleted_id]);
+
+    let mut index = read_index(&home);
+    index["notes"][first_id]["sources"] = serde_json::json!(["https://example.com/explicit"]);
+    write_index(&home, &index);
+
+    fs::write(
+        notes.join(format!("{first_id}.md")),
+        "# Refreshed\n\nBody with https://example.com/body-two.\n",
+    )
+    .unwrap();
+    fs::remove_file(notes.join(format!("{deleted_id}.md"))).unwrap();
+
+    let rebuilt = run_nt(&home, &["rebuild"]);
+    assert_eq!(rebuilt, "rebuilt 1\n");
+    let rebuilt_again = run_nt(&home, &["rebuild"]);
+    assert_eq!(rebuilt_again, "rebuilt 1\n");
+
+    let shown = run_nt(&home, &["show", first_id]);
+    assert!(shown.contains(&format!("{first_id}  Refreshed")));
+    assert!(shown.contains("kind decision"));
+    assert!(shown.contains("status open"));
+    assert!(shown.contains("tags storage"));
+    assert!(shown.contains("collections projects/nt"));
+    assert!(shown.contains("links -"));
+    assert!(shown.contains("sources https://example.com/body-two,https://example.com/explicit"));
+
+    let index = read_index(&home);
+    assert!(index["notes"].get(first_id).is_some());
+    assert!(index["notes"].get(deleted_id).is_none());
+    assert_eq!(
+        index["notes"][first_id]["title"].as_str(),
+        Some("Refreshed")
+    );
+    assert_eq!(
+        index["notes"][first_id]["created"].as_str(),
+        Some("2000-01-01T00:00:00Z")
+    );
+    assert_ne!(
+        index["notes"][first_id]["updated"].as_str(),
+        Some("2000-01-01T00:00:00Z")
+    );
+    assert!(index["backlinks"].as_object().unwrap().is_empty());
+    assert_eq!(
+        index["tags"]["storage"].as_array().unwrap(),
+        &vec![serde_json::Value::String(first_id.to_string())]
+    );
+
+    let listed = run_nt(&home, &["list"]);
+    assert!(listed.contains(first_id));
+    assert!(!listed.contains(deleted_id));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_does_not_install_agent_workspace_files() {
     let root = temp_dir("init-no-agent-workspace");
     let home = root.join("home");
@@ -219,7 +301,7 @@ fn completion_outputs_dynamic_note_id_hooks() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
     let bash = run_nt(&home, &["completion", "bash"]);
-    assert!(bash.contains("init add list find show edit"));
+    assert!(bash.contains("init add rebuild list find show edit"));
     assert!(bash.contains("_nt_note_ids"));
     assert!(bash.contains("nt ids 2>/dev/null"));
 
@@ -818,6 +900,11 @@ fn assert_failed_with_stdin(home: &PathBuf, args: &[&str], stdin: &str, expected
 fn read_index(home: &PathBuf) -> serde_json::Value {
     let index = fs::read_to_string(home.join(".nt/index.json")).unwrap();
     serde_json::from_str(&index).unwrap()
+}
+
+fn write_index(home: &PathBuf, index: &serde_json::Value) {
+    let bytes = serde_json::to_vec_pretty(index).unwrap();
+    fs::write(home.join(".nt/index.json"), bytes).unwrap();
 }
 
 fn summary_ids(output: &str) -> Vec<&str> {

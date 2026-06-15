@@ -53,6 +53,7 @@ nt collections
 ```sh
 nt init <notes-dir>
 nt add [metadata...]
+nt rebuild
 nt list
 nt find <expr...>
 nt show <id>
@@ -96,6 +97,7 @@ nt list
 nt find tag:storage
 nt show NT20260528T143012
 nt edit NT20260528T143012
+nt rebuild
 ```
 
 Note files are flat CommonMark files:
@@ -112,6 +114,9 @@ generate interoperable front-matter copies without changing active notes:
 ```sh
 nt export archive NT20260528T143012
 ```
+
+Run `nt rebuild` to reconstruct active-vault metadata from Markdown note files
+and visible JSON metadata after out-of-band file edits or deletes.
 
 ## Search
 

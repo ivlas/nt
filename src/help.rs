@@ -13,6 +13,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "" => ROOT,
         "init" => INIT,
         "add" => ADD,
+        "rebuild" => REBUILD,
         "list" => LIST,
         "find" => FIND,
         "show" => SHOW,
@@ -58,6 +59,7 @@ Usage:
 Commands:
   init         create a vault
   add          add a Markdown note
+  rebuild      rebuild active vault metadata
   list         list recent notes
   find         find notes by query expressions
   show         show one exact note
@@ -84,6 +86,7 @@ Commands:
 Examples:
   nt init notes
   nt add tag:decision kind:note
+  nt rebuild
   nt find tag:decision qemu
   nt help find
 "#;
@@ -107,6 +110,16 @@ Examples:
   nt add
   nt add tag:storage kind:decision status:open
   nt add tag:qemu,firecracker collection:research/qemu
+"#;
+
+const REBUILD: &str = r#"nt rebuild
+
+Rebuild the active vault index from canonical Markdown note files and visible
+JSON metadata. Preserves primary metadata, refreshes body-derived fields,
+removes stale active-vault entries, and cleans links to deleted notes.
+
+Examples:
+  nt rebuild
 "#;
 
 const LIST: &str = r#"nt list

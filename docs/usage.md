@@ -82,6 +82,17 @@ Search/filter speed is a first-class design constraint. Start with exact
 metadata filters when possible. `nt find` should evolve toward indexed text
 search, while shell file scanning remains the fallback for ad hoc inspection.
 
+## Rebuild Metadata
+
+```sh
+nt rebuild
+```
+
+`nt rebuild` scans the active vault's valid note files, refreshes title, source,
+and updated metadata from Markdown and file metadata, removes stale active-vault
+entries, cleans links to deleted notes, rebuilds derived maps, and prints
+`rebuilt <count>`.
+
 ## Search Philosophy
 
 - Exact metadata filters first.

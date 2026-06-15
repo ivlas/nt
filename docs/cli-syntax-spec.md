@@ -27,6 +27,7 @@ Rules:
 ```sh
 nt init <notes-dir>
 nt add [metadata...]
+nt rebuild
 nt list
 nt find <expr...>
 nt show <id>
@@ -54,6 +55,18 @@ nt completion <shell>
 nt help
 nt help <command>
 ```
+
+## Rebuild
+
+```text
+nt rebuild
+```
+
+`nt rebuild` reconstructs the active vault index from valid
+`NTYYYYMMDDTHHmmss.md` files and visible JSON metadata. It preserves primary
+metadata, refreshes titles, current body URL sources, and file `updated` times,
+removes stale active-vault entries, cleans links to deleted notes, rebuilds
+derived maps, and prints `rebuilt <count>`.
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`

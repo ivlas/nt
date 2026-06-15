@@ -175,6 +175,23 @@ impl Index {
         self.rebuild_derived();
     }
 
+    pub fn replace_active_vault_notes(&mut self, notes: BTreeMap<String, NoteMeta>) {
+        let active_vault = self.active_vault_path().map(Path::to_path_buf);
+        self.notes.retain(|_, note| {
+            active_vault
+                .as_deref()
+                .is_none_or(|path| !note.path.starts_with(path))
+        });
+        self.notes.extend(notes);
+
+        let existing_ids: BTreeSet<String> = self.notes.keys().cloned().collect();
+        for note in self.notes.values_mut() {
+            note.links.retain(|link| existing_ids.contains(link));
+        }
+
+        self.rebuild_derived();
+    }
+
     pub fn rebuild_derived(&mut self) {
         self.rebuild_derived_with_body_terms(&BTreeMap::new());
     }

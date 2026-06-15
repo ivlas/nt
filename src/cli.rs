@@ -25,6 +25,7 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         metadata: Vec<String>,
     },
+    Rebuild,
     List,
     Find {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -131,6 +132,7 @@ mod tests {
             &["nt", "init", "notes"],
             &["nt", "add"],
             &["nt", "add", "tag:decision", "kind:note", "status:open"],
+            &["nt", "rebuild"],
             &["nt", "list"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
@@ -201,6 +203,7 @@ mod tests {
             vec![
                 "init",
                 "add",
+                "rebuild",
                 "list",
                 "find",
                 "show",
