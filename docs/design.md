@@ -105,6 +105,21 @@ prefer narrow, deterministic filters over broad, ranked retrieval.
 - Machine-facing output should remain stable and one-record-per-line.
 - Shell composition should stay the escape hatch for ad hoc inspection.
 
+## Shell-first Human Workflows
+
+A TUI is intentionally deferred and is not part of the current core. The useful
+interactive model is:
+
+```text
+nt find / nt show / nt edit
++ less / fzf / awk / xargs
+```
+
+`nt` should keep producing deterministic output. Shell tools can provide
+paging, fuzzy selection, preview, and batching without adding fuzzy search,
+interactive prompts, or extra runtime dependencies to `nt`. This keeps the core
+usable by both humans and agents.
+
 ## Storage Model
 
 Markdown note files are canonical. Notes live in a flat configured notes

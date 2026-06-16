@@ -17,7 +17,8 @@ running `nt find`, and inspecting exact notes with `nt show`.
 
 See [docs/usage.md](docs/usage.md) for a compact guide,
 [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
-contract, [docs/design.md](docs/design.md) for boundaries, and
+contract, [docs/shell-workflows.md](docs/shell-workflows.md) for shell-first
+human workflows, [docs/design.md](docs/design.md) for boundaries, and
 [docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
 agent skill examples.
 
@@ -162,6 +163,15 @@ Unknown fields are errors so typos do not silently become broad text searches.
 - Return deterministic results.
 - Keep machine-facing output stable and one-record-per-line.
 - Compose with normal shell tools.
+
+## Shell-first Workflows
+
+`nt` keeps the core loop to `nt find`, `nt show`, and `nt edit`. Paging, fuzzy
+selection, previews, and batching come from shell tools such as `less`, `fzf`,
+`awk`, and `xargs`.
+
+See [docs/shell-workflows.md](docs/shell-workflows.md) for optional recipes. A
+TUI is intentionally deferred and is not part of the current core.
 
 ## Agent Use
 

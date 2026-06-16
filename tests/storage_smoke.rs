@@ -430,6 +430,27 @@ fn find_docs_document_body_terms_not_phrase_search() {
     assert!(syntax.contains("there is no `heading:<term>` query field yet."));
 }
 
+#[test]
+fn shell_workflow_docs_document_external_interaction() {
+    let readme = fs::read_to_string("README.md").unwrap();
+    assert!(readme.contains("[docs/shell-workflows.md](docs/shell-workflows.md)"));
+
+    let workflows = fs::read_to_string("docs/shell-workflows.md").unwrap();
+    assert!(workflows.contains("fzf --preview"));
+
+    let combined = [
+        readme,
+        workflows,
+        fs::read_to_string("docs/design.md").unwrap(),
+    ]
+    .join("\n")
+    .to_lowercase();
+    assert!(
+        combined.contains("tui is intentionally deferred")
+            || combined.contains("tui is not part of the current core")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_uses_editor_and_updates_visible_note() {
