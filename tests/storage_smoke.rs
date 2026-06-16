@@ -506,8 +506,9 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
     let readme = fs::read_to_string("README.md").unwrap();
     let quickstart = markdown_section(&readme, "## Quick Start");
 
-    assert!(quickstart.contains("nt show NTYYYYMMDDTHHmmss"));
-    assert!(quickstart.contains("Replace `NTYYYYMMDDTHHmmss` with the id printed by `nt add`."));
+    assert!(quickstart.contains("`nt add` prints a note id like `NT20260616T101500`."));
+    assert!(quickstart.contains("nt show <id>"));
+    assert!(quickstart.contains("nt edit <id>"));
 
     for command in nt_commands_in_shell_blocks(&quickstart) {
         assert!(
@@ -517,11 +518,11 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
     }
 
     let quickstart_commands = quickstart
-        .split("Replace `NTYYYYMMDDTHHmmss`")
+        .split("`nt add` prints a note id")
         .next()
         .unwrap();
     let commands = nt_commands_in_shell_blocks(quickstart_commands);
-    assert_eq!(commands, vec!["init", "add", "find", "show", "rebuild"]);
+    assert_eq!(commands, vec!["init", "add", "find"]);
 }
 
 #[test]

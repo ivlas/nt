@@ -1,58 +1,101 @@
 # nt
 
-`nt` is a Markdown-first, Git-friendly personal knowledge index: canonical
-CommonMark notes, visible JSON metadata, deterministic search, and
-shell-friendly commands. Its core goal is `time-to-knowledge`: the shortest path
-from vague memory to an exact note id and the note content behind it.
+`nt` is a small CLI-native note organizer: canonical CommonMark notes in an
+active vault, visible JSON metadata, deterministic search, and shell-friendly
+commands.
 
-It is intentionally useful to both humans and coding agents because it behaves
-like a normal Unix tool. It reads stdin, writes stdout, opens `$EDITOR`, exposes
-stable one-record-per-line commands, and does not keep a hidden memory layer.
-
-Markdown files are canonical. `$HOME/.nt/index.json` is the visible index: it
-stores vault config, note metadata, rebuildable derived maps, and body term
-indexes. It does not replace the Markdown note body.
-
-`nt` is not an app framework, agent runtime, RAG system, vector database,
-daemon, server, browser/runtime orchestrator, workflow engine, or launcher for a
-specific agent. Agents can still use it directly through zsh/bash by reading
-`nt help`, running `nt find`, and inspecting exact notes with `nt show`.
+It is built for humans and agents that already know how to use Unix tools. It
+reads stdin, writes stdout, opens `$EDITOR`, exposes stable one-record-per-line
+commands, and does not keep a hidden memory layer.
 
 See [docs/usage.md](docs/usage.md) for a compact guide,
 [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
 contract, [docs/shell-workflows.md](docs/shell-workflows.md) for shell-first
-human workflows, [docs/design.md](docs/design.md) for boundaries, and
+workflows, [docs/design.md](docs/design.md) for boundaries, and
 [docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
 agent skill examples. See [CHANGELOG.md](CHANGELOG.md) for release notes and
 [docs/release-checklist.md](docs/release-checklist.md) for the manual release
 checklist.
 
-## Goals
+## Status
 
-- Capture notes quickly as canonical CommonMark files in the active vault.
-- Keep a visible index of metadata, derived maps, and body terms.
-- Filter by id, metadata, body text, date, collection, and links.
-- Keep note files readable and editable without `nt`.
-- Keep metadata visible in `$HOME/.nt/index.json`.
-- Make search/filter speed a first-class design constraint.
-- Stay flagless for core workflows.
-- Compose cleanly with shell tools and completion.
+`nt` 0.1.0 is usable as the initial stable core.
 
-## Core Loop
+The core model is intentionally small:
 
-```text
-capture -> index -> filter -> inspect -> connect -> revise
-```
+- canonical CommonMark notes in an active vault
+- visible JSON index at `$HOME/.nt/index.json`
+- rebuildable metadata and body term indexes
+- indexed `nt find` candidate narrowing
+- deterministic active-recent output
+- shell-first workflows
+
+Future work should be fixes, polish, and features layered on this core, not a
+redesign of the storage/search model.
+
+### What is stable now
+
+- `init`, `add`, `list`, `find`, `show`, `edit`, and `rm`
+- metadata commands for tags, collections, kind, status, and links
+- `rebuild`
+- active vault config
+- completion generation
+- shell-first composition
+- agent-compatible CLI behavior
+
+### Not in core
+
+There is no TUI, RAG, embeddings, ranking, daemon, server, workflow engine, or
+hidden agent-only interface. A TUI is intentionally deferred and is not part of
+the current core.
+
+## Install
+
+From source:
 
 ```sh
-nt add [metadata...]
-nt list
-nt find <expr...>
+cargo install --path .
+```
+
+Requirements:
+
+- Rust toolchain
+- Unix-like shell recommended
+- `$EDITOR` for interactive note capture/editing
+
+Homebrew, crates.io, and binary releases are not available yet.
+
+## Quick Start
+
+```sh
+nt init notes
+printf '%s\n' '# First Note' '' 'body text' | nt add tag:example
+nt find example
+```
+
+`nt add` prints a note id like `NT20260616T101500`. Use that id with:
+
+```sh
 nt show <id>
 nt edit <id>
-nt tags
-nt collections
 ```
+
+Run `nt rebuild` after out-of-band file edits or deletes.
+
+## Core Model
+
+Markdown files are canonical. The active vault is flat and contains only
+`NTYYYYMMDDTHHmmss.md` note files.
+
+Metadata lives in `$HOME/.nt/index.json`, not Markdown front matter. The index
+stores vault config, note metadata, rebuildable derived maps, and body term
+indexes. It does not store note bodies.
+
+`nt rebuild` reconstructs the active vault visible index from Markdown note
+files and visible JSON metadata: it preserves primary metadata, preserves
+existing sources and merges URLs currently found in Markdown body, removes stale
+active-vault entries, cleans links to deleted notes, and refreshes the body term
+index.
 
 ## Commands
 
@@ -87,50 +130,6 @@ nt completion <shell>
 nt help
 nt help <command>
 ```
-
-## Quick Start
-
-```sh
-nt init notes
-printf '%s\n' '# First Note' '' 'body text' | nt add tag:example
-nt find example
-nt show NTYYYYMMDDTHHmmss
-nt rebuild
-```
-
-Replace `NTYYYYMMDDTHHmmss` with the id printed by `nt add`.
-
-For editor-first capture, run `nt add` to open `$EDITOR`, or
-`nt add tag:example` to open `$EDITOR` and save the new note with that tag.
-Update an existing note or its metadata with explicit commands:
-
-```sh
-nt edit NTYYYYMMDDTHHmmss
-nt tag NTYYYYMMDDTHHmmss example
-nt status NTYYYYMMDDTHHmmss open
-nt collect NTYYYYMMDDTHHmmss projects/nt
-```
-
-Note files are flat CommonMark files:
-
-```text
-notes/
-  NT20260528T143012.md
-  NT20260528T150501.md
-```
-
-Metadata lives in `$HOME/.nt/index.json`, not Markdown front matter. Export can
-generate interoperable front-matter copies without changing active notes:
-
-```sh
-nt export archive NT20260528T143012
-```
-
-Run `nt rebuild` after out-of-band file edits or deletes. It reconstructs the
-active vault visible index from Markdown note files and visible JSON metadata:
-it preserves primary metadata, preserves existing sources and merges URLs
-currently found in Markdown body, removes stale active-vault entries, cleans
-links to deleted notes, and refreshes the body term index.
 
 ## Search
 
@@ -170,27 +169,18 @@ not:tag:draft
 
 Unknown fields are errors so typos do not silently become broad text searches.
 
-## Search Philosophy
-
-- Use exact metadata filters first.
-- Use body term indexes for candidate narrowing before file scanning.
-- Return deterministic active-recent results.
-- Keep machine-facing output stable and one-record-per-line.
-- Compose with normal shell tools for shell-first workflows.
-
 ## Shell-first Workflows
 
 `nt` keeps the core loop to `nt find`, `nt show`, and `nt edit`. Paging, fuzzy
 selection, previews, and batching come from shell tools such as `less`, `fzf`,
 `awk`, and `xargs`.
 
-See [docs/shell-workflows.md](docs/shell-workflows.md) for optional recipes. A
-TUI is intentionally deferred and is not part of the current core.
+See [docs/shell-workflows.md](docs/shell-workflows.md) for optional recipes.
 
 ## Agent Use
 
-`nt` has no built-in agent command. That is deliberate. Any agent that can run
-shell commands can use the same visible workflow:
+`nt` has no built-in agent command. Any agent that can run shell commands can
+use the same visible workflow:
 
 ```sh
 nt help
@@ -204,19 +194,14 @@ nt show NT20260528T143012
 When an agent writes notes, it should draft CommonMark, ask before mutation when
 appropriate, then save through `nt add` or edit through `nt edit`. Optional
 skill examples live in [docs/examples/agent-skills.md](docs/examples/agent-skills.md)
-so users can adapt them to Codex, Claude Code, Cursor, or any other agent
-system without `nt` owning that runtime.
+so users can adapt them to Codex, Claude Code, Cursor, or any other agent system
+without `nt` owning that runtime.
 
-## Install from Source
-
-```sh
-cargo install --path .
-```
-
-For local development:
+## Development / Release
 
 ```sh
-cargo build
+cargo fmt --check
 cargo test
 cargo clippy --all-targets
+cargo run -- help
 ```
