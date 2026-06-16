@@ -963,6 +963,81 @@ fn find_uses_visible_body_term_indexes() {
 }
 
 #[test]
+fn find_skips_body_file_reads_when_indexed_candidates_are_empty() {
+    let root = temp_dir("find-empty-index-candidates");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add"], "# Indexed\n\noldterm only.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    fs::remove_file(notes.join(format!("{id}.md"))).unwrap();
+
+    let found = run_nt(&home, &["find", "body:missingterm"]);
+
+    assert!(found.trim().is_empty());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn find_reads_body_files_for_missing_body_index_entries() {
+    let root = temp_dir("find-missing-body-index");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &["add"],
+        "# Unindexed\n\nfallbackonlyterm lives only in the Markdown body.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let mut index = read_index(&home);
+    index["body_terms"]
+        .as_object_mut()
+        .unwrap()
+        .remove("fallbackonlyterm");
+    index["body_indexed"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|value| value.as_str() != Some(id));
+    write_index(&home, &index);
+
+    let found = run_nt(&home, &["find", "body:fallbackonlyterm"]);
+
+    assert_eq!(summary_ids(&found), vec![id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn find_trusts_stale_indexed_body_terms_until_rebuild() {
+    let root = temp_dir("find-stale-body-index");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add"], "# Indexed\n\nneedle appears here.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    fs::write(
+        notes.join(format!("{id}.md")),
+        "# Indexed\n\nchanged body.\n",
+    )
+    .unwrap();
+
+    let found = run_nt(&home, &["find", "body:needle"]);
+
+    assert_eq!(summary_ids(&found), vec![id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn find_preserves_active_recent_order_with_index_candidates() {
     let root = temp_dir("find-candidate-order");
     let home = root.join("home");

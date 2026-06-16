@@ -773,6 +773,29 @@ mod tests {
     }
 
     #[test]
+    fn not_body_candidates_are_verification_only_when_body_plan_is_superset() {
+        let mut index = active_index();
+
+        index.upsert_note_with_body(
+            note("NT20260528T143012"),
+            "# Indexed\n\nIndexed body text.\n",
+        );
+        index.upsert_note(note("NT20260529T120000"));
+
+        let exact = Query::parse(&["not:body:indexed".to_string()]).unwrap();
+        assert!(
+            exact.candidate_ids(&index).is_none(),
+            "unindexed active notes make body planning a superset, so not:body stays verification-only"
+        );
+
+        let fallback_only = Query::parse(&["not:body:fallback".to_string()]).unwrap();
+        assert!(
+            fallback_only.candidate_ids(&index).is_none(),
+            "fallback-only body queries cannot be subtracted structurally"
+        );
+    }
+
+    #[test]
     fn plans_since_and_before_candidates() {
         let mut index = active_index();
         let mut before = note("NT20260527T120000");
@@ -805,6 +828,71 @@ mod tests {
         ]);
 
         assert_eq!(candidates.unwrap(), BTreeSet::from(["b".to_string()]));
+    }
+
+    #[test]
+    fn large_index_candidate_narrowing_is_structural_and_preserves_recent_order() {
+        let mut index = active_index();
+        let dir = temp_dir("query-large-index");
+        index.vaults.get_mut("notes").unwrap().path = dir.clone();
+        let mut expected_recent = Vec::new();
+
+        for second in 0..1000 {
+            let hour = second / 3600;
+            let minute = second / 60 % 60;
+            let second_of_minute = second % 60;
+            let id = format!("NT20260601T{hour:02}{minute:02}{second_of_minute:02}");
+            let mut item = note(&id);
+            item.path = dir.join(format!("{id}.md"));
+            item.created = format!("2026-06-01T{hour:02}:{minute:02}:{second_of_minute:02}Z");
+
+            if matches!(second, 100 | 500 | 900) {
+                item.tags = vec!["target".to_string()];
+                item.status = Some("open".to_string());
+                expected_recent.push(id.clone());
+                fs::write(&item.path, "# Target\n\nneedle marker.\n").unwrap();
+                index.upsert_note_with_body(item, "# Target\n\nneedle marker.\n");
+            } else {
+                if second % 2 == 0 {
+                    item.tags = vec!["target".to_string()];
+                }
+                if second % 3 == 0 {
+                    item.status = Some("open".to_string());
+                }
+                index.upsert_note_with_body(item, "# Filler\n\nhaystack marker.\n");
+            }
+        }
+
+        expected_recent.sort_by(|left, right| right.cmp(left));
+
+        let query = Query::parse(&[
+            "tag:target".to_string(),
+            "status:open".to_string(),
+            "body:needle".to_string(),
+        ])
+        .unwrap();
+        let candidates = query.candidate_ids(&index).unwrap();
+
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(
+            candidates,
+            BTreeSet::from([
+                "NT20260601T000140".to_string(),
+                "NT20260601T000820".to_string(),
+                "NT20260601T001500".to_string()
+            ])
+        );
+
+        let found: Vec<&str> = index
+            .active_recent_notes()
+            .filter(|note| candidates.contains(&note.id))
+            .filter(|note| query.matches(&index, note).unwrap())
+            .map(|note| note.id.as_str())
+            .collect();
+
+        assert_eq!(found, expected_recent);
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

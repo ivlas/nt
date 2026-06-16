@@ -79,6 +79,8 @@ order; there is no ranking, fuzzy search, or semantic search. Markdown file
 scans are reserved for notes missing from `body_indexed`; indexed body entries
 are trusted until `nt rebuild` refreshes them. Quoted multiword `body:` values
 match all indexed terms, not an exact phrase.
+Search performance is protected by deterministic structural regression tests,
+not wall-clock timing guarantees.
 
 `heading_terms` is indexed for future/internal use only. There is no
 `heading:<term>` query field yet.
