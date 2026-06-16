@@ -195,6 +195,100 @@ fn init_imports_existing_flat_notes() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(unix)]
+#[test]
+fn new_user_release_readiness_smoke_flow() {
+    let root = temp_dir("release-readiness-flow");
+    let home = root.join("home");
+    let vault = root.join("notes");
+    let editor = root.join("editor.sh");
+
+    let initialized = run_nt(&home, &["init", vault.to_str().unwrap()]);
+    assert_eq!(
+        initialized.trim(),
+        format!("initialized notes {}", vault.display())
+    );
+    let index = read_index(&home);
+    assert_eq!(index["active_vault"].as_str(), Some("notes"));
+    assert_eq!(
+        index["vaults"]["notes"]["path"].as_str(),
+        Some(vault.to_str().unwrap())
+    );
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &["add", "tag:rust", "kind:note", "status:open"],
+        "# Rust Ownership\n\nBorrow checker notes.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
+    assert!(is_valid_note_id(&id), "invalid generated id: {id}");
+    assert_eq!(
+        fs::read_to_string(vault.join(format!("{id}.md"))).unwrap(),
+        "# Rust Ownership\n\nBorrow checker notes.\n"
+    );
+
+    let listed = run_nt(&home, &["list"]);
+    assert_eq!(summary_ids(&listed), vec![id.as_str()]);
+    assert!(listed.contains("Rust Ownership"));
+
+    let found = run_nt(&home, &["find", "rust", "ownership"]);
+    assert_eq!(summary_ids(&found), vec![id.as_str()]);
+
+    let shown = run_nt(&home, &["show", &id]);
+    assert!(shown.contains(&format!("{id}  Rust Ownership")));
+    assert!(shown.contains("kind note"));
+    assert!(shown.contains("status open"));
+    assert!(shown.contains("tags rust"));
+    assert!(shown.contains("# Rust Ownership\n\nBorrow checker notes."));
+
+    fs::write(
+        &editor,
+        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n# Rust Ownership Updated\n\nBorrow checker field guide.\nEOF\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let edited = run_nt_with_env(
+        &home,
+        &["edit", &id],
+        &[("EDITOR", editor.to_str().unwrap())],
+    );
+    assert_eq!(edited.trim(), format!("saved {id}"));
+
+    let shown = run_nt(&home, &["show", &id]);
+    assert!(shown.contains(&format!("{id}  Rust Ownership Updated")));
+    assert!(shown.contains("# Rust Ownership Updated\n\nBorrow checker field guide."));
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:field"])),
+        vec![id.as_str()]
+    );
+
+    let rebuilt = run_nt(&home, &["rebuild"]);
+    assert_eq!(rebuilt.trim(), "rebuilt 1");
+    let index = read_index(&home);
+    assert_eq!(index["notes"][id.as_str()]["status"].as_str(), Some("open"));
+    assert_eq!(
+        index["notes"][id.as_str()]["tags"].as_array().unwrap(),
+        &vec![serde_json::Value::String("rust".to_string())]
+    );
+
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:borrow"])),
+        vec![id.as_str()]
+    );
+    assert_eq!(run_nt(&home, &["ids"]).trim(), id);
+    assert!(run_nt(&home, &["tags"]).contains("rust\t1"));
+    let status = run_nt(&home, &["status"]);
+    assert_eq!(summary_ids(&status), vec![id.as_str()]);
+    let config = run_nt(&home, &["config", "show"]);
+    assert!(config.contains("vault notes"));
+    assert!(config.contains(&vault.display().to_string()));
+
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn rebuild_reconstructs_active_vault_index_from_markdown() {
     let root = temp_dir("rebuild-active-vault");
@@ -391,6 +485,60 @@ fn help_is_a_flagless_command_with_examples() {
 }
 
 #[test]
+fn help_lists_current_top_level_command_surface() {
+    let root = temp_dir("help-command-surface");
+    let home = root.join("home");
+
+    let root_help = run_nt(&home, &["help"]);
+    for command in ROOT_COMMANDS {
+        let expected = format!("  {command}");
+        assert!(
+            root_help.lines().any(|line| line.starts_with(&expected)),
+            "nt help should list top-level command `{command}`"
+        );
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
+    let readme = fs::read_to_string("README.md").unwrap();
+    let quickstart = markdown_section(&readme, "## Quick Start");
+
+    assert!(quickstart.contains("nt show NTYYYYMMDDTHHmmss"));
+    assert!(quickstart.contains("Replace `NTYYYYMMDDTHHmmss` with the id printed by `nt add`."));
+
+    for command in nt_commands_in_shell_blocks(&quickstart) {
+        assert!(
+            ROOT_COMMANDS.contains(&command.as_str()),
+            "README quickstart uses unsupported nt command `{command}`"
+        );
+    }
+
+    let quickstart_commands = quickstart
+        .split("Replace `NTYYYYMMDDTHHmmss`")
+        .next()
+        .unwrap();
+    let commands = nt_commands_in_shell_blocks(quickstart_commands);
+    assert_eq!(commands, vec!["init", "add", "find", "show", "rebuild"]);
+}
+
+#[test]
+fn shell_workflow_docs_use_only_core_shell_workflow_commands() {
+    let workflows = fs::read_to_string("docs/shell-workflows.md").unwrap();
+    let commands = nt_commands_in_shell_blocks(&workflows);
+
+    assert!(!commands.is_empty());
+    for command in commands {
+        assert!(
+            ["find", "show", "edit", "ids"].contains(&command.as_str()),
+            "docs/shell-workflows.md uses unsupported workflow nt command `{command}`"
+        );
+    }
+}
+
+#[test]
 fn readme_links_to_core_docs() {
     let readme = fs::read_to_string("README.md").unwrap();
 
@@ -498,8 +646,24 @@ fn docs_do_not_make_unqualified_search_claims_or_future_command_examples() {
         let text = fs::read_to_string(path).unwrap();
         let lower = text.to_lowercase();
         assert!(!lower.contains("exact phrase search"), "{path}");
-        assert!(!lower.contains("nt pick"), "{path}");
-        assert!(!lower.contains("nt tui"), "{path}");
+
+        for command in UNSUPPORTED_ROOT_COMMAND_EXAMPLES {
+            for paragraph in lower.split("\n\n") {
+                if !paragraph_mentions_nt_command(paragraph, command) {
+                    continue;
+                }
+                let normalized = paragraph.split_whitespace().collect::<Vec<_>>().join(" ");
+                assert!(
+                    normalized.contains("there is no")
+                        || normalized.contains("no built-in")
+                        || normalized.contains("avoid adding")
+                        || normalized.contains("deferred")
+                        || normalized.contains("not part of the current core")
+                        || normalized.contains("outside `nt`"),
+                    "{path} contains unqualified unsupported command `{command}`: {normalized}"
+                );
+            }
+        }
 
         for term in ["semantic search", "ranking", "vector", "embedding"] {
             for paragraph in lower.split("\n\n") {
@@ -1251,6 +1415,36 @@ fn find_reports_missing_note_bodies() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn common_mistakes_fail_cleanly() {
+    let root = temp_dir("common-mistakes");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let uninitialized_home = root.join("uninitialized-home");
+
+    assert_failed(&home, &["find"], "Usage:");
+    assert_failed(
+        &home,
+        &["help", "unknown"],
+        "unknown help topic `unknown`; run `nt help`",
+    );
+    assert_failed(
+        &uninitialized_home,
+        &["rebuild"],
+        "run `nt init <notes-dir>` first",
+    );
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    assert_failed(
+        &home,
+        &["find", "collectiom:projects/nt"],
+        "unknown query field `collectiom`; did you mean `collection`?",
+    );
+    assert_failed(&home, &["show", "bad-id"], "invalid note id");
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn assert_failed(home: &PathBuf, args: &[&str], expected: &str) {
     let output = Command::new(nt_bin())
         .env("HOME", home)
@@ -1329,6 +1523,95 @@ fn summary_ids(output: &str) -> Vec<&str> {
         .collect()
 }
 
+fn is_valid_note_id(id: &str) -> bool {
+    id.len() == 17
+        && id.starts_with("NT")
+        && id.as_bytes()[10] == b'T'
+        && id[2..10].chars().all(|ch| ch.is_ascii_digit())
+        && id[11..17].chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn markdown_section(markdown: &str, heading: &str) -> String {
+    let mut section = String::new();
+    let mut in_section = false;
+    let heading_level = heading.chars().take_while(|ch| *ch == '#').count();
+
+    for line in markdown.lines() {
+        if line == heading {
+            in_section = true;
+            section.push_str(line);
+            section.push('\n');
+            continue;
+        }
+
+        if in_section {
+            let line_level = line.chars().take_while(|ch| *ch == '#').count();
+            if line_level > 0
+                && line_level <= heading_level
+                && line.as_bytes().get(line_level) == Some(&b' ')
+            {
+                break;
+            }
+            section.push_str(line);
+            section.push('\n');
+        }
+    }
+
+    section
+}
+
+fn nt_commands_in_shell_blocks(markdown: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut in_shell_block = false;
+
+    for line in markdown.lines() {
+        if let Some(language) = line.trim_start().strip_prefix("```") {
+            let language = language.trim();
+            in_shell_block = !in_shell_block && matches!(language, "sh" | "bash");
+            if language.is_empty() {
+                in_shell_block = false;
+            }
+            continue;
+        }
+
+        if in_shell_block {
+            commands.extend(nt_commands_in_line(line));
+        }
+    }
+
+    commands
+}
+
+fn nt_commands_in_line(line: &str) -> Vec<String> {
+    let tokens: Vec<String> = line.split_whitespace().map(clean_shell_token).collect();
+    let mut commands = Vec::new();
+
+    for pair in tokens.windows(2) {
+        if pair[0] == "nt" && !pair[1].starts_with('<') {
+            commands.push(pair[1].clone());
+        }
+    }
+
+    commands
+}
+
+fn paragraph_mentions_nt_command(paragraph: &str, command: &str) -> bool {
+    let Some(command) = command.strip_prefix("nt ") else {
+        return false;
+    };
+
+    paragraph
+        .lines()
+        .flat_map(nt_commands_in_line)
+        .any(|found| found == command)
+}
+
+fn clean_shell_token(token: &str) -> String {
+    token
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '<' && ch != '>' && ch != '-')
+        .to_string()
+}
+
 fn run_nt(home: &PathBuf, args: &[&str]) -> String {
     let output = Command::new(nt_bin())
         .env("HOME", home)
@@ -1401,3 +1684,41 @@ fn temp_dir(name: &str) -> PathBuf {
     fs::create_dir_all(&dir).unwrap();
     dir
 }
+
+const ROOT_COMMANDS: &[&str] = &[
+    "init",
+    "add",
+    "rebuild",
+    "list",
+    "find",
+    "show",
+    "edit",
+    "rm",
+    "ids",
+    "tags",
+    "tag",
+    "untag",
+    "collections",
+    "collection",
+    "collect",
+    "uncollect",
+    "kind",
+    "status",
+    "link",
+    "unlink",
+    "links",
+    "export",
+    "config",
+    "completion",
+    "help",
+];
+
+const UNSUPPORTED_ROOT_COMMAND_EXAMPLES: &[&str] = &[
+    "nt pick",
+    "nt tui",
+    "nt search",
+    "nt grep",
+    "nt graph",
+    "nt agent",
+    "nt run",
+];

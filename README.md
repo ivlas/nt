@@ -90,18 +90,23 @@ nt help <command>
 
 ```sh
 nt init notes
-
-cat <<'EOF' | nt add tag:storage kind:decision status:open collection:projects/nt
-# Storage shape
-
-Keep note metadata outside Markdown.
-EOF
-
-nt list
-nt find tag:storage
-nt show NT20260528T143012
-nt edit NT20260528T143012
+printf '%s\n' '# First Note' '' 'body text' | nt add tag:example
+nt find example
+nt show NTYYYYMMDDTHHmmss
 nt rebuild
+```
+
+Replace `NTYYYYMMDDTHHmmss` with the id printed by `nt add`.
+
+For editor-first capture, run `nt add` to open `$EDITOR`, or
+`nt add tag:example` to open `$EDITOR` and save the new note with that tag.
+Update an existing note or its metadata with explicit commands:
+
+```sh
+nt edit NTYYYYMMDDTHHmmss
+nt tag NTYYYYMMDDTHHmmss example
+nt status NTYYYYMMDDTHHmmss open
+nt collect NTYYYYMMDDTHHmmss projects/nt
 ```
 
 Note files are flat CommonMark files:
