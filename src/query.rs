@@ -737,6 +737,26 @@ mod tests {
     }
 
     #[test]
+    fn indexed_body_entries_are_trusted_until_rebuild() {
+        let mut index = active_index();
+        let dir = temp_dir("query-body-stale-index");
+        let path = dir.join("NT20260528T143012.md");
+        fs::write(&path, "# Body\n\nFresh bodyonlyterm from disk.\n").unwrap();
+
+        index.vaults.get_mut("notes").unwrap().path = dir.clone();
+        let mut note = note("NT20260528T143012");
+        note.path = path;
+        index.upsert_note_with_body(note.clone(), "# Body\n\nOld indexed text.\n");
+
+        let query = Query::parse(&["body:bodyonlyterm".to_string()]).unwrap();
+
+        assert!(query.candidate_ids(&index).unwrap().is_empty());
+        assert!(!query.matches(&index, &note).unwrap());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn plans_not_candidates_only_when_inner_set_is_exact() {
         let mut index = active_index();
         let mut draft = note("NT20260528T143012");
