@@ -7,5 +7,6 @@
 - nt help find
 - nt help rebuild
 - run the README quickstart manually
+- review docs/nt-core-v1.md
 - verify no unsupported commands are documented
 - verify no generated local notes/index files are committed

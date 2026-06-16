@@ -548,11 +548,75 @@ fn readme_links_to_core_docs() {
         "[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md)",
         "[docs/design.md](docs/design.md)",
         "[docs/shell-workflows.md](docs/shell-workflows.md)",
+        "[docs/nt-core-v1.md](docs/nt-core-v1.md)",
         "[docs/examples/agent-skills.md](docs/examples/agent-skills.md)",
         "[CHANGELOG.md](CHANGELOG.md)",
         "[docs/release-checklist.md](docs/release-checklist.md)",
     ] {
         assert!(readme.contains(link), "README should link to {link}");
+    }
+}
+
+#[test]
+fn core_readiness_doc_tracks_release_claim() {
+    let readme = fs::read_to_string("README.md").unwrap();
+    assert!(readme.contains("[docs/nt-core-v1.md](docs/nt-core-v1.md)"));
+
+    let readiness = fs::read_to_string("docs/nt-core-v1.md").unwrap();
+    assert!(readiness.contains("0.1.0 is usable as the initial stable core"));
+
+    for area in [
+        "Storage model",
+        "Vault lifecycle",
+        "Capture/read/edit/delete",
+        "Rebuild",
+        "Search",
+        "Metadata",
+        "Shell/agent interface",
+        "Release hygiene",
+    ] {
+        assert!(
+            readiness.contains(area),
+            "core readiness doc should include area {area}"
+        );
+    }
+
+    for non_goal in [
+        "no TUI",
+        "no RAG",
+        "no embeddings",
+        "no semantic search",
+        "no ranking",
+        "no daemon",
+        "no hidden agent memory",
+    ] {
+        assert!(
+            readiness.contains(non_goal),
+            "core readiness doc should include non-goal {non_goal}"
+        );
+    }
+
+    let normalized = readiness.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains(
+            "Future work should be fixes, polish, and features layered on this core, not a redesign of the storage/search model."
+        )
+    );
+
+    for command in [
+        "nt pick",
+        "nt tui",
+        "nt search",
+        "nt grep",
+        "nt graph",
+        "nt agent",
+        "nt run",
+        "nt version",
+    ] {
+        assert!(
+            !readiness.contains(command),
+            "core readiness doc should not imply unsupported command `{command}` exists"
+        );
     }
 }
 
@@ -569,6 +633,7 @@ fn release_docs_cover_source_install_and_manual_checks() {
         "cargo fmt --check",
         "cargo test",
         "cargo clippy --all-targets",
+        "review docs/nt-core-v1.md",
     ] {
         assert!(
             checklist.contains(check),
@@ -1769,6 +1834,7 @@ const DOC_PATHS: &[&str] = &[
     "docs/cli-syntax-spec.md",
     "docs/design.md",
     "docs/shell-workflows.md",
+    "docs/nt-core-v1.md",
     "docs/examples/agent-skills.md",
     "docs/release-checklist.md",
 ];

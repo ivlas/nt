@@ -11,7 +11,8 @@ commands, and does not keep a hidden memory layer.
 See [docs/usage.md](docs/usage.md) for a compact guide,
 [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
 contract, [docs/shell-workflows.md](docs/shell-workflows.md) for shell-first
-workflows, [docs/design.md](docs/design.md) for boundaries, and
+workflows, [docs/nt-core-v1.md](docs/nt-core-v1.md) for the readiness audit,
+[docs/design.md](docs/design.md) for boundaries, and
 [docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
 agent skill examples. See [CHANGELOG.md](CHANGELOG.md) for release notes and
 [docs/release-checklist.md](docs/release-checklist.md) for the manual release
