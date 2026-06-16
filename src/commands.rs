@@ -73,13 +73,13 @@ fn init(notes_dir: &Path) -> Result<()> {
 fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
     for path in valid_note_paths(notes_dir)? {
         let id = id_from_note_path(&path)?;
-        if let Some(existing) = index.notes.get(&id) {
-            if existing.path != path {
-                return Err(NtError::Message(format!(
-                    "note id `{id}` already exists in index at {}",
-                    existing.path.display()
-                )));
-            }
+        if let Some(existing) = index.notes.get(&id)
+            && existing.path != path
+        {
+            return Err(NtError::Message(format!(
+                "note id `{id}` already exists in index at {}",
+                existing.path.display()
+            )));
         }
 
         let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
@@ -186,7 +186,7 @@ fn ensure_notes_dir_is_flat(notes_dir: &Path) -> Result<()> {
 
         if !file_type.is_file()
             || extension != Some("md")
-            || !stem.is_some_and(|value| validate_id(value).is_ok())
+            || stem.is_none_or(|value| validate_id(value).is_err())
         {
             return Err(NtError::Message(format!(
                 "notes directory must contain only NTYYYYMMDDTHHmmss.md files; invalid entry: {}",

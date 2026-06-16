@@ -23,7 +23,9 @@ See [docs/usage.md](docs/usage.md) for a compact guide,
 contract, [docs/shell-workflows.md](docs/shell-workflows.md) for shell-first
 human workflows, [docs/design.md](docs/design.md) for boundaries, and
 [docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
-agent skill examples.
+agent skill examples. See [CHANGELOG.md](CHANGELOG.md) for release notes and
+[docs/release-checklist.md](docs/release-checklist.md) for the manual release
+checklist.
 
 ## Goals
 
@@ -205,10 +207,16 @@ skill examples live in [docs/examples/agent-skills.md](docs/examples/agent-skill
 so users can adapt them to Codex, Claude Code, Cursor, or any other agent
 system without `nt` owning that runtime.
 
-## Development
+## Install from Source
 
 ```sh
-cargo fmt
+cargo install --path .
+```
+
+For local development:
+
+```sh
+cargo build
 cargo test
-cargo run -- help
+cargo clippy --all-targets
 ```

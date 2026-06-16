@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[cfg(unix)]
@@ -548,8 +548,51 @@ fn readme_links_to_core_docs() {
         "[docs/design.md](docs/design.md)",
         "[docs/shell-workflows.md](docs/shell-workflows.md)",
         "[docs/examples/agent-skills.md](docs/examples/agent-skills.md)",
+        "[CHANGELOG.md](CHANGELOG.md)",
+        "[docs/release-checklist.md](docs/release-checklist.md)",
     ] {
         assert!(readme.contains(link), "README should link to {link}");
+    }
+}
+
+#[test]
+fn release_docs_cover_source_install_and_manual_checks() {
+    let readme = fs::read_to_string("README.md").unwrap();
+    assert!(readme.contains("cargo install --path ."));
+
+    let changelog = fs::read_to_string("CHANGELOG.md").unwrap();
+    assert!(changelog.contains("## 0.1.0"));
+
+    let checklist = fs::read_to_string("docs/release-checklist.md").unwrap();
+    for check in [
+        "cargo fmt --check",
+        "cargo test",
+        "cargo clippy --all-targets",
+    ] {
+        assert!(
+            checklist.contains(check),
+            "release checklist should include {check}"
+        );
+    }
+}
+
+#[test]
+fn docs_do_not_document_version_command_or_flag() {
+    assert!(
+        !ROOT_COMMANDS.contains(&"version"),
+        "update this test if nt gains a supported version command"
+    );
+
+    for path in DOC_PATHS {
+        let text = fs::read_to_string(path).unwrap();
+        assert!(
+            !text.contains("nt version"),
+            "{path} should not document an unsupported nt version command"
+        );
+        assert!(
+            !text.contains("--version"),
+            "{path} should not document an unsupported version flag"
+        );
     }
 }
 
@@ -633,16 +676,7 @@ fn find_docs_document_body_terms_not_phrase_search() {
 
 #[test]
 fn docs_do_not_make_unqualified_search_claims_or_future_command_examples() {
-    let paths = [
-        "README.md",
-        "docs/usage.md",
-        "docs/cli-syntax-spec.md",
-        "docs/design.md",
-        "docs/shell-workflows.md",
-        "docs/examples/agent-skills.md",
-    ];
-
-    for path in paths {
+    for path in DOC_PATHS {
         let text = fs::read_to_string(path).unwrap();
         let lower = text.to_lowercase();
         assert!(!lower.contains("exact phrase search"), "{path}");
@@ -1506,12 +1540,12 @@ fn assert_failed_with_stdin(home: &PathBuf, args: &[&str], stdin: &str, expected
     );
 }
 
-fn read_index(home: &PathBuf) -> serde_json::Value {
+fn read_index(home: &Path) -> serde_json::Value {
     let index = fs::read_to_string(home.join(".nt/index.json")).unwrap();
     serde_json::from_str(&index).unwrap()
 }
 
-fn write_index(home: &PathBuf, index: &serde_json::Value) {
+fn write_index(home: &Path, index: &serde_json::Value) {
     let bytes = serde_json::to_vec_pretty(index).unwrap();
     fs::write(home.join(".nt/index.json"), bytes).unwrap();
 }
@@ -1719,6 +1753,21 @@ const UNSUPPORTED_ROOT_COMMAND_EXAMPLES: &[&str] = &[
     "nt search",
     "nt grep",
     "nt graph",
+    "nt open",
+    "nt browse",
     "nt agent",
+    "nt discuss",
     "nt run",
+    "nt version",
+];
+
+const DOC_PATHS: &[&str] = &[
+    "README.md",
+    "CHANGELOG.md",
+    "docs/usage.md",
+    "docs/cli-syntax-spec.md",
+    "docs/design.md",
+    "docs/shell-workflows.md",
+    "docs/examples/agent-skills.md",
+    "docs/release-checklist.md",
 ];

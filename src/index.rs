@@ -676,9 +676,9 @@ mod tests {
         index.upsert_note_with_body(note(id), "# Old\n\nalpha beta.\n");
         index.upsert_note_with_body(note(id), "# New\n\nbeta gamma.\n");
 
-        assert!(index.body_terms.get("alpha").is_none());
+        assert!(!index.body_terms.contains_key("alpha"));
         assert_eq!(index.body_terms["gamma"], vec![id.to_string()]);
-        assert!(index.heading_terms.get("old").is_none());
+        assert!(!index.heading_terms.contains_key("old"));
         assert_eq!(index.heading_terms["new"], vec![id.to_string()]);
 
         index.remove_note(id);
