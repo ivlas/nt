@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use crate::error::{NtError, Result};
@@ -65,6 +66,24 @@ impl Query {
 
         Ok(true)
     }
+
+    pub fn candidate_ids(&self, index: &Index) -> Option<BTreeSet<String>> {
+        let mut candidates = Vec::new();
+
+        for expr in &self.exprs {
+            if let Some(candidate) = expr.candidate_ids(index) {
+                candidates.push(candidate.ids);
+            }
+        }
+
+        intersect_candidates(candidates)
+    }
+}
+
+#[derive(Debug)]
+struct CandidateSet {
+    ids: BTreeSet<String>,
+    exact: bool,
 }
 
 impl QueryExpr {
@@ -160,6 +179,52 @@ impl QueryExpr {
             Self::Not(expr) => Ok(!expr.matches(index, note)?),
         }
     }
+
+    fn candidate_ids(&self, index: &Index) -> Option<CandidateSet> {
+        match self {
+            Self::Bare(value) => bare_word_candidates(index, value),
+            Self::Id(value) => Some(exact_candidate(
+                index
+                    .notes
+                    .keys()
+                    .filter(|id| normalize(id).starts_with(value))
+                    .cloned()
+                    .collect(),
+            )),
+            Self::Tag(value) => Some(exact_candidate(ids_for_normalized_key(&index.tags, value))),
+            Self::Title(_) => None,
+            Self::Day(value) => Some(exact_candidate(ids_for_key(&index.days, value))),
+            Self::Since(value) => Some(exact_candidate(ids_for_days(index, |day| day >= value))),
+            Self::Before(value) => Some(exact_candidate(ids_for_days(index, |day| day < value))),
+            Self::Kind(value) => Some(exact_candidate(ids_for_normalized_key(&index.kinds, value))),
+            Self::Status(value) => Some(exact_candidate(ids_for_normalized_key(
+                &index.statuses,
+                value,
+            ))),
+            Self::Collection(value) => Some(exact_candidate(ids_for_normalized_key(
+                &index.collections,
+                value,
+            ))),
+            Self::Link(value) => Some(exact_candidate(ids_for_normalized_key(
+                &index.backlinks,
+                value,
+            ))),
+            Self::Source(_) => None,
+            Self::Body(value) => body_candidates(index, value),
+            Self::Not(expr) => {
+                let candidate = expr.candidate_ids(index)?;
+                if !candidate.exact {
+                    return None;
+                }
+
+                let mut ids = all_note_ids(index);
+                for id in candidate.ids {
+                    ids.remove(&id);
+                }
+                Some(exact_candidate(ids))
+            }
+        }
+    }
 }
 
 fn normalize(value: &str) -> String {
@@ -244,6 +309,126 @@ fn invalid_id_prefix(value: &str) -> NtError {
 
 fn contains_normalized(values: &[String], needle: &str) -> bool {
     values.iter().any(|value| normalize(value) == needle)
+}
+
+fn exact_candidate(ids: BTreeSet<String>) -> CandidateSet {
+    CandidateSet { ids, exact: true }
+}
+
+fn superset_candidate(ids: BTreeSet<String>) -> CandidateSet {
+    CandidateSet { ids, exact: false }
+}
+
+fn intersect_candidates(mut candidates: Vec<BTreeSet<String>>) -> Option<BTreeSet<String>> {
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by_key(BTreeSet::len);
+    let mut intersected = candidates.remove(0);
+
+    for candidate in candidates {
+        if intersected.is_empty() {
+            break;
+        }
+        intersected = intersected.intersection(&candidate).cloned().collect();
+    }
+
+    Some(intersected)
+}
+
+fn ids_for_key(index: &BTreeMap<String, Vec<String>>, key: &str) -> BTreeSet<String> {
+    index
+        .get(key)
+        .into_iter()
+        .flat_map(|ids| ids.iter().cloned())
+        .collect()
+}
+
+fn ids_for_normalized_key(index: &BTreeMap<String, Vec<String>>, key: &str) -> BTreeSet<String> {
+    index
+        .iter()
+        .filter(|(indexed_key, _)| normalize(indexed_key) == key)
+        .flat_map(|(_, ids)| ids.iter().cloned())
+        .collect()
+}
+
+fn ids_for_days(index: &Index, matches: impl Fn(&str) -> bool) -> BTreeSet<String> {
+    index
+        .days
+        .iter()
+        .filter(|(day, _)| matches(day))
+        .flat_map(|(_, ids)| ids.iter().cloned())
+        .collect()
+}
+
+fn all_note_ids(index: &Index) -> BTreeSet<String> {
+    index.notes.keys().cloned().collect()
+}
+
+fn active_unindexed_body_ids(index: &Index) -> BTreeSet<String> {
+    let indexed: BTreeSet<&str> = index.body_indexed.iter().map(String::as_str).collect();
+    index
+        .active_recent_notes()
+        .filter(|note| !indexed.contains(note.id.as_str()))
+        .map(|note| note.id.clone())
+        .collect()
+}
+
+fn ids_with_all_terms(
+    term_index: &BTreeMap<String, Vec<String>>,
+    terms: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let mut candidates = Vec::new();
+    for term in terms {
+        candidates.push(ids_for_key(term_index, term));
+    }
+
+    intersect_candidates(candidates).unwrap_or_default()
+}
+
+fn body_candidates(index: &Index, value: &str) -> Option<CandidateSet> {
+    let terms = tokenize_text(value);
+    if terms.is_empty() {
+        return None;
+    }
+
+    let mut ids = ids_with_all_terms(&index.body_terms, &terms);
+    let unindexed = active_unindexed_body_ids(index);
+    let exact = unindexed.is_empty();
+    ids.extend(unindexed);
+
+    Some(if exact {
+        exact_candidate(ids)
+    } else {
+        superset_candidate(ids)
+    })
+}
+
+fn bare_word_candidates(index: &Index, value: &str) -> Option<CandidateSet> {
+    let terms = tokenize_text(value);
+    if terms.is_empty() {
+        return None;
+    }
+
+    let mut ids = ids_for_key(&index.terms, value);
+    ids.extend(
+        index
+            .notes
+            .values()
+            .filter(|note| matches_metadata(note, value))
+            .map(|note| note.id.clone()),
+    );
+
+    let body = body_candidates(index, value)?;
+    let exact = body.exact;
+    ids.extend(body.ids);
+
+    Some(if exact {
+        exact_candidate(ids)
+    } else {
+        superset_candidate(ids)
+    })
 }
 
 fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
@@ -337,12 +522,13 @@ fn edit_distance(left: &str, right: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::index::{Index, NoteMeta};
+    use crate::index::{Index, NoteMeta, VaultMeta};
 
-    use super::Query;
+    use super::{Query, intersect_candidates};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -352,6 +538,19 @@ mod tests {
             "2026-05-28T14:30:12Z".to_string(),
             "Storage Decision".to_string(),
         )
+    }
+
+    fn active_index() -> Index {
+        let mut index = Index::default();
+        index.active_vault = Some("notes".to_string());
+        index.vaults.insert(
+            "notes".to_string(),
+            VaultMeta {
+                path: PathBuf::from("notes"),
+                created: "2026-05-28T14:30:12Z".to_string(),
+            },
+        );
+        index
     }
 
     #[test]
@@ -437,6 +636,155 @@ mod tests {
         assert!(query.matches(&index, &note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn plans_tag_status_and_body_intersection() {
+        let mut index = active_index();
+        let mut matching = note("NT20260528T143012");
+        matching.tags = vec!["rust".to_string()];
+        matching.status = Some("open".to_string());
+        index.upsert_note_with_body(matching, "# Ownership\n\nBorrowed ownership notes.\n");
+
+        let mut wrong_status = note("NT20260529T120000");
+        wrong_status.created = "2026-05-29T12:00:00Z".to_string();
+        wrong_status.tags = vec!["rust".to_string()];
+        wrong_status.status = Some("done".to_string());
+        index.upsert_note_with_body(wrong_status, "# Ownership\n\nOwnership notes.\n");
+
+        let mut wrong_body = note("NT20260530T120000");
+        wrong_body.created = "2026-05-30T12:00:00Z".to_string();
+        wrong_body.tags = vec!["rust".to_string()];
+        wrong_body.status = Some("open".to_string());
+        index.upsert_note_with_body(wrong_body, "# Lifetimes\n\nRegion notes.\n");
+
+        let query = Query::parse(&[
+            "tag:rust".to_string(),
+            "status:open".to_string(),
+            "body:ownership".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260528T143012".to_string()])
+        );
+    }
+
+    #[test]
+    fn plans_body_only_queries_from_body_terms() {
+        let mut index = active_index();
+        index.upsert_note_with_body(note("NT20260528T143012"), "# Body\n\nOwnership details.\n");
+        index.upsert_note_with_body(note("NT20260529T120000"), "# Other\n\nLifetime details.\n");
+
+        let query = Query::parse(&["body:ownership".to_string()]).unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260528T143012".to_string()])
+        );
+    }
+
+    #[test]
+    fn plans_bare_body_queries_from_body_terms() {
+        let mut index = active_index();
+        index.upsert_note_with_body(note("NT20260528T143012"), "# Body\n\nOwnership details.\n");
+        index.upsert_note_with_body(note("NT20260529T120000"), "# Other\n\nLifetime details.\n");
+
+        let query = Query::parse(&["ownership".to_string()]).unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260528T143012".to_string()])
+        );
+    }
+
+    #[test]
+    fn plans_empty_intersections_as_empty_candidates() {
+        let mut index = active_index();
+        let mut note = note("NT20260528T143012");
+        note.tags = vec!["rust".to_string()];
+        note.status = Some("open".to_string());
+        index.upsert_note_with_body(note, "# Ownership\n\nOwnership details.\n");
+
+        let query =
+            Query::parse(&["status:done".to_string(), "body:ownership".to_string()]).unwrap();
+
+        assert!(query.candidate_ids(&index).unwrap().is_empty());
+    }
+
+    #[test]
+    fn body_candidates_keep_unindexed_notes_for_fallback() {
+        let mut index = active_index();
+        let dir = temp_dir("query-body-candidate-fallback");
+        let path = dir.join("NT20260528T143012.md");
+        fs::write(&path, "# Body\n\nOnly the body has bodyonlyterm.\n").unwrap();
+
+        index.vaults.get_mut("notes").unwrap().path = dir.clone();
+        let mut note = note("NT20260528T143012");
+        note.path = path;
+        index.upsert_note(note.clone());
+
+        let query = Query::parse(&["body:bodyonlyterm".to_string()]).unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260528T143012".to_string()])
+        );
+        assert!(query.matches(&index, &note).unwrap());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn plans_not_candidates_only_when_inner_set_is_exact() {
+        let mut index = active_index();
+        let mut draft = note("NT20260528T143012");
+        draft.tags = vec!["draft".to_string()];
+        index.upsert_note(draft);
+        index.upsert_note(note("NT20260529T120000"));
+
+        let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260529T120000".to_string()])
+        );
+    }
+
+    #[test]
+    fn plans_since_and_before_candidates() {
+        let mut index = active_index();
+        let mut before = note("NT20260527T120000");
+        before.created = "2026-05-27T12:00:00Z".to_string();
+        let matching = note("NT20260528T143012");
+        let mut after = note("NT20260529T120000");
+        after.created = "2026-05-29T12:00:00Z".to_string();
+        index.upsert_note(before);
+        index.upsert_note(matching);
+        index.upsert_note(after);
+
+        let query = Query::parse(&[
+            "since:2026-05-28".to_string(),
+            "before:2026-05-29".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            query.candidate_ids(&index).unwrap(),
+            BTreeSet::from(["NT20260528T143012".to_string()])
+        );
+    }
+
+    #[test]
+    fn candidate_intersection_is_deterministic() {
+        let candidates = intersect_candidates(vec![
+            BTreeSet::from(["b".to_string(), "c".to_string()]),
+            BTreeSet::from(["a".to_string(), "b".to_string(), "c".to_string()]),
+            BTreeSet::from(["b".to_string()]),
+        ]);
+
+        assert_eq!(candidates.unwrap(), BTreeSet::from(["b".to_string()]));
     }
 
     #[test]

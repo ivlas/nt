@@ -344,8 +344,20 @@ fn edit(id: &str) -> Result<()> {
 fn find(exprs: &[String]) -> Result<()> {
     let index = Index::load()?;
     let query = Query::parse(exprs)?;
+    let candidates = query.candidate_ids(&index);
+
+    if candidates.as_ref().is_some_and(BTreeSet::is_empty) {
+        return Ok(());
+    }
 
     for note in index.active_recent_notes() {
+        if candidates
+            .as_ref()
+            .is_some_and(|ids| !ids.contains(&note.id))
+        {
+            continue;
+        }
+
         if query.matches(&index, note)? {
             println!("{}", summary_line(note));
         }

@@ -247,9 +247,11 @@ nt find <expr...>
 
 Each `<expr>` is one query expression. All expressions are combined with `AND`.
 Expression order does not matter. Search is case-insensitive. `nt find` uses
-visible metadata and body term indexes from `$HOME/.nt/index.json` where
-available, with Markdown file scans reserved for missing text index entries.
-Quoted multiword `body:` values match all indexed terms, not an exact phrase.
+visible metadata and body term indexes from `$HOME/.nt/index.json` to narrow
+candidate notes where available, with Markdown file scans reserved for missing
+text index entries. Final results are still printed in deterministic
+active-recent order, with no ranking, fuzzy search, or semantic search. Quoted
+multiword `body:` values match all indexed terms, not an exact phrase.
 The visible `heading_terms` index is for future/internal use; there is no
 `heading:<term>` query field yet.
 

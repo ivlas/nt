@@ -79,10 +79,12 @@ Use `nt show <id>` for exact retrieval. It prints identity and metadata before
 the CommonMark body.
 
 Search/filter speed is a first-class design constraint. Start with exact
-metadata filters when possible. `nt find` uses visible body term indexes in
-`$HOME/.nt/index.json` where available, while shell file scanning remains the
-fallback for ad hoc inspection. Quoted multiword `body:` values match all
-indexed terms, not an exact phrase.
+metadata filters when possible. `nt find` uses visible metadata and body term
+indexes in `$HOME/.nt/index.json` to narrow candidate notes where available,
+then prints verified results in active-recent order. There is no ranking, fuzzy
+search, or semantic search. Shell file scanning remains the fallback for ad hoc
+inspection. Quoted multiword `body:` values match all indexed terms, not an
+exact phrase.
 
 ## Rebuild Metadata
 

@@ -963,6 +963,28 @@ fn find_uses_visible_body_term_indexes() {
 }
 
 #[test]
+fn find_preserves_active_recent_order_with_index_candidates() {
+    let root = temp_dir("find-candidate-order");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nsharedorder term.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nsharedorder term.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+    let third = run_nt_with_stdin(&home, &["add"], "# Third\n\nsharedorder term.\n");
+    let third_id = third.trim().strip_prefix("saved ").unwrap();
+
+    let found = run_nt(&home, &["find", "body:sharedorder"]);
+
+    assert_eq!(summary_ids(&found), vec![third_id, second_id, first_id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn body_multiword_queries_match_all_terms_not_exact_phrase() {
     let root = temp_dir("find-body-all-terms");
     let home = root.join("home");

@@ -72,8 +72,11 @@ Metadata mutations should go through explicit commands, such as `nt collect`,
 
 Bare words match searchable metadata or indexed note body terms. The current
 implementation keeps derived metadata maps, a metadata `terms` map, and visible
-body term indexes in `$HOME/.nt/index.json`. Quoted multiword `body:` values
-match all indexed terms, not an exact phrase.
+body term indexes in `$HOME/.nt/index.json`. `nt find` uses those indexes to
+build candidate note sets where possible, intersects them, and then verifies
+matches before printing. Final output remains deterministic active-recent
+order; there is no ranking, fuzzy search, or semantic search. Quoted multiword
+`body:` values match all indexed terms, not an exact phrase.
 
 `heading_terms` is indexed for future/internal use only. There is no
 `heading:<term>` query field yet.
