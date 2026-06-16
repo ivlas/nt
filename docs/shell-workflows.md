@@ -1,7 +1,8 @@
 # Shell-first Workflows
 
-`nt` should produce simple deterministic output. Shell tools provide paging,
-fuzzy selection, preview, and batching outside the core command surface.
+`nt` should produce simple deterministic output in active-recent order.
+`nt find` handles indexed candidate narrowing; shell-first workflows provide
+paging, fuzzy selection, preview, and batching outside the core command surface.
 
 The preferred model is:
 

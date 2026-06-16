@@ -71,14 +71,15 @@ Metadata mutations should go through explicit commands, such as `nt collect`,
 `AND`, order does not matter, and search is case-insensitive.
 
 Bare words match searchable metadata or indexed note body terms. The current
-implementation keeps derived metadata maps, a metadata `terms` map, and visible
-body term indexes in `$HOME/.nt/index.json`. `nt find` uses those indexes to
-build candidate note sets where possible, intersects them, and then verifies
-matches before printing. Final output remains deterministic active-recent
-order; there is no ranking, fuzzy search, or semantic search. Markdown file
-scans are reserved for notes missing from `body_indexed`; indexed body entries
-are trusted until `nt rebuild` refreshes them. Quoted multiword `body:` values
-match all indexed terms, not an exact phrase.
+implementation keeps a visible index in `$HOME/.nt/index.json`: primary
+metadata, derived metadata maps, a metadata `terms` map, and a body term index.
+`nt find` uses those indexes for candidate narrowing where possible, intersects
+candidate note sets, and then verifies matches before printing. Final output
+remains deterministic active-recent order; there is no ranking, fuzzy search, or
+semantic search. Markdown file scans are reserved for notes missing from
+`body_indexed`; indexed body entries are trusted until `nt rebuild` refreshes
+them. Quoted multiword `body:` values match all indexed terms, not an exact
+phrase.
 Search performance is protected by deterministic structural regression tests,
 not wall-clock timing guarantees.
 
@@ -100,10 +101,11 @@ prefer narrow, deterministic filters over broad, ranked retrieval.
 
 - Exact metadata filters come first: ids, tags, kinds, statuses, collections,
   days, links, and sources.
-- Text search should use indexed lookup before file scanning.
+- Text search should use body term index candidate narrowing before file
+  scanning.
 - Results should be deterministic, not scored or personalized.
 - Machine-facing output should remain stable and one-record-per-line.
-- Shell composition should stay the escape hatch for ad hoc inspection.
+- Shell-first workflows should stay the escape hatch for ad hoc inspection.
 
 ## Shell-first Human Workflows
 
@@ -115,10 +117,10 @@ nt find / nt show / nt edit
 + less / fzf / awk / xargs
 ```
 
-`nt` should keep producing deterministic output. Shell tools can provide
-paging, fuzzy selection, preview, and batching without adding fuzzy search,
-interactive prompts, or extra runtime dependencies to `nt`. This keeps the core
-usable by both humans and agents.
+`nt` should keep producing deterministic active-recent output. Shell tools can
+provide paging, fuzzy selection, preview, and batching without adding fuzzy
+search, interactive prompts, or extra runtime dependencies to `nt`. This keeps
+the core usable by both humans and agents.
 
 ## Storage Model
 
@@ -126,9 +128,9 @@ Markdown note files are canonical. Notes live in a flat configured notes
 directory as `NTYYYYMMDDTHHmmss.md` files. The notes directory should contain
 only atomic `.md` note files.
 
-Metadata lives under `$HOME/.nt/index.json` as visible JSON. The index must be
-written atomically with temp-file-and-rename and should remain rebuildable where
-possible. Note bodies must not be stored in the index.
+Metadata and text terms live under `$HOME/.nt/index.json` as a visible index.
+The index must be written atomically with temp-file-and-rename and should remain
+rebuildable where possible. Note bodies must not be stored in the index.
 
 Primary note metadata should stay small:
 
@@ -162,17 +164,17 @@ terms
 Derived maps must be rebuildable from primary metadata and, where useful, from
 CommonMark note bodies.
 
-As note sets grow, search should evolve toward three tiers:
+Current search uses three tiers:
 
 1. Exact id lookup through `notes`.
-2. Indexed metadata lookup through kinds, statuses, tags, collections, days,
-   links, sources, titles, and terms.
-3. Streaming body search as fallback.
+2. Candidate narrowing through indexed metadata, metadata terms, and the body
+   term index.
+3. Markdown body reads only for notes missing body index entries.
 
 The `terms` map is a rebuildable inverted index from normalized metadata words
-to note ids. Body-derived terms can be added later from cheap sources such as
-headings, references, and possibly the first paragraph. Indexing every body word
-can wait until real note set size requires it.
+to note ids. The body term index is a rebuildable inverted index from normalized
+Markdown body terms to note ids. Indexed body entries are trusted until
+`nt rebuild`; stale indexed terms are not file-scanned on every query.
 
 Metadata fields that cannot be derived from CommonMark should be updated through
 explicit commands.

@@ -50,16 +50,19 @@ fn topic_text(key: &str) -> Result<&'static str> {
 
 const ROOT: &str = r#"nt
 
-Small CLI note organizer.
+Markdown-first CLI note organizer.
 
 Usage:
   nt <command> [positional...]
   nt help <command>
 
+Notes are canonical CommonMark files in the active vault. The visible index at
+$HOME/.nt/index.json stores metadata, derived maps, and the body term index.
+
 Commands:
   init         create a vault
   add          add a Markdown note
-  rebuild      rebuild active vault metadata
+  rebuild      rebuild active vault index
   list         list recent notes
   find         find notes by query expressions
   show         show one exact note
@@ -103,8 +106,9 @@ Examples:
 
 const ADD: &str = r#"nt add [metadata...]
 
-Read a CommonMark note from stdin, or open $EDITOR when stdin is a terminal.
-Metadata uses visible positional expressions.
+Read a canonical CommonMark note from stdin, or open $EDITOR when stdin is a
+terminal. Metadata uses visible positional expressions and is saved in the
+active vault index.
 
 Examples:
   nt add
@@ -114,10 +118,10 @@ Examples:
 
 const REBUILD: &str = r#"nt rebuild
 
-Rebuild the active vault index from canonical Markdown note files and visible
+Rebuild the active vault visible index from canonical Markdown note files and
 JSON metadata. Preserves primary metadata, preserves existing sources and merges
-URLs currently found in Markdown body, removes stale active-vault entries, and
-cleans links to deleted notes.
+URLs currently found in Markdown body, removes stale active-vault entries,
+cleans links to deleted notes, and refreshes the body term index.
 
 Examples:
   nt rebuild
@@ -135,8 +139,13 @@ Examples:
 const FIND: &str = r#"nt find <expr...>
 
 Find notes with AND-combined query expressions. Bare words match searchable
-metadata and indexed note body terms. Quoted multiword body: values match all
-indexed terms, not an exact phrase.
+metadata and indexed note body terms. `nt find` uses visible metadata and the
+body term index for candidate narrowing where available, then prints verified
+matches in deterministic active-recent order.
+
+body: values use indexed body terms. Quoted multiword body: values match all
+indexed terms, not an exact phrase. Missing body index entries may fall back to
+Markdown body reads; indexed body entries are trusted until `nt rebuild`.
 
 Examples:
   nt find qemu firecracker
@@ -147,7 +156,8 @@ Examples:
 
 const SHOW: &str = r#"nt show <id>
 
-Print note identity, metadata, and CommonMark body for one exact note.
+Print note identity and visible metadata from the index, then the canonical
+CommonMark body from disk, for one exact note.
 
 Examples:
   nt show NT20260528T143012
@@ -156,7 +166,8 @@ Examples:
 
 const EDIT: &str = r#"nt edit <id>
 
-Open one note in $EDITOR and save the edited Markdown body.
+Open one canonical Markdown note in $EDITOR, save it atomically, and refresh the
+visible index entry and body term index.
 
 Examples:
   nt edit NT20260528T143012
@@ -321,7 +332,8 @@ Examples:
 
 const CONFIG_VAULT: &str = r#"nt config vault [vault-name]
 
-List known vaults, or select the active vault by name.
+List known vaults, or select the active vault by name. Commands read and write
+notes through the active vault.
 
 Examples:
   nt config vault

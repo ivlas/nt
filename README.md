@@ -1,19 +1,22 @@
 # nt
 
-`nt` is a Markdown-first, Git-friendly personal knowledge index: plain
-Markdown notes, visible JSON metadata, deterministic search, and shell-friendly
-commands. Its core goal is `time-to-knowledge`: the shortest path from vague
-memory to an exact note id and the note content behind it.
+`nt` is a Markdown-first, Git-friendly personal knowledge index: canonical
+CommonMark notes, visible JSON metadata, deterministic search, and
+shell-friendly commands. Its core goal is `time-to-knowledge`: the shortest path
+from vague memory to an exact note id and the note content behind it.
 
 It is intentionally useful to both humans and coding agents because it behaves
 like a normal Unix tool. It reads stdin, writes stdout, opens `$EDITOR`, exposes
 stable one-record-per-line commands, and does not keep a hidden memory layer.
 
-`nt` keeps notes as plain Markdown and metadata as visible JSON. It is not an
-app framework, agent runtime, RAG system, vector database, daemon, server,
-browser/runtime orchestrator, workflow engine, or launcher for a specific
-agent. Agents can still use it directly through zsh/bash by reading `nt help`,
-running `nt find`, and inspecting exact notes with `nt show`.
+Markdown files are canonical. `$HOME/.nt/index.json` is the visible index: it
+stores vault config, note metadata, rebuildable derived maps, and body term
+indexes. It does not replace the Markdown note body.
+
+`nt` is not an app framework, agent runtime, RAG system, vector database,
+daemon, server, browser/runtime orchestrator, workflow engine, or launcher for a
+specific agent. Agents can still use it directly through zsh/bash by reading
+`nt help`, running `nt find`, and inspecting exact notes with `nt show`.
 
 See [docs/usage.md](docs/usage.md) for a compact guide,
 [docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
@@ -24,8 +27,8 @@ agent skill examples.
 
 ## Goals
 
-- Capture notes quickly as canonical CommonMark files.
-- Index visible metadata and rebuildable derived maps.
+- Capture notes quickly as canonical CommonMark files in the active vault.
+- Keep a visible index of metadata, derived maps, and body terms.
 - Filter by id, metadata, body text, date, collection, and links.
 - Keep note files readable and editable without `nt`.
 - Keep metadata visible in `$HOME/.nt/index.json`.
@@ -116,17 +119,21 @@ generate interoperable front-matter copies without changing active notes:
 nt export archive NT20260528T143012
 ```
 
-Run `nt rebuild` to reconstruct active-vault metadata and text term indexes
-from Markdown note files and visible JSON metadata after out-of-band file edits
-or deletes. It preserves existing sources and merges URLs currently found in
-Markdown body.
+Run `nt rebuild` after out-of-band file edits or deletes. It reconstructs the
+active vault visible index from Markdown note files and visible JSON metadata:
+it preserves primary metadata, preserves existing sources and merges URLs
+currently found in Markdown body, removes stale active-vault entries, cleans
+links to deleted notes, and refreshes the body term index.
 
 ## Search
 
 `nt find` takes positional query expressions. All expressions are combined with
-`AND`; order does not matter; search is case-insensitive. Body terms are looked
-up through visible indexes in `$HOME/.nt/index.json` where available. Quoted
-multiword `body:` values match all indexed terms, not an exact phrase.
+`AND`; order does not matter; search is case-insensitive. It uses visible
+metadata and the body term index for candidate narrowing where available, then
+prints verified matches in deterministic active-recent order. Missing body index
+entries may fall back to Markdown body reads. Indexed body entries are trusted
+until `nt rebuild`. Quoted multiword `body:` values match all indexed terms, not
+an exact phrase. There is no ranking, fuzzy search, or semantic search.
 
 ```sh
 nt find qemu firecracker
@@ -159,10 +166,10 @@ Unknown fields are errors so typos do not silently become broad text searches.
 ## Search Philosophy
 
 - Use exact metadata filters first.
-- Use indexed text search before file scanning.
-- Return deterministic results.
+- Use body term indexes for candidate narrowing before file scanning.
+- Return deterministic active-recent results.
 - Keep machine-facing output stable and one-record-per-line.
-- Compose with normal shell tools.
+- Compose with normal shell tools for shell-first workflows.
 
 ## Shell-first Workflows
 

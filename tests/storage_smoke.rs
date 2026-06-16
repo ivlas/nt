@@ -364,6 +364,10 @@ fn help_is_a_flagless_command_with_examples() {
     assert!(find_help.contains("nt find <expr...>"));
     assert!(find_help.contains("nt find tag:decision collection:projects/nt"));
     assert!(
+        find_help.contains("candidate narrowing") || find_help.contains("indexed body terms"),
+        "find help should document indexed search narrowing"
+    );
+    assert!(
         find_help.contains(
             "Quoted multiword body: values match all\nindexed terms, not an exact phrase"
         )
@@ -387,6 +391,21 @@ fn help_is_a_flagless_command_with_examples() {
 }
 
 #[test]
+fn readme_links_to_core_docs() {
+    let readme = fs::read_to_string("README.md").unwrap();
+
+    for link in [
+        "[docs/usage.md](docs/usage.md)",
+        "[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md)",
+        "[docs/design.md](docs/design.md)",
+        "[docs/shell-workflows.md](docs/shell-workflows.md)",
+        "[docs/examples/agent-skills.md](docs/examples/agent-skills.md)",
+    ] {
+        assert!(readme.contains(link), "README should link to {link}");
+    }
+}
+
+#[test]
 fn rebuild_docs_document_persistent_source_semantics() {
     let expected = "preserves existing sources and merges URLs currently found in";
     for path in ["docs/cli-syntax-spec.md", "docs/usage.md", "README.md"] {
@@ -399,6 +418,40 @@ fn rebuild_docs_document_persistent_source_semantics() {
         assert!(
             !text.contains("refreshes current body URL sources"),
             "{path} should not claim rebuild refreshes body URL sources"
+        );
+    }
+}
+
+#[test]
+fn docs_document_index_trust_boundary_and_deferred_tui() {
+    for path in [
+        "README.md",
+        "docs/usage.md",
+        "docs/cli-syntax-spec.md",
+        "docs/design.md",
+    ] {
+        let text = fs::read_to_string(path).unwrap();
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains("Indexed body entries are trusted until `nt rebuild`")
+                || normalized.contains("indexed body entries are trusted until `nt rebuild`"),
+            "{path} should document indexed body entries are trusted until rebuild"
+        );
+    }
+
+    for path in [
+        "README.md",
+        "docs/usage.md",
+        "docs/cli-syntax-spec.md",
+        "docs/design.md",
+        "docs/shell-workflows.md",
+    ] {
+        let text = fs::read_to_string(path).unwrap();
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized.contains("A TUI is intentionally deferred")
+                || normalized.contains("a TUI is intentionally deferred"),
+            "{path} should document that TUI is deferred"
         );
     }
 }
@@ -428,6 +481,44 @@ fn find_docs_document_body_terms_not_phrase_search() {
     let syntax = syntax.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(syntax.contains("The visible `heading_terms` index is for future/internal use"));
     assert!(syntax.contains("there is no `heading:<term>` query field yet."));
+}
+
+#[test]
+fn docs_do_not_make_unqualified_search_claims_or_future_command_examples() {
+    let paths = [
+        "README.md",
+        "docs/usage.md",
+        "docs/cli-syntax-spec.md",
+        "docs/design.md",
+        "docs/shell-workflows.md",
+        "docs/examples/agent-skills.md",
+    ];
+
+    for path in paths {
+        let text = fs::read_to_string(path).unwrap();
+        let lower = text.to_lowercase();
+        assert!(!lower.contains("exact phrase search"), "{path}");
+        assert!(!lower.contains("nt pick"), "{path}");
+        assert!(!lower.contains("nt tui"), "{path}");
+
+        for term in ["semantic search", "ranking", "vector", "embedding"] {
+            for paragraph in lower.split("\n\n") {
+                if !paragraph.contains(term) {
+                    continue;
+                }
+                let normalized = paragraph.split_whitespace().collect::<Vec<_>>().join(" ");
+                assert!(
+                    normalized.contains(" no ")
+                        || normalized.contains(" not ")
+                        || normalized.contains("without ")
+                        || normalized.contains("avoid ")
+                        || normalized.contains("do not ")
+                        || normalized.contains("absence "),
+                    "{path} contains unqualified `{term}`: {normalized}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

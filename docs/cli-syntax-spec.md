@@ -62,18 +62,19 @@ nt help <command>
 nt rebuild
 ```
 
-`nt rebuild` reconstructs the active vault index from valid
+`nt rebuild` reconstructs the active vault visible index from valid
 `NTYYYYMMDDTHHmmss.md` files and visible JSON metadata. It preserves primary
 metadata, refreshes titles and file `updated` times, preserves existing sources
 and merges URLs currently found in Markdown body, removes stale active-vault
 entries, cleans links to deleted notes, rebuilds derived maps and text term
-indexes, and prints `rebuilt <count>`.
+indexes including the body term index, and prints `rebuilt <count>`.
 
 Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
 itself. `nt` keeps notes as Markdown and metadata as JSON. It is not an app
 framework, agent runtime, or vector/RAG system. Agent integrations should live
 outside `nt` as docs, skills, shell wrappers, or agent-specific configuration.
+A TUI is intentionally deferred and is not part of the current core.
 
 ## Links
 
@@ -247,12 +248,13 @@ nt find <expr...>
 
 Each `<expr>` is one query expression. All expressions are combined with `AND`.
 Expression order does not matter. Search is case-insensitive. `nt find` uses
-visible metadata and body term indexes from `$HOME/.nt/index.json` to narrow
-candidate notes where available, with Markdown file scans reserved for missing
-body index entries. Indexed body entries are trusted until `nt rebuild`
-refreshes them. Final results are still printed in deterministic active-recent
-order, with no ranking, fuzzy search, or semantic search. Quoted multiword
-`body:` values match all indexed terms, not an exact phrase.
+the visible index in `$HOME/.nt/index.json`, including metadata maps and the
+body term index, for candidate narrowing where available. Markdown file scans
+are reserved for missing body index entries. Indexed body entries are trusted
+until `nt rebuild` refreshes them. Final results are still printed in
+deterministic active-recent order, with no ranking, fuzzy search, or semantic
+search. Quoted multiword `body:` values match all indexed terms, not an exact
+phrase.
 The visible `heading_terms` index is for future/internal use; there is no
 `heading:<term>` query field yet.
 
@@ -330,10 +332,10 @@ of overloading the v1 `AND` model.
 ## Search Philosophy
 
 - Exact metadata filters first.
-- Indexed text search before file scanning.
-- Deterministic results.
+- Body term index candidate narrowing before file scanning.
+- Deterministic active-recent results.
 - Stable one-record-per-line output.
-- Shell composition for ad hoc expansion.
+- Shell-first workflows for ad hoc expansion.
 
 ## Values
 

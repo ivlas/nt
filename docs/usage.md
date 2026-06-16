@@ -79,13 +79,14 @@ Use `nt show <id>` for exact retrieval. It prints identity and metadata before
 the CommonMark body.
 
 Search/filter speed is a first-class design constraint. Start with exact
-metadata filters when possible. `nt find` uses visible metadata and body term
-indexes in `$HOME/.nt/index.json` to narrow candidate notes where available,
-then prints verified results in active-recent order. There is no ranking, fuzzy
-search, or semantic search. Markdown file scans are reserved for notes missing
-from `body_indexed`; indexed body entries are trusted until `nt rebuild`
-refreshes them. Shell file scanning remains the fallback for ad hoc inspection.
-Quoted multiword `body:` values match all indexed terms, not an exact phrase.
+metadata filters when possible. `nt find` uses the visible index in
+`$HOME/.nt/index.json`, including metadata maps and the body term index, for
+candidate narrowing where available, then prints verified results in
+active-recent order. There is no ranking, fuzzy search, or semantic search.
+Markdown file scans are reserved for notes missing from `body_indexed`; indexed
+body entries are trusted until `nt rebuild` refreshes them. Shell file scanning
+remains the fallback for ad hoc inspection. Quoted multiword `body:` values
+match all indexed terms, not an exact phrase.
 
 ## Rebuild Metadata
 
@@ -96,16 +97,16 @@ nt rebuild
 `nt rebuild` scans the active vault's valid note files, refreshes title and
 updated metadata, preserves existing sources and merges URLs currently found in
 Markdown body, removes stale active-vault entries, cleans links to deleted
-notes, rebuilds derived maps and text term indexes, and prints
+notes, rebuilds derived maps and the body term index, and prints
 `rebuilt <count>`.
 
 ## Search Philosophy
 
 - Exact metadata filters first.
-- Use indexed text search before file scanning.
-- Deterministic results.
+- Use the body term index for candidate narrowing before file scanning.
+- Deterministic active-recent results.
 - Stable one-record-per-line output.
-- Shell composition.
+- Shell-first workflows.
 
 ## Organize Metadata
 
@@ -225,6 +226,10 @@ metadata is JSON. Optional skill examples are documentation only:
 [examples/agent-skills.md](examples/agent-skills.md).
 
 ## Unix Composition
+
+Shell-first workflows keep paging, previews, fuzzy selection, and batching
+outside the core command surface. A TUI is intentionally deferred and is not
+part of the current core.
 
 ```sh
 nt ids | head
