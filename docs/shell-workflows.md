@@ -1,4 +1,4 @@
-# Shell Workflows
+# Shell-first Workflows
 
 `nt` should produce simple deterministic output. Shell tools provide paging,
 fuzzy selection, preview, and batching outside the core command surface.
