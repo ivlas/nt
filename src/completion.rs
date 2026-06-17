@@ -285,6 +285,36 @@ _nt_statuses() {
     _describe -t statuses 'statuses' statuses "$@"
 }
 
+_nt_sources() {
+    local home="${HOME:-${USERPROFILE:-}}"
+    local index="${home}/.nt/index.json"
+    local line value in_sources=0
+    local -a sources
+
+    [[ -r "$index" ]] || return
+
+    while IFS= read -r line; do
+        if [[ "$line" == *'"sources": ['* ]]; then
+            in_sources=1
+            continue
+        fi
+
+        if (( in_sources )); then
+            if [[ "$line" == *']'* ]]; then
+                in_sources=0
+                continue
+            fi
+
+            value="${line#*\"}"
+            value="${value%%\"*}"
+            [[ -n "$value" ]] && sources+=("$value")
+        fi
+    done < "$index"
+
+    typeset -U sources
+    print -rl -- "$sources[@]"
+}
+
 _nt_complete_prefixed_values() {
     local outer_prefix="$1"
     local field="$2"
@@ -310,7 +340,12 @@ _nt_complete_prefixed_values() {
         fi
     done
 
-    compadd -Q -a candidates
+    if (( ${#candidates} == 0 )); then
+        compadd -Q -S '' -- "$token"
+        return
+    fi
+
+    compadd -Q -S '' -a candidates
 }
 
 _nt_complete_fields() {
@@ -358,6 +393,7 @@ _nt_query_expr() {
         status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
         id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(nt ids 2>/dev/null)}" ;;
         link) _nt_complete_prefixed_values "$outer_prefix" link "${(@f)$(nt ids 2>/dev/null)}" ;;
+        source) _nt_complete_prefixed_values "$outer_prefix" source "${(@f)$(_nt_sources)}" ;;
     esac
 }
 
@@ -382,6 +418,7 @@ _nt_add_metadata() {
         kind) _nt_complete_prefixed_values "" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "" status open waiting done dropped ;;
         link) _nt_complete_prefixed_values "" link "${(@f)$(nt ids 2>/dev/null)}" ;;
+        source) _nt_complete_prefixed_values "" source "${(@f)$(_nt_sources)}" ;;
     esac
 }
 "#;
@@ -430,6 +467,9 @@ mod tests {
         assert!(script.contains("nt tags 2>/dev/null"));
         assert!(script.contains("_nt_complete_fields"));
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
+        assert!(script.contains("_nt_sources"));
+        assert!(script.contains("source) _nt_complete_prefixed_values"));
+        assert!(script.contains("compadd -Q -S '' -a candidates"));
 
         let helper = script.find("_nt_query_expr()").unwrap();
         let invocation = script.find("_nt \"$@\"").unwrap();
