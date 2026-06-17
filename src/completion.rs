@@ -320,8 +320,8 @@ _nt_complete_prefixed_values() {
     local field="$2"
     shift 2
     local prefix="${outer_prefix}${field}:"
-    local token="$PREFIX"
-    local rest list_prefix value_prefix value
+    local token="${IPREFIX}${PREFIX}"
+    local rest list_prefix value_prefix value candidate
     local -a candidates
 
     [[ "$token" == "$prefix"* ]] || return 1
@@ -336,16 +336,23 @@ _nt_complete_prefixed_values() {
 
     for value in "$@"; do
         if [[ "$value" == "$value_prefix"* ]]; then
-            candidates+=("${prefix}${list_prefix}${value}")
+            candidate="${prefix}${list_prefix}${value}"
+            if [[ -n "$IPREFIX" && "$candidate" == "$IPREFIX"* ]]; then
+                candidate="${candidate#$IPREFIX}"
+            fi
+            candidates+=("$candidate")
         fi
     done
 
     if (( ${#candidates} == 0 )); then
-        compadd -Q -S '' -- "$token"
+        if [[ -n "$IPREFIX" && "$token" == "$IPREFIX"* ]]; then
+            token="${token#$IPREFIX}"
+        fi
+        compadd -U -Q -S '' -- "$token"
         return
     fi
 
-    compadd -Q -S '' -a candidates
+    compadd -U -Q -S '' -a candidates
 }
 
 _nt_complete_fields() {
@@ -360,7 +367,7 @@ _nt_complete_fields() {
 }
 
 _nt_query_expr() {
-    local token="$PREFIX"
+    local token="${IPREFIX}${PREFIX}"
     local outer_prefix=""
     if [[ "$token" == not:* ]]; then
         outer_prefix="not:"
@@ -398,7 +405,7 @@ _nt_query_expr() {
 }
 
 _nt_add_metadata() {
-    local token="$PREFIX"
+    local token="${IPREFIX}${PREFIX}"
     local field="${token%%:*}"
     local -a fields tags
     fields=(tag: kind: status: collection: link: source:)
@@ -469,7 +476,9 @@ mod tests {
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
         assert!(script.contains("_nt_sources"));
         assert!(script.contains("source) _nt_complete_prefixed_values"));
-        assert!(script.contains("compadd -Q -S '' -a candidates"));
+        assert!(script.contains("compadd -U -Q -S '' -a candidates"));
+        assert!(script.contains("local token=\"${IPREFIX}${PREFIX}\""));
+        assert!(script.contains("candidate=\"${candidate#$IPREFIX}\""));
 
         let helper = script.find("_nt_query_expr()").unwrap();
         let invocation = script.find("_nt \"$@\"").unwrap();
