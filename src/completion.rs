@@ -313,6 +313,17 @@ _nt_complete_prefixed_values() {
     compadd -Q -a candidates
 }
 
+_nt_complete_fields() {
+    local outer_prefix="$1"
+    shift
+    local field
+    local -a fields
+    for field in "$@"; do
+        fields+=("${outer_prefix}${field}")
+    done
+    compadd -Q -S '' -- "$fields[@]"
+}
+
 _nt_query_expr() {
     local token="$PREFIX"
     local outer_prefix=""
@@ -332,7 +343,7 @@ _nt_query_expr() {
     fi
 
     if [[ "$token" != *:* ]]; then
-        compadd -Q -- "${(@)fields/#/$outer_prefix}"
+        _nt_complete_fields "$outer_prefix" "$fields[@]"
         return
     fi
 
@@ -357,7 +368,7 @@ _nt_add_metadata() {
     fields=(tag: kind: status: collection: link: source:)
 
     if [[ "$token" != *:* ]]; then
-        compadd -Q -- "$fields[@]"
+        _nt_complete_fields "" "$fields[@]"
         return
     fi
 
@@ -417,6 +428,8 @@ mod tests {
         assert!(script.contains(":status:_nt_statuses"));
         assert!(script.contains("nt ids 2>/dev/null"));
         assert!(script.contains("nt tags 2>/dev/null"));
+        assert!(script.contains("_nt_complete_fields"));
+        assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
 
         let helper = script.find("_nt_query_expr()").unwrap();
         let invocation = script.find("_nt \"$@\"").unwrap();
