@@ -249,26 +249,26 @@ const ZSH_NOTE_ID_COMPLETION: &str = r#"
 # nt dynamic completion, backed by visible nt command output.
 _nt_note_ids() {
     local -a ids
-    ids=("${(@f)$(nt ids 2>/dev/null)}")
+    ids=("${(@f)$(command nt ids 2>/dev/null)}")
     _describe -t note-ids 'note ids' ids "$@"
 }
 
 _nt_tags() {
     local -a tags
-    tags=("${(@f)$(nt tags 2>/dev/null)}")
+    tags=("${(@f)$(command nt tags 2>/dev/null)}")
     tags=("${(@)tags%%[[:space:]]*}")
     _describe -t tags 'tags' tags "$@"
 }
 
 _nt_collections() {
     local -a collections
-    collections=("${(@f)$(nt collections 2>/dev/null)}")
+    collections=("${(@f)$(command nt collections 2>/dev/null)}")
     _describe -t collections 'collections' collections "$@"
 }
 
 _nt_vaults() {
     local -a lines vaults
-    lines=("${(@f)$(nt config vault 2>/dev/null)}")
+    lines=("${(@f)$(command nt config vault 2>/dev/null)}")
     vaults=("${(@)${(@)lines#? }%% *}")
     _describe -t vaults 'vaults' vaults "$@"
 }
@@ -321,8 +321,10 @@ _nt_complete_prefixed_values() {
     shift 2
     local prefix="${outer_prefix}${field}:"
     local token="${IPREFIX}${PREFIX}"
-    local rest list_prefix value_prefix value candidate
-    local -a candidates
+    local rest list_prefix value_prefix value completion_prefix
+    local -a candidates completions
+
+    [[ -n "$token" ]] || token="${words[CURRENT]}"
 
     [[ "$token" == "$prefix"* ]] || return 1
 
@@ -336,23 +338,22 @@ _nt_complete_prefixed_values() {
 
     for value in "$@"; do
         if [[ "$value" == "$value_prefix"* ]]; then
-            candidate="${prefix}${list_prefix}${value}"
-            if [[ -n "$IPREFIX" && "$candidate" == "$IPREFIX"* ]]; then
-                candidate="${candidate#$IPREFIX}"
-            fi
-            candidates+=("$candidate")
+            candidates+=("$value")
         fi
     done
 
-    if (( ${#candidates} == 0 )); then
-        if [[ -n "$IPREFIX" && "$token" == "$IPREFIX"* ]]; then
-            token="${token#$IPREFIX}"
-        fi
-        compadd -U -Q -S '' -- "$token"
-        return
-    fi
+    completion_prefix="${prefix}${list_prefix}"
 
-    compadd -U -Q -S '' -a candidates
+    (( ${#candidates} > 0 )) || return
+
+    if compset -P "$completion_prefix"; then
+        compadd -Q -S '' -a candidates
+    elif [[ "$IPREFIX" == "$completion_prefix" ]]; then
+        compadd -Q -S '' -a candidates
+    else
+        completions=("${(@)candidates/#/${completion_prefix}}")
+        compadd -Q -S '' -U -a completions
+    fi
 }
 
 _nt_complete_fields() {
@@ -369,6 +370,7 @@ _nt_complete_fields() {
 _nt_query_expr() {
     local token="${IPREFIX}${PREFIX}"
     local outer_prefix=""
+    [[ -n "$token" ]] || token="${words[CURRENT]}"
     if [[ "$token" == not:* ]]; then
         outer_prefix="not:"
         token="${token#not:}"
@@ -378,7 +380,7 @@ _nt_query_expr() {
     fields=(id: tag: title: day: since: before: kind: status: collection: link: source: body: not:)
 
     if [[ "$token" == \#* ]]; then
-        tags=("${(@f)$(nt tags 2>/dev/null)}")
+        tags=("${(@f)$(command nt tags 2>/dev/null)}")
         tags=("${(@)tags%%[[:space:]]*}")
         compadd -Q -- "${(@/#/#)tags}"
         return
@@ -391,21 +393,22 @@ _nt_query_expr() {
 
     case "$field" in
         tag)
-            tags=("${(@f)$(nt tags 2>/dev/null)}")
+            tags=("${(@f)$(command nt tags 2>/dev/null)}")
             tags=("${(@)tags%%[[:space:]]*}")
             _nt_complete_prefixed_values "$outer_prefix" tag "$tags[@]"
             ;;
-        collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(nt collections 2>/dev/null)}" ;;
+        collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(command nt collections 2>/dev/null)}" ;;
         kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
-        id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(nt ids 2>/dev/null)}" ;;
-        link) _nt_complete_prefixed_values "$outer_prefix" link "${(@f)$(nt ids 2>/dev/null)}" ;;
+        id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt ids 2>/dev/null)}" ;;
+        link) _nt_complete_prefixed_values "$outer_prefix" link "${(@f)$(command nt ids 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "$outer_prefix" source "${(@f)$(_nt_sources)}" ;;
     esac
 }
 
 _nt_add_metadata() {
     local token="${IPREFIX}${PREFIX}"
+    [[ -n "$token" ]] || token="${words[CURRENT]}"
     local field="${token%%:*}"
     local -a fields tags
     fields=(tag: kind: status: collection: link: source:)
@@ -417,14 +420,14 @@ _nt_add_metadata() {
 
     case "$field" in
         tag)
-            tags=("${(@f)$(nt tags 2>/dev/null)}")
+            tags=("${(@f)$(command nt tags 2>/dev/null)}")
             tags=("${(@)tags%%[[:space:]]*}")
             _nt_complete_prefixed_values "" tag "$tags[@]"
             ;;
-        collection) _nt_complete_prefixed_values "" collection "${(@f)$(nt collections 2>/dev/null)}" ;;
+        collection) _nt_complete_prefixed_values "" collection "${(@f)$(command nt collections 2>/dev/null)}" ;;
         kind) _nt_complete_prefixed_values "" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "" status open waiting done dropped ;;
-        link) _nt_complete_prefixed_values "" link "${(@f)$(nt ids 2>/dev/null)}" ;;
+        link) _nt_complete_prefixed_values "" link "${(@f)$(command nt ids 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "" source "${(@f)$(_nt_sources)}" ;;
     esac
 }
@@ -476,12 +479,32 @@ mod tests {
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
         assert!(script.contains("_nt_sources"));
         assert!(script.contains("source) _nt_complete_prefixed_values"));
-        assert!(script.contains("compadd -U -Q -S '' -a candidates"));
         assert!(script.contains("local token=\"${IPREFIX}${PREFIX}\""));
-        assert!(script.contains("candidate=\"${candidate#$IPREFIX}\""));
+        assert!(script.contains("[[ \"$IPREFIX\" == \"$completion_prefix\" ]]"));
+        assert!(script.contains("compadd -Q -S '' -U -a completions"));
 
         let helper = script.find("_nt_query_expr()").unwrap();
         let invocation = script.find("_nt \"$@\"").unwrap();
         assert!(helper < invocation);
+    }
+
+    #[test]
+    fn zsh_prefixed_value_completion_normalizes_the_prefix_once() {
+        let script = completion_script(Shell::Zsh);
+        let start = script.find("_nt_complete_prefixed_values()").unwrap();
+        let end = script[start..]
+            .find("\n}\n\n_nt_complete_fields()")
+            .unwrap()
+            + start;
+        let helper = &script[start..end];
+
+        assert_eq!(
+            helper.matches("compset -P \"$completion_prefix\"").count(),
+            1
+        );
+        assert!(helper.contains("token=\"${IPREFIX}${PREFIX}\""));
+        assert!(helper.contains("token=\"${words[CURRENT]}\""));
+        assert!(helper.contains("compadd -Q -S '' -a candidates"));
+        assert!(helper.contains("completions=(\"${(@)candidates/#/${completion_prefix}}\")"));
     }
 }
