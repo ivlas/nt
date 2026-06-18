@@ -37,6 +37,14 @@ fn completion_script(shell: Shell) -> String {
                 ":id:_nt_note_ids' \\\n':status:_nt_statuses",
             );
             script = script.replace("*::ids:_default", "*::ids:_nt_note_ids");
+            script = script.replace(
+                "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
+                "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
+            );
+            script = script.replace(
+                "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
+                "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
+            );
             insert_zsh_helpers(&mut script);
         }
     }
@@ -70,6 +78,26 @@ _nt_note_ids() {
     local token
     token="$(_nt_current_token)"
     COMPREPLY=( $(compgen -W "$(nt ids 2>/dev/null)" -- "${token}") )
+}
+
+_nt_titled_notes() {
+    local token token_lower id _date _tags title id_lower title_lower candidates
+    token="$(_nt_current_token)"
+    token_lower="$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]')"
+    candidates=""
+
+    while read -r id _date _tags title; do
+        id_lower="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
+        title_lower="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]')"
+        case "$id_lower:$title_lower" in
+            "$token_lower"*|*:"$token_lower"*) candidates="${candidates} ${id}" ;;
+        esac
+    done < <(nt list 2>/dev/null)
+
+    COMPREPLY=( $(compgen -W "$candidates" -- "${token}") )
+    if [[ ${#COMPREPLY[@]} -eq 0 && -n "$candidates" ]]; then
+        COMPREPLY=( $candidates )
+    fi
 }
 
 _nt_tags() {
@@ -212,7 +240,11 @@ _nt() {
             _nt_complete_add_metadata
             return 0
             ;;
-        show:2|open:2|rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3|export:[3-9]|export:[1-9][0-9]*)
+        show:2|open:2)
+            _nt_titled_notes
+            return 0
+            ;;
+        rm:2|tag:2|untag:2|collect:2|uncollect:2|kind:2|links:2|status:2|link:2|link:3|unlink:2|unlink:3|export:[3-9]|export:[1-9][0-9]*)
             _nt_note_ids
             return 0
             ;;
@@ -251,6 +283,22 @@ _nt_note_ids() {
     local -a ids
     ids=("${(@f)$(command nt ids 2>/dev/null)}")
     _describe -t note-ids 'note ids' ids "$@"
+}
+
+_nt_titled_notes() {
+    local token="${PREFIX:l}"
+    local id _date _tags title
+    local -a ids titles
+
+    while read -r id _date _tags title; do
+        if [[ "${id:l}" == "$token"* || "${title:l}" == "$token"* ]]; then
+            ids+=("$id")
+            titles+=("$title")
+        fi
+    done < <(command nt list 2>/dev/null)
+
+    (( ${#ids} > 0 )) || return
+    compadd -Q -S '' -U -d titles -a ids
 }
 
 _nt_tags() {
@@ -453,7 +501,8 @@ mod tests {
         assert!(script.contains(
             "id: tag: title: day: since: before: kind: status: collection: link: source: body: not:"
         ));
-        assert!(script.contains("show:2|open:2|rm:2"));
+        assert!(script.contains("show:2|open:2"));
+        assert!(script.contains("nt list 2>/dev/null"));
         assert!(script.contains("link:2|link:3|unlink:2|unlink:3"));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
@@ -463,6 +512,14 @@ mod tests {
         let script = completion_script(Shell::Zsh);
 
         assert!(script.contains("'show:'"));
+        assert!(script.contains("'open:'"));
+        assert!(script.contains(
+            "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'"
+        ));
+        assert!(script.contains(
+            "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'"
+        ));
+        assert!(script.contains("command nt list 2>/dev/null"));
         assert!(script.contains(":id:_nt_note_ids"));
         assert!(script.contains(":from_id:_nt_note_ids"));
         assert!(script.contains(":to_id:_nt_note_ids"));

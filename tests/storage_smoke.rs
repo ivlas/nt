@@ -432,13 +432,17 @@ fn completion_outputs_dynamic_note_id_hooks() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
     let bash = run_nt(&home, &["completion", "bash"]);
-    assert!(bash.contains("init add rebuild list find show edit"));
+    assert!(bash.contains("init add rebuild list find show open"));
     assert!(bash.contains("_nt_note_ids"));
+    assert!(bash.contains("_nt_titled_notes"));
+    assert!(bash.contains("nt list 2>/dev/null"));
     assert!(bash.contains("nt ids 2>/dev/null"));
 
     let zsh = run_nt(&home, &["completion", "zsh"]);
     assert!(zsh.contains("'show:'"));
-    assert!(zsh.contains(":id:_nt_note_ids"));
+    assert!(zsh.contains("'open:'"));
+    assert!(zsh.contains(":id:_nt_titled_notes"));
+    assert!(zsh.contains("command nt list 2>/dev/null"));
     assert!(zsh.contains("nt ids 2>/dev/null"));
 
     let _ = fs::remove_dir_all(root);
