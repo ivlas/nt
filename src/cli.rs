@@ -34,7 +34,7 @@ pub enum Command {
     Show {
         id: String,
     },
-    Edit {
+    Open {
         id: String,
     },
     Rm {
@@ -80,7 +80,7 @@ pub enum Command {
     },
     Links {
         id: String,
-        mode: LinkMode,
+        direction: Option<LinkDirection>,
     },
     Export {
         path: PathBuf,
@@ -106,12 +106,9 @@ pub enum Shell {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-pub enum LinkMode {
-    Out,
-    In,
-    #[value(name = "self")]
-    Self_,
-    All,
+pub enum LinkDirection {
+    From,
+    To,
 }
 
 #[derive(Subcommand)]
@@ -136,7 +133,7 @@ mod tests {
             &["nt", "list"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
-            &["nt", "edit", "NT20260528T143012"],
+            &["nt", "open", "NT20260528T143012"],
             &["nt", "rm", "NT20260528T143012"],
             &["nt", "ids"],
             &["nt", "tags"],
@@ -151,10 +148,9 @@ mod tests {
             &["nt", "status", "NT20260528T143012", "open"],
             &["nt", "link", "NT20260528T143012", "NT20260527T120000"],
             &["nt", "unlink", "NT20260528T143012", "NT20260527T120000"],
-            &["nt", "links", "NT20260528T143012", "out"],
-            &["nt", "links", "NT20260528T143012", "in"],
-            &["nt", "links", "NT20260528T143012", "self"],
-            &["nt", "links", "NT20260528T143012", "all"],
+            &["nt", "links", "NT20260528T143012"],
+            &["nt", "links", "NT20260528T143012", "from"],
+            &["nt", "links", "NT20260528T143012", "to"],
             &["nt", "export", "archive"],
             &["nt", "export", "archive", "NT20260528T143012"],
             &[
@@ -207,7 +203,7 @@ mod tests {
                 "list",
                 "find",
                 "show",
-                "edit",
+                "open",
                 "rm",
                 "ids",
                 "tags",
@@ -246,5 +242,12 @@ mod tests {
         assert!(Cli::try_parse_from(["nt", "status"]).is_ok());
         assert!(Cli::try_parse_from(["nt", "status", "NT20260528T143012", "open"]).is_ok());
         assert!(Cli::try_parse_from(["nt", "status", "NT20260528T143012"]).is_err());
+    }
+
+    #[test]
+    fn links_rejects_retired_directions() {
+        for direction in ["out", "in", "self", "all"] {
+            assert!(Cli::try_parse_from(["nt", "links", "NT20260528T143012", direction]).is_err());
+        }
     }
 }

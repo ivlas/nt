@@ -38,7 +38,7 @@ nt add [metadata...]
 nt list
 nt find <expr...>
 nt show <id>
-nt edit <id>
+nt open <id>
 nt tags
 ```
 
@@ -57,7 +57,7 @@ Commands should keep a small, regular grammar:
 - Keep machine-facing commands one-record-per-line.
 - Keep mutations to one short lowercase status line.
 
-Avoid broader commands such as `search`, `grep`, `graph`, `open`, `browse`,
+Avoid broader commands such as `search`, `grep`, `graph`, `browse`,
 `agent`, `discuss`, workflow orchestration, or runtime management until real
 usage proves they are necessary.
 
@@ -113,7 +113,7 @@ A TUI is intentionally deferred and is not part of the current core. The useful
 interactive model is:
 
 ```text
-nt find / nt show / nt edit
+nt find / nt show / nt open
 + less / fzf / awk / xargs
 ```
 
@@ -255,9 +255,9 @@ interoperability and archiving, but the active notes directory and
 `$HOME/.nt/index.json` remain the canonical storage pair.
 
 Note-to-note links live in JSON metadata. `nt link <from-id> <to-id>` and
-`nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id> out` prints
-outbound links, `nt links <id> in` prints inbound links, `nt links <id> self`
-prints direct neighbors, and `nt links <id> all` walks the connected note graph.
+`nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id> from` prints
+notes linked from the selected note, `nt links <id> to` prints notes linking to
+it, and `nt links <id>` prints the deduplicated set of direct relationships.
 
 External source references can live in JSON metadata as `sources`. Markdown links
 in the body remain valid CommonMark and may be extracted into `sources` as a

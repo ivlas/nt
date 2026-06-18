@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{Cli, Command, ConfigCommand, LinkMode};
+use crate::cli::{Cli, Command, ConfigCommand, LinkDirection};
 use crate::completion::print_completion;
 use crate::display::{joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
@@ -23,7 +23,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::List => list(),
         Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
-        Command::Edit { id } => edit(&id),
+        Command::Open { id } => open(&id),
         Command::Rm { id } => rm(&id),
         Command::Ids => ids(),
         Command::Tags => tags(),
@@ -37,7 +37,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Status { args } => route_status(&args),
         Command::Link { from_id, to_id } => link(&from_id, &to_id),
         Command::Unlink { from_id, to_id } => unlink(&from_id, &to_id),
-        Command::Links { id, mode } => links(&id, mode),
+        Command::Links { id, direction } => links(&id, direction),
         Command::Export { path, ids } => export(&path, &ids),
         Command::Config { command } => config(command),
         Command::Completion { shell } => {
@@ -301,36 +301,36 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     Ok(text)
 }
 
-fn edit(id: &str) -> Result<()> {
+fn open(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let body = fs::read_to_string(&note.path)?;
     let original_body = body.as_bytes().to_vec();
-    let edit_path = edit_temp_path(id)?;
-    atomic_write(&edit_path, body.as_bytes())?;
+    let open_path = open_temp_path(id)?;
+    atomic_write(&open_path, body.as_bytes())?;
 
-    let status = ProcessCommand::new(&editor).arg(&edit_path).status()?;
+    let status = ProcessCommand::new(&editor).arg(&open_path).status()?;
     if !status.success() {
-        let _ = fs::remove_file(&edit_path);
+        let _ = fs::remove_file(&open_path);
         return Err(NtError::EditorFailed(editor));
     }
 
-    let body = fs::read_to_string(&edit_path)?;
+    let body = fs::read_to_string(&open_path)?;
     if body.trim().is_empty() {
-        let _ = fs::remove_file(&edit_path);
+        let _ = fs::remove_file(&open_path);
         return Err(NtError::EmptyNote);
     }
     let title = match title_from_body(&body) {
         Ok(title) => title,
         Err(err) => {
-            let _ = fs::remove_file(&edit_path);
+            let _ = fs::remove_file(&open_path);
             return Err(err);
         }
     };
     atomic_write(&note.path, body.as_bytes())?;
-    let _ = fs::remove_file(&edit_path);
+    let _ = fs::remove_file(&open_path);
 
     let timestamp = crate::note::timestamp_now();
     let note_path = note.path.clone();
@@ -576,99 +576,66 @@ fn unlink(from_id: &str, to_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn links(id: &str, mode: LinkMode) -> Result<()> {
+fn links(id: &str, direction: Option<LinkDirection>) -> Result<()> {
     validate_id(id)?;
     let index = Index::load()?;
     ensure_note_exists(&index, id)?;
 
-    match mode {
-        LinkMode::Out => print_out_links(&index, id, false),
-        LinkMode::In => print_in_links(&index, id, false),
-        LinkMode::Self_ => print_self_links(&index, id),
-        LinkMode::All => print_all_links(&index, id),
+    match direction {
+        Some(LinkDirection::From) => print_out_links(&index, id),
+        Some(LinkDirection::To) => print_in_links(&index, id),
+        None => print_related_links(&index, id),
     }
 }
 
-fn print_out_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
+fn print_out_links(index: &Index, id: &str) -> Result<()> {
     let note = note_ref(index, id)?;
 
     for link in &note.links {
         if ensure_note_exists(index, link).is_err() {
             continue;
         }
-        if with_direction {
-            println!("out {link}");
-        } else {
-            println!("{link}");
-        }
+        println!("{link}");
     }
 
     Ok(())
 }
 
-fn print_in_links(index: &Index, id: &str, with_direction: bool) -> Result<()> {
+fn print_in_links(index: &Index, id: &str) -> Result<()> {
     if let Some(ids) = index.backlinks.get(id) {
         for backlink in ids {
             if ensure_note_exists(index, backlink).is_err() {
                 continue;
             }
-            if with_direction {
-                println!("in {backlink}");
-            } else {
-                println!("{backlink}");
-            }
+            println!("{backlink}");
         }
     }
 
     Ok(())
 }
 
-fn print_self_links(index: &Index, id: &str) -> Result<()> {
-    print_out_links(index, id, true)?;
-    print_in_links(index, id, true)
-}
-
-fn print_all_links(index: &Index, id: &str) -> Result<()> {
-    let mut seen = BTreeSet::from([id.to_string()]);
-    let mut queue = VecDeque::from([(id.to_string(), 0usize)]);
-
-    while let Some((current, depth)) = queue.pop_front() {
-        let next_depth = depth + 1;
-
-        for (direction, next) in adjacent_links(index, &current)? {
-            if !seen.insert(next.clone()) {
-                continue;
-            }
-
-            println!("{next_depth} {direction} {next}");
-            if index.notes.contains_key(&next) {
-                queue.push_back((next, next_depth));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn adjacent_links(index: &Index, id: &str) -> Result<Vec<(&'static str, String)>> {
+fn print_related_links(index: &Index, id: &str) -> Result<()> {
     let note = note_ref(index, id)?;
-    let mut adjacent = Vec::new();
+    let mut related = BTreeSet::new();
 
     for link in &note.links {
         if ensure_note_exists(index, link).is_ok() {
-            adjacent.push(("out", link.clone()));
+            related.insert(link);
         }
     }
 
     if let Some(ids) = index.backlinks.get(id) {
         for backlink in ids {
             if ensure_note_exists(index, backlink).is_ok() {
-                adjacent.push(("in", backlink.clone()));
+                related.insert(backlink);
             }
         }
     }
 
-    Ok(adjacent)
+    for related_id in related {
+        println!("{related_id}");
+    }
+    Ok(())
 }
 
 fn export(path: &Path, ids: &[String]) -> Result<()> {
@@ -825,8 +792,8 @@ fn add_temp_path() -> Result<PathBuf> {
     editor_temp_path("add", None)
 }
 
-fn edit_temp_path(id: &str) -> Result<PathBuf> {
-    editor_temp_path("edit", Some(id))
+fn open_temp_path(id: &str) -> Result<PathBuf> {
+    editor_temp_path("open", Some(id))
 }
 
 fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {

@@ -17,7 +17,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "list" => LIST,
         "find" => FIND,
         "show" => SHOW,
-        "edit" => EDIT,
+        "open" => OPEN,
         "rm" => RM,
         "ids" => IDS,
         "tags" => TAGS,
@@ -66,7 +66,7 @@ Commands:
   list         list recent notes
   find         find notes by query expressions
   show         show one exact note
-  edit         edit one note with $EDITOR
+  open         open one note with $EDITOR
   rm           remove one note
   ids          print note ids
   tags         print known tags
@@ -164,14 +164,15 @@ Examples:
   nt show NT20260528T143012 | sed -n '1,12p'
 "#;
 
-const EDIT: &str = r#"nt edit <id>
+const OPEN: &str = r#"nt open <id>
 
-Open one canonical Markdown note in $EDITOR, save it atomically, and refresh the
-visible index entry and body term index.
+Open one canonical Markdown note in $EDITOR. A valid note must start with a
+non-empty `# Title` heading; successful saves atomically refresh the note and
+visible index.
 
 Examples:
-  nt edit NT20260528T143012
-  EDITOR=vim nt edit NT20260528T143012
+  nt open NT20260528T143012
+  EDITOR=vim nt open NT20260528T143012
 "#;
 
 const RM: &str = r#"nt rm <id>
@@ -289,14 +290,15 @@ Examples:
   nt unlink NT20260528T143012 NT20260527T120000
 "#;
 
-const LINKS: &str = r#"nt links <id> <out|in|self|all>
+const LINKS: &str = r#"nt links <id> [from|to]
 
-Print outbound links, inbound links, direct neighbors, or a connected walk.
+Print all directly related note ids, notes linked from this note, or notes that
+link to this note. Output is one note id per line.
 
 Examples:
-  nt links NT20260528T143012 out
-  nt links NT20260528T143012 in
-  nt links NT20260528T143012 all
+  nt links NT20260528T143012
+  nt links NT20260528T143012 from
+  nt links NT20260528T143012 to
 "#;
 
 const EXPORT: &str = r#"nt export <path> [id...]
@@ -373,7 +375,7 @@ mod tests {
             "list",
             "find",
             "show",
-            "edit",
+            "open",
             "rm",
             "ids",
             "tags",

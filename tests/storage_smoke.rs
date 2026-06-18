@@ -252,7 +252,7 @@ fn new_user_release_readiness_smoke_flow() {
 
     let edited = run_nt_with_env(
         &home,
-        &["edit", &id],
+        &["open", &id],
         &[("EDITOR", editor.to_str().unwrap())],
     );
     assert_eq!(edited.trim(), format!("saved {id}"));
@@ -508,7 +508,7 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
 
     assert!(quickstart.contains("`nt add` prints a note id like `NT20260616T101500`."));
     assert!(quickstart.contains("nt show <id>"));
-    assert!(quickstart.contains("nt edit <id>"));
+    assert!(quickstart.contains("nt open <id>"));
 
     for command in nt_commands_in_shell_blocks(&quickstart) {
         assert!(
@@ -533,7 +533,7 @@ fn shell_workflow_docs_use_only_core_shell_workflow_commands() {
     assert!(!commands.is_empty());
     for command in commands {
         assert!(
-            ["find", "show", "edit", "ids"].contains(&command.as_str()),
+            ["find", "show", "open", "ids"].contains(&command.as_str()),
             "docs/shell-workflows.md uses unsupported workflow nt command `{command}`"
         );
     }
@@ -808,8 +808,8 @@ fn shell_workflow_docs_document_external_interaction() {
 
 #[cfg(unix)]
 #[test]
-fn edit_uses_editor_and_updates_visible_note() {
-    let root = temp_dir("edit-editor");
+fn open_uses_editor_and_updates_visible_note() {
+    let root = temp_dir("open-editor");
     let home = root.join("home");
     let notes = root.join("notes");
     let editor = root.join("editor.sh");
@@ -828,12 +828,12 @@ fn edit_uses_editor_and_updates_visible_note() {
     permissions.set_mode(0o755);
     fs::set_permissions(&editor, permissions).unwrap();
 
-    let edited = run_nt_with_env(
+    let opened = run_nt_with_env(
         &home,
-        &["edit", &id],
+        &["open", &id],
         &[("EDITOR", editor.to_str().unwrap())],
     );
-    assert_eq!(edited.trim(), format!("saved {id}"));
+    assert_eq!(opened.trim(), format!("saved {id}"));
 
     let shown = run_nt(&home, &["show", &id]);
     assert!(shown.contains(&format!("{id}  Edited")));
@@ -856,6 +856,22 @@ fn edit_uses_editor_and_updates_visible_note() {
     let body = fs::read_to_string(notes.join(format!("{id}.md"))).unwrap();
     assert_eq!(
         body,
+        "# Edited\n\nbody two with https://example.com/edited.\n"
+    );
+
+    fs::write(
+        &editor,
+        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n## Invalid section\n\nbody three.\nEOF\n",
+    )
+    .unwrap();
+    assert_failed_with_env(
+        &home,
+        &["open", &id],
+        &[("EDITOR", editor.to_str().unwrap())],
+        "note must start with a non-empty `# Title` heading",
+    );
+    assert_eq!(
+        fs::read_to_string(notes.join(format!("{id}.md"))).unwrap(),
         "# Edited\n\nbody two with https://example.com/edited.\n"
     );
 
@@ -915,17 +931,14 @@ fn metadata_commands_route_through_visible_index() {
     let status = run_nt(&home, &["status"]);
     assert!(status.contains(first_id));
 
-    let links = run_nt(&home, &["links", first_id, "out"]);
+    let links = run_nt(&home, &["links", first_id, "from"]);
     assert_eq!(links.trim(), second_id);
 
-    let backlinks = run_nt(&home, &["links", second_id, "in"]);
+    let backlinks = run_nt(&home, &["links", second_id, "to"]);
     assert_eq!(backlinks.trim(), first_id);
 
-    let self_links = run_nt(&home, &["links", second_id, "self"]);
-    assert_eq!(self_links.trim(), format!("in {first_id}"));
-
-    let all_links = run_nt(&home, &["links", first_id, "all"]);
-    assert_eq!(all_links.trim(), format!("1 out {second_id}"));
+    let related = run_nt(&home, &["links", second_id]);
+    assert_eq!(related.trim(), first_id);
 
     let found = run_nt(
         &home,
@@ -944,7 +957,7 @@ fn metadata_commands_route_through_visible_index() {
     run_nt(&home, &["untag", first_id, "storage"]);
     run_nt(&home, &["uncollect", first_id, "projects/nt"]);
 
-    let links = run_nt(&home, &["links", first_id, "out"]);
+    let links = run_nt(&home, &["links", first_id, "from"]);
     assert!(links.trim().is_empty());
 
     let collection = run_nt(&home, &["collection", "projects/nt"]);
@@ -1182,20 +1195,11 @@ fn add_accepts_creation_metadata() {
     );
     assert!(found.contains(id));
 
-    let backlinks = run_nt(&home, &["links", first_id, "in"]);
+    let backlinks = run_nt(&home, &["links", first_id, "to"]);
     assert_eq!(backlinks.trim(), id);
 
-    let self_links = run_nt(&home, &["links", id, "self"]);
-    assert_eq!(
-        self_links.trim(),
-        format!("out {first_id}\nout {second_id}")
-    );
-
-    let all_links = run_nt(&home, &["links", id, "all"]);
-    assert_eq!(
-        all_links.trim(),
-        format!("1 out {first_id}\n1 out {second_id}")
-    );
+    let related = run_nt(&home, &["links", id]);
+    assert_eq!(related.trim(), format!("{first_id}\n{second_id}"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -1535,6 +1539,13 @@ fn common_mistakes_fail_cleanly() {
     );
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
+    assert_failed_with_stdin(
+        &home,
+        &["add"],
+        "## Section is not a title\n",
+        "note must start with a non-empty `# Title` heading",
+    );
+    assert!(run_nt(&home, &["ids"]).trim().is_empty());
     assert_failed(
         &home,
         &["find", "collectiom:projects/nt"],
@@ -1603,6 +1614,25 @@ fn assert_failed_with_stdin(home: &PathBuf, args: &[&str], stdin: &str, expected
         args,
         expected,
         stderr
+    );
+}
+
+fn assert_failed_with_env(home: &PathBuf, args: &[&str], env: &[(&str, &str)], expected: &str) {
+    let mut command = Command::new(nt_bin());
+    command.env("HOME", home).args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
+
+    assert!(
+        !output.status.success(),
+        "nt {args:?} unexpectedly succeeded"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected),
+        "nt {args:?} stderr did not contain {expected:?}:\n{stderr}"
     );
 }
 
@@ -1792,7 +1822,7 @@ const ROOT_COMMANDS: &[&str] = &[
     "list",
     "find",
     "show",
-    "edit",
+    "open",
     "rm",
     "ids",
     "tags",
@@ -1819,7 +1849,7 @@ const UNSUPPORTED_ROOT_COMMAND_EXAMPLES: &[&str] = &[
     "nt search",
     "nt grep",
     "nt graph",
-    "nt open",
+    "nt edit",
     "nt browse",
     "nt agent",
     "nt discuss",

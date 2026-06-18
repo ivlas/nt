@@ -31,7 +31,7 @@ nt rebuild
 nt list
 nt find <expr...>
 nt show <id>
-nt edit <id>
+nt open <id>
 nt rm <id>
 nt ids
 nt tags
@@ -46,7 +46,7 @@ nt status
 nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
-nt links <id> <out|in|self|all>
+nt links <id> [from|to]
 nt export <path> [id...]
 nt config show
 nt config vault
@@ -69,7 +69,7 @@ and merges URLs currently found in Markdown body, removes stale active-vault
 entries, cleans links to deleted notes, rebuilds derived maps and text term
 indexes including the body term index, and prints `rebuilt <count>`.
 
-Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
+Avoid adding broader commands such as `search`, `grep`, `graph`,
 `browse`, `agent`, or `discuss` until real usage proves they belong in `nt`
 itself. `nt` keeps notes as Markdown and metadata as JSON. It is not an app
 framework, agent runtime, or vector/RAG system. Agent integrations should live
@@ -79,45 +79,33 @@ A TUI is intentionally deferred and is not part of the current core.
 ## Links
 
 ```text
-nt links <id> <out|in|self|all>
+nt links <id> [from|to]
 ```
 
 Link modes:
 
 ```text
-out                    direct outbound links from id
-in                     direct inbound links to id
-self                   direct inbound and outbound links
-all                    graph walk through inbound and outbound links
+no direction           all directly related note ids
+from                   notes this note links to
+to                     notes linking to this note
 ```
 
-`out` and `in` print one note id per line. `self` prints direct neighbors with a
-direction prefix. `all` prints a deduplicated walk with distance and direction.
-For `all`, direction is relative to the note expanded at the previous distance,
-not always relative to the starting id.
+Every form prints one note id per line. The default view deduplicates inbound and
+outbound relationships.
 
 Examples:
 
 ```sh
-nt links NT20260605T101500 out
-nt links NT20260605T101500 in
-nt links NT20260605T101500 self
-nt links NT20260605T101500 all
+nt links NT20260605T101500
+nt links NT20260605T101500 from
+nt links NT20260605T101500 to
 ```
 
-Example `self` output:
+Example default output:
 
 ```text
-out NT20260605T103000
-in NT20260604T090000
-```
-
-Example `all` output:
-
-```text
-1 out NT20260605T103000
-1 in NT20260604T090000
-2 out NT20260606T120000
+NT20260604T090000
+NT20260605T103000
 ```
 
 ## Export

@@ -36,7 +36,7 @@ redesign of the storage/search model.
 
 ### What is stable now
 
-- `init`, `add`, `list`, `find`, `show`, `edit`, and `rm`
+- `init`, `add`, `list`, `find`, `show`, `open`, and `rm`
 - metadata commands for tags, collections, kind, status, and links
 - `rebuild`
 - active vault config
@@ -78,7 +78,7 @@ nt find example
 
 ```sh
 nt show <id>
-nt edit <id>
+nt open <id>
 ```
 
 Run `nt rebuild` after out-of-band file edits or deletes.
@@ -107,7 +107,7 @@ nt rebuild
 nt list
 nt find <expr...>
 nt show <id>
-nt edit <id>
+nt open <id>
 nt rm <id>
 nt ids
 nt tags
@@ -122,7 +122,7 @@ nt status
 nt status <id> <status>
 nt link <from-id> <to-id>
 nt unlink <from-id> <to-id>
-nt links <id> <out|in|self|all>
+nt links <id> [from|to]
 nt export <path> [id...]
 nt config show
 nt config vault
@@ -172,7 +172,7 @@ Unknown fields are errors so typos do not silently become broad text searches.
 
 ## Shell-first Workflows
 
-`nt` keeps the core loop to `nt find`, `nt show`, and `nt edit`. Paging, fuzzy
+`nt` keeps the core loop to `nt find`, `nt show`, and `nt open`. Paging, fuzzy
 selection, previews, and batching come from shell tools such as `less`, `fzf`,
 `awk`, and `xargs`.
 
@@ -193,7 +193,7 @@ nt show NT20260528T143012
 ```
 
 When an agent writes notes, it should draft CommonMark, ask before mutation when
-appropriate, then save through `nt add` or edit through `nt edit`. Optional
+appropriate, then save through `nt add` or open through `nt open`. Optional
 skill examples live in [docs/examples/agent-skills.md](docs/examples/agent-skills.md)
 so users can adapt them to Codex, Claude Code, Cursor, or any other agent system
 without `nt` owning that runtime.

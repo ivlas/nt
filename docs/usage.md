@@ -132,21 +132,20 @@ Inspect collections and links:
 
 ```sh
 nt collection projects/nt
-nt links NT20260528T143012 out
-nt links NT20260528T143012 in
-nt links NT20260528T143012 self
-nt links NT20260528T143012 all
+nt links NT20260528T143012
+nt links NT20260528T143012 from
+nt links NT20260528T143012 to
 ```
 
 ## Edit And Remove
 
 ```sh
-nt edit NT20260528T143012
+nt open NT20260528T143012
 nt rm NT20260528T143012
 ```
 
-`nt edit` opens `$EDITOR`, saves the Markdown body atomically, and refreshes
-the visible title metadata.
+`nt open` opens `$EDITOR`, validates the required `# Title` heading, saves the
+Markdown body atomically, and refreshes the visible title metadata.
 
 ## Export
 

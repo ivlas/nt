@@ -7,7 +7,7 @@ paging, fuzzy selection, preview, and batching outside the core command surface.
 The preferred model is:
 
 ```text
-nt find / nt show / nt edit
+nt find / nt show / nt open
 + less / fzf / awk / xargs
 ```
 
@@ -43,7 +43,7 @@ nt find rust | fzf --preview 'nt show {1}'
 ## Fuzzy Select Then Edit
 
 ```sh
-nt find rust | fzf --preview 'nt show {1}' | awk '{print $1}' | xargs nt edit
+nt find rust | fzf --preview 'nt show {1}' | awk '{print $1}' | xargs nt open
 ```
 
 ## Extract Ids

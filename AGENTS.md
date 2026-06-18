@@ -46,7 +46,7 @@ Current command surface:
 - `nt list`
 - `nt find <expr...>`
 - `nt show <id>`
-- `nt edit <id>`
+- `nt open <id>`
 - `nt rm <id>`
 - `nt ids`
 - `nt tags`
@@ -61,7 +61,7 @@ Current command surface:
 - `nt status <id> <status>`
 - `nt link <from-id> <to-id>`
 - `nt unlink <from-id> <to-id>`
-- `nt links <id> <out|in|self|all>`
+- `nt links <id> [from|to]`
 - `nt export <path> [id...]`
 - `nt config show`
 - `nt config vault`
@@ -70,7 +70,7 @@ Current command surface:
 - `nt help`
 - `nt help <command>`
 
-Avoid adding broader commands such as `search`, `grep`, `graph`, `open`,
+Avoid adding broader commands such as `search`, `grep`, `graph`,
 `browse`, `agent`, `discuss`, workflow orchestration, or runtime management
 until real usage proves they are necessary.
 
@@ -193,8 +193,8 @@ Agents should retrieve notes through cheap, visible operations:
 - Use `nt tags` and `nt collections` before choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
-- Use `nt links <id> out`, `nt links <id> in`, `nt links <id> self`, and
-  `nt links <id> all` for explicit note relationships.
+- Use `nt links <id>`, `nt links <id> from`, and `nt links <id> to` for
+  explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
 
 When answering from notes, cite supporting note ids.

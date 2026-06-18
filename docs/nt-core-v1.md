@@ -13,7 +13,7 @@ redesign of the storage/search model.
 |---|---|---|
 | Storage model | Ready | Canonical CommonMark note files; note bodies are not stored in the visible index. |
 | Vault lifecycle | Ready | `nt init`, active vault config, vault switching, and vault inspection are covered by smoke tests. |
-| Capture/read/edit/delete | Ready | `nt add`, `nt show`, `nt edit`, and `nt rm` are covered by smoke tests. |
+| Capture/read/edit/delete | Ready | `nt add`, `nt show`, `nt open`, and `nt rm` are covered by smoke tests. |
 | Rebuild | Ready | `nt rebuild` reconstructs active-vault metadata/body indexes, preserves primary metadata, removes stale entries, and cleans deleted links. |
 | Search | Ready | `nt find` supports documented expressions, indexed body terms, candidate narrowing, active-recent ordering, and clear unknown-field failures. |
 | Metadata | Ready | Tags, collections, kind, status, and links are reflected in index/search/show behavior. |
