@@ -18,6 +18,8 @@ pub enum NtError {
     InvalidNoteId(String),
     #[error("empty note")]
     EmptyNote,
+    #[error("note must start with a non-empty `# Title` heading")]
+    InvalidTitle,
     #[error("editor failed: {0}")]
     EditorFailed(String),
 }

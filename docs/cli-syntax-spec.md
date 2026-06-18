@@ -173,6 +173,8 @@ nt add [metadata...]
 `nt add` reads the note body from stdin, or opens `$EDITOR` when stdin is a
 terminal. Optional metadata expressions attach visible JSON metadata while the
 note is created, so the generated note id does not need to be known first.
+The first non-empty body line must be a non-empty `# Title` heading. The
+Markdown heading is the source of truth for required indexed title metadata.
 
 Examples:
 

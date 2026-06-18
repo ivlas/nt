@@ -151,7 +151,7 @@ fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<(
         path.to_path_buf(),
         created,
         updated,
-        title_from_body(&body),
+        title_from_body(&body)?,
     );
     if let Some(existing) = existing {
         note.kind = existing.kind.clone();
@@ -203,6 +203,7 @@ fn add(metadata: &[String]) -> Result<()> {
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     let metadata = CreationMetadata::parse(metadata, &index)?;
     let body = read_note_body_for_add()?;
+    let title = title_from_body(&body)?;
     let timestamp = generate_unique_id(&notes_dir, &index)?;
     let path = note_path(&notes_dir, &timestamp.id)?;
     let mut note = NoteMeta::new_note(
@@ -210,7 +211,7 @@ fn add(metadata: &[String]) -> Result<()> {
         path.clone(),
         timestamp.iso.clone(),
         timestamp.iso,
-        title_from_body(&body),
+        title,
     );
     metadata.apply(&mut note);
     add_body_sources(&mut note, &body);
@@ -321,6 +322,13 @@ fn edit(id: &str) -> Result<()> {
         let _ = fs::remove_file(&edit_path);
         return Err(NtError::EmptyNote);
     }
+    let title = match title_from_body(&body) {
+        Ok(title) => title,
+        Err(err) => {
+            let _ = fs::remove_file(&edit_path);
+            return Err(err);
+        }
+    };
     atomic_write(&note.path, body.as_bytes())?;
     let _ = fs::remove_file(&edit_path);
 
@@ -328,7 +336,7 @@ fn edit(id: &str) -> Result<()> {
     let note_path = note.path.clone();
     let mut updated = note;
     updated.updated = timestamp.iso;
-    updated.title = title_from_body(&body);
+    updated.title = title;
     add_body_sources(&mut updated, &body);
 
     index.upsert_note_with_body(updated, &body);

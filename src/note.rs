@@ -80,20 +80,22 @@ pub fn validate_id(id: &str) -> Result<()> {
     }
 }
 
-pub fn title_from_body(body: &str) -> String {
+pub fn title_from_body(body: &str) -> Result<String> {
     for line in body.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
 
-        let title = trimmed.trim_start_matches('#').trim();
-        if !title.is_empty() {
-            return title.chars().take(80).collect();
-        }
+        let title = trimmed
+            .strip_prefix("# ")
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .ok_or(NtError::InvalidTitle)?;
+        return Ok(title.to_string());
     }
 
-    "(untitled)".to_string()
+    Err(NtError::InvalidTitle)
 }
 
 pub fn sources_from_body(body: &str) -> Vec<String> {
@@ -190,7 +192,15 @@ mod tests {
 
     #[test]
     fn extracts_title_from_markdown_heading() {
-        assert_eq!(title_from_body("\n# Hello\nbody"), "Hello");
+        assert_eq!(title_from_body("\n# Hello\nbody").unwrap(), "Hello");
+    }
+
+    #[test]
+    fn requires_h1_title_as_first_non_empty_line() {
+        assert!(title_from_body("body\n# Later").is_err());
+        assert!(title_from_body("## Section\nbody").is_err());
+        assert!(title_from_body("#\nbody").is_err());
+        assert!(title_from_body("#   \nbody").is_err());
     }
 
     #[test]
