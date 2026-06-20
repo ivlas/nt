@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -529,15 +530,16 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
 }
 
 #[test]
-fn shell_workflow_docs_use_only_core_shell_workflow_commands() {
-    let workflows = fs::read_to_string("docs/shell-workflows.md").unwrap();
+fn usage_shell_workflows_use_only_core_commands() {
+    let usage = fs::read_to_string("docs/usage.md").unwrap();
+    let workflows = markdown_section(&usage, "## Find And Read");
     let commands = nt_commands_in_shell_blocks(&workflows);
 
     assert!(!commands.is_empty());
     for command in commands {
         assert!(
             ["find", "show", "open", "list"].contains(&command.as_str()),
-            "docs/shell-workflows.md uses unsupported workflow nt command `{command}`"
+            "docs/usage.md uses unsupported shell workflow command `{command}`"
         );
     }
 }
@@ -548,61 +550,77 @@ fn readme_links_to_core_docs() {
 
     for link in [
         "[docs/usage.md](docs/usage.md)",
-        "[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md)",
+        "[docs/cli-reference.md](docs/cli-reference.md)",
         "[docs/design.md](docs/design.md)",
-        "[docs/shell-workflows.md](docs/shell-workflows.md)",
-        "[docs/nt-core-v1.md](docs/nt-core-v1.md)",
         "[docs/examples/agent-skills.md](docs/examples/agent-skills.md)",
         "[CHANGELOG.md](CHANGELOG.md)",
-        "[docs/release-checklist.md](docs/release-checklist.md)",
     ] {
         assert!(readme.contains(link), "README should link to {link}");
     }
+
+    let docs: BTreeSet<String> = fs::read_dir("docs")
+        .unwrap()
+        .filter_map(|entry| {
+            let entry = entry.unwrap();
+            entry
+                .file_type()
+                .unwrap()
+                .is_file()
+                .then(|| entry.file_name().to_string_lossy().into_owned())
+        })
+        .collect();
+    assert_eq!(
+        docs,
+        BTreeSet::from([
+            "cli-reference.md".to_string(),
+            "design.md".to_string(),
+            "usage.md".to_string(),
+        ])
+    );
 }
 
 #[test]
-fn core_readiness_doc_tracks_release_claim() {
+fn design_tracks_stable_core_and_non_goals() {
     let readme = fs::read_to_string("README.md").unwrap();
-    assert!(readme.contains("[docs/nt-core-v1.md](docs/nt-core-v1.md)"));
+    assert!(readme.contains("[docs/design.md](docs/design.md)"));
 
-    let readiness = fs::read_to_string("docs/nt-core-v1.md").unwrap();
-    assert!(readiness.contains("0.1.0 is usable as the initial stable core"));
+    let design = fs::read_to_string("docs/design.md").unwrap();
+    assert!(design.contains("The 0.1.0 stable\ncore"));
 
     for area in [
-        "Storage model",
-        "Vault lifecycle",
-        "Capture/read/edit/delete",
-        "Rebuild",
-        "Search",
-        "Metadata",
-        "Shell/agent interface",
-        "Release hygiene",
+        "## Implemented Architecture",
+        "## Storage Decisions",
+        "## Retrieval Decisions",
+        "## Metadata Decisions",
+        "## Interface Decisions",
+        "## Decision Status",
+        "## Development And Release",
     ] {
         assert!(
-            readiness.contains(area),
-            "core readiness doc should include area {area}"
+            design.contains(area),
+            "design doc should include area {area}"
         );
     }
 
     for non_goal in [
-        "no TUI",
-        "no RAG",
-        "no embeddings",
-        "no semantic search",
-        "no ranking",
-        "no daemon",
-        "no hidden agent memory",
+        "RAG system",
+        "vector database",
+        "daemon",
+        "hidden retrieval",
+        "embeddings",
+        "There is no scoring",
+        "A TUI is intentionally deferred",
     ] {
         assert!(
-            readiness.contains(non_goal),
-            "core readiness doc should include non-goal {non_goal}"
+            design.contains(non_goal),
+            "design doc should include non-goal {non_goal}"
         );
     }
 
-    let normalized = readiness.split_whitespace().collect::<Vec<_>>().join(" ");
+    let normalized = design.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         normalized.contains(
-            "Future work should be fixes, polish, and features layered on this core, not a redesign of the storage/search model."
+            "Future changes are constrained to preserve canonical CommonMark, visible JSON, explicit commands, deterministic output, atomic writes, and no hidden runtime."
         )
     );
 
@@ -617,8 +635,8 @@ fn core_readiness_doc_tracks_release_claim() {
         "nt version",
     ] {
         assert!(
-            !readiness.contains(command),
-            "core readiness doc should not imply unsupported command `{command}` exists"
+            !design.contains(command),
+            "design doc should not imply unsupported command `{command}` exists"
         );
     }
 }
@@ -631,16 +649,16 @@ fn release_docs_cover_source_install_and_manual_checks() {
     let changelog = fs::read_to_string("CHANGELOG.md").unwrap();
     assert!(changelog.contains("## 0.1.0"));
 
-    let checklist = fs::read_to_string("docs/release-checklist.md").unwrap();
+    let design = fs::read_to_string("docs/design.md").unwrap();
     for check in [
         "cargo fmt --check",
         "cargo test",
         "cargo clippy --all-targets",
-        "review docs/nt-core-v1.md",
+        "cargo run -- help",
     ] {
         assert!(
-            checklist.contains(check),
-            "release checklist should include {check}"
+            design.contains(check),
+            "design release section should include {check}"
         );
     }
 }
@@ -668,7 +686,7 @@ fn docs_do_not_document_version_command_or_flag() {
 #[test]
 fn rebuild_docs_document_persistent_source_semantics() {
     let expected = "preserves existing sources and merges URLs currently found in";
-    for path in ["docs/cli-syntax-spec.md", "docs/usage.md", "README.md"] {
+    for path in ["docs/cli-reference.md", "docs/usage.md", "README.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -687,7 +705,7 @@ fn docs_document_index_trust_boundary_and_deferred_tui() {
     for path in [
         "README.md",
         "docs/usage.md",
-        "docs/cli-syntax-spec.md",
+        "docs/cli-reference.md",
         "docs/design.md",
     ] {
         let text = fs::read_to_string(path).unwrap();
@@ -699,13 +717,7 @@ fn docs_document_index_trust_boundary_and_deferred_tui() {
         );
     }
 
-    for path in [
-        "README.md",
-        "docs/usage.md",
-        "docs/cli-syntax-spec.md",
-        "docs/design.md",
-        "docs/shell-workflows.md",
-    ] {
+    for path in ["README.md", "docs/usage.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -719,12 +731,7 @@ fn docs_document_index_trust_boundary_and_deferred_tui() {
 #[test]
 fn find_docs_document_body_terms_not_phrase_search() {
     let expected = "Quoted multiword `body:` values match all indexed terms, not an exact phrase.";
-    for path in [
-        "docs/cli-syntax-spec.md",
-        "docs/usage.md",
-        "docs/design.md",
-        "README.md",
-    ] {
+    for path in ["docs/cli-reference.md", "docs/usage.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -737,10 +744,10 @@ fn find_docs_document_body_terms_not_phrase_search() {
         );
     }
 
-    let syntax = fs::read_to_string("docs/cli-syntax-spec.md").unwrap();
-    let syntax = syntax.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(syntax.contains("The visible `heading_terms` index is for future/internal use"));
-    assert!(syntax.contains("there is no `heading:<term>` query field yet."));
+    let reference = fs::read_to_string("docs/cli-reference.md").unwrap();
+    let reference = reference.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(reference.contains("There is no public `heading:<term>` field"));
+    assert!(reference.contains("possible future use"));
 }
 
 #[test]
@@ -789,20 +796,16 @@ fn docs_do_not_make_unqualified_search_claims_or_future_command_examples() {
 }
 
 #[test]
-fn shell_workflow_docs_document_external_interaction() {
+fn usage_documents_external_shell_interaction() {
     let readme = fs::read_to_string("README.md").unwrap();
-    assert!(readme.contains("[docs/shell-workflows.md](docs/shell-workflows.md)"));
+    assert!(readme.contains("[docs/usage.md](docs/usage.md)"));
 
-    let workflows = fs::read_to_string("docs/shell-workflows.md").unwrap();
-    assert!(workflows.contains("fzf --preview"));
+    let usage = fs::read_to_string("docs/usage.md").unwrap();
+    assert!(usage.contains("fzf --preview"));
 
-    let combined = [
-        readme,
-        workflows,
-        fs::read_to_string("docs/design.md").unwrap(),
-    ]
-    .join("\n")
-    .to_lowercase();
+    let combined = [readme, usage, fs::read_to_string("docs/design.md").unwrap()]
+        .join("\n")
+        .to_lowercase();
     assert!(
         combined.contains("tui is intentionally deferred")
             || combined.contains("tui is not part of the current core")
@@ -2013,10 +2016,7 @@ const DOC_PATHS: &[&str] = &[
     "README.md",
     "CHANGELOG.md",
     "docs/usage.md",
-    "docs/cli-syntax-spec.md",
+    "docs/cli-reference.md",
     "docs/design.md",
-    "docs/shell-workflows.md",
-    "docs/nt-core-v1.md",
     "docs/examples/agent-skills.md",
-    "docs/release-checklist.md",
 ];

@@ -39,8 +39,7 @@ launcher, or Hermes replacement.
 
 ## Commands
 
-Target command surface (implementation pending; see
-`docs/command-surface-implementation-plan.md`):
+Implemented command surface (see `docs/cli-reference.md`):
 
 - `nt init <notes-dir>`
 - `nt add [metadata...]`
@@ -69,7 +68,7 @@ until real usage proves they are necessary.
 
 ## Query Syntax
 
-The canonical CLI command and query syntax lives in `docs/cli-syntax-spec.md`.
+The canonical CLI command and query syntax lives in `docs/cli-reference.md`.
 Agents should follow that file when constructing commands.
 
 `nt find` uses trailing positional query expressions:

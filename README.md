@@ -8,25 +8,18 @@ It is built for humans and agents that already know how to use Unix tools. It
 reads stdin, writes stdout, opens `$EDITOR`, exposes stable one-record-per-line
 commands, and does not keep a hidden memory layer.
 
-See [docs/usage.md](docs/usage.md) for a compact guide,
-[docs/cli-syntax-spec.md](docs/cli-syntax-spec.md) for the command/query
-contract, [docs/shell-workflows.md](docs/shell-workflows.md) for shell-first
-workflows, [docs/nt-core-v1.md](docs/nt-core-v1.md) for the readiness audit,
-[docs/design.md](docs/design.md) for boundaries, and
+See [docs/usage.md](docs/usage.md) for workflows,
+[docs/cli-reference.md](docs/cli-reference.md) for the complete command and
+query contract, [docs/design.md](docs/design.md) for architecture and decisions,
+and
 [docs/examples/agent-skills.md](docs/examples/agent-skills.md) for optional
-agent skill examples. See [CHANGELOG.md](CHANGELOG.md) for release notes and
-[docs/release-checklist.md](docs/release-checklist.md) for the manual release
-checklist.
+agent skill examples. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Status
 
-`nt` 0.1.0 is usable as the initial stable core.
-
-The documentation now defines the next command surface: consolidated `list`
-submodes, `update`, and a read-only `agenda`. The released binary still exposes
-the legacy metadata commands until the staged work in
-[docs/command-surface-implementation-plan.md](docs/command-surface-implementation-plan.md)
-is complete.
+`nt` 0.1.0 is usable as the initial stable core. The consolidated `list`
+submodes, typed `update`, read-only `agenda`, and current completion grammar are
+implemented and tested.
 
 The core model is intentionally small:
 
@@ -40,7 +33,7 @@ The core model is intentionally small:
 Future work should be fixes, polish, and features layered on this core, not a
 redesign of the storage/search model.
 
-### Target command surface
+### Command surface
 
 - `init`, `add`, `list`, `find`, `show`, `open`, and `rm`
 - consolidated metadata updates through `nt update`
@@ -180,7 +173,7 @@ Unknown fields are errors so typos do not silently become broad text searches.
 selection, previews, and batching come from shell tools such as `less`, `fzf`,
 `awk`, and `xargs`.
 
-See [docs/shell-workflows.md](docs/shell-workflows.md) for optional recipes.
+See [docs/usage.md](docs/usage.md) for optional shell recipes.
 
 ## Agent Use
 
