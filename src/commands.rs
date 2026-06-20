@@ -4,9 +4,11 @@ use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{Cli, Command, ConfigCommand, LinkDirection};
+use crate::cli::{AgendaView, Cli, Command, ConfigCommand, LinkDirection, ListMode, UpdateField};
 use crate::completion::print_completion;
-use crate::display::{joined_or_dash, summary_line, summary_line_for_display};
+use crate::display::{
+    agenda_line, joined_or_dash, metadata_projection, summary_line, summary_line_for_display,
+};
 use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
@@ -20,24 +22,13 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Init { notes_dir } => init(&notes_dir),
         Command::Add { metadata } => add(&metadata),
         Command::Rebuild => rebuild(),
-        Command::List => list(),
+        Command::List { mode } => list(mode),
         Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
         Command::Open { id } => open(&id),
         Command::Rm { id } => rm(&id),
-        Command::Ids => ids(),
-        Command::Tags => tags(),
-        Command::Tag { id, tag } => tag_note(&id, &tag),
-        Command::Untag { id, tag } => untag_note(&id, &tag),
-        Command::Collections => collections(),
-        Command::Collection { name } => collection(&name),
-        Command::Collect { id, collection } => collect(&id, &collection),
-        Command::Uncollect { id, collection } => uncollect(&id, &collection),
-        Command::Kind { id, kind } => set_kind(&id, &kind),
-        Command::Status { args } => route_status(&args),
-        Command::Link { from_id, to_id } => link(&from_id, &to_id),
-        Command::Unlink { from_id, to_id } => unlink(&from_id, &to_id),
-        Command::Links { id, direction } => links(&id, direction),
+        Command::Update { id, field, value } => update(&id, field, &value),
+        Command::Agenda { view } => agenda(view),
         Command::Export { path, ids } => export(&path, &ids),
         Command::Config { command } => config(command),
         Command::Completion { shell } => {
@@ -156,6 +147,10 @@ fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<(
     if let Some(existing) = existing {
         note.kind = existing.kind.clone();
         note.status = existing.status.clone();
+        note.priority = existing.priority.clone();
+        note.scheduled = existing.scheduled.clone();
+        note.due = existing.due.clone();
+        note.closed = existing.closed.clone();
         note.tags = existing.tags.clone();
         note.collections = existing.collections.clone();
         note.links = existing.links.clone();
@@ -210,10 +205,10 @@ fn add(metadata: &[String]) -> Result<()> {
         timestamp.id.clone(),
         path.clone(),
         timestamp.iso.clone(),
-        timestamp.iso,
+        timestamp.iso.clone(),
         title,
     );
-    metadata.apply(&mut note);
+    metadata.apply(&mut note, &timestamp.iso);
     add_body_sources(&mut note, &body);
 
     atomic_write(&path, body.as_bytes())?;
@@ -228,14 +223,39 @@ fn add(metadata: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn list() -> Result<()> {
+fn list(mode: Option<ListMode>) -> Result<()> {
     let index = Index::load()?;
+    if let Some(mode) = mode {
+        return match mode {
+            ListMode::Ids => list_ids(&index),
+            ListMode::Tags => list_metadata(&index, |note| &note.tags),
+            ListMode::Collections => list_metadata(&index, |note| &note.collections),
+            ListMode::Links { id, direction } => links_in_index(&index, &id, direction),
+        };
+    }
     let color = crate::terminal::stdout_color_enabled();
 
     for note in index.active_recent_notes() {
         println!("{}", summary_line_for_display(note, color));
     }
 
+    Ok(())
+}
+
+fn list_ids(index: &Index) -> Result<()> {
+    for note in index.active_recent_notes() {
+        println!("{}", note.id);
+    }
+    Ok(())
+}
+
+fn list_metadata<'a>(
+    index: &'a Index,
+    values: impl Fn(&'a NoteMeta) -> &'a [String],
+) -> Result<()> {
+    for note in index.active_recent_notes() {
+        println!("{}", metadata_projection(note, values(note)));
+    }
     Ok(())
 }
 
@@ -282,6 +302,19 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     text.push_str(&format!(
         "status {}\n",
         note.status.as_deref().unwrap_or("-")
+    ));
+    text.push_str(&format!(
+        "priority {}\n",
+        note.priority.as_deref().unwrap_or("-")
+    ));
+    text.push_str(&format!(
+        "scheduled {}\n",
+        note.scheduled.as_deref().unwrap_or("-")
+    ));
+    text.push_str(&format!("due {}\n", note.due.as_deref().unwrap_or("-")));
+    text.push_str(&format!(
+        "closed {}\n",
+        note.closed.as_deref().unwrap_or("-")
     ));
     text.push_str(&format!(
         "tags {}\n",
@@ -374,84 +407,6 @@ fn find(exprs: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn ids() -> Result<()> {
-    let index = Index::load()?;
-    for note in index.active_recent_notes() {
-        println!("{}", note.id);
-    }
-    Ok(())
-}
-
-fn tags() -> Result<()> {
-    let index = Index::load()?;
-    let mut counts = std::collections::BTreeMap::<String, usize>::new();
-    for note in index.active_recent_notes() {
-        for tag in &note.tags {
-            *counts.entry(tag.clone()).or_default() += 1;
-        }
-    }
-
-    for (tag, count) in counts {
-        println!("{tag}\t{count}");
-    }
-    Ok(())
-}
-
-fn tag_note(id: &str, tag: &str) -> Result<()> {
-    validate_tag(tag)?;
-    mutate_note(id, |note| {
-        push_unique_sorted(&mut note.tags, tag.to_string());
-        Ok(())
-    })?;
-
-    println!("tagged {id} {tag}");
-    Ok(())
-}
-
-fn untag_note(id: &str, tag: &str) -> Result<()> {
-    validate_tag(tag)?;
-    mutate_note(id, |note| {
-        note.tags.retain(|value| value != tag);
-        Ok(())
-    })?;
-
-    println!("untagged {id} {tag}");
-    Ok(())
-}
-
-fn collections() -> Result<()> {
-    let index = Index::load()?;
-    let mut collections = BTreeSet::new();
-    for note in index.active_recent_notes() {
-        for collection in &note.collections {
-            collections.insert(collection.clone());
-        }
-    }
-
-    for collection in collections {
-        println!("{collection}");
-    }
-    Ok(())
-}
-
-fn collection(name: &str) -> Result<()> {
-    validate_collection(name)?;
-    let index = Index::load()?;
-    let Some(ids) = index.collections.get(name) else {
-        return Ok(());
-    };
-
-    for id in ids {
-        if let Some(note) = index.notes.get(id)
-            && index.note_is_in_active_vault(note)
-        {
-            println!("{}", summary_line(note));
-        }
-    }
-
-    Ok(())
-}
-
 fn rm(id: &str) -> Result<()> {
     validate_id(id)?;
     let mut index = Index::load()?;
@@ -469,122 +424,312 @@ fn rm(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn collect(id: &str, collection: &str) -> Result<()> {
-    validate_collection(collection)?;
-    mutate_note(id, |note| {
-        push_unique_sorted(&mut note.collections, collection.to_string());
-        Ok(())
-    })?;
+fn links_in_index(index: &Index, id: &str, direction: Option<LinkDirection>) -> Result<()> {
+    validate_id(id)?;
+    ensure_note_exists(index, id)?;
 
-    println!("collected {id} {collection}");
-    Ok(())
-}
-
-fn uncollect(id: &str, collection: &str) -> Result<()> {
-    validate_collection(collection)?;
-    mutate_note(id, |note| {
-        note.collections.retain(|value| value != collection);
-        Ok(())
-    })?;
-
-    println!("uncollected {id} {collection}");
-    Ok(())
-}
-
-fn set_kind(id: &str, kind: &str) -> Result<()> {
-    validate_kind(kind)?;
-    mutate_note(id, |note| {
-        note.kind = kind.to_string();
-        Ok(())
-    })?;
-
-    println!("kind {id} {kind}");
-    Ok(())
-}
-
-fn route_status(args: &[String]) -> Result<()> {
-    match args {
-        [] => print_status(),
-        [id, status] => set_status(id, status),
-        _ => Err(NtError::Message(
-            "usage: nt status [<id> <status>]".to_string(),
-        )),
+    match direction {
+        Some(LinkDirection::From) => print_out_links(index, id),
+        Some(LinkDirection::To) => print_in_links(index, id),
+        None => print_related_links(index, id),
     }
 }
 
-fn print_status() -> Result<()> {
-    let index = Index::load()?;
+#[derive(Debug)]
+enum UpdateOperation {
+    Kind(Option<String>),
+    Status(Option<String>),
+    Priority(Option<String>),
+    Scheduled(Option<String>),
+    Due(Option<String>),
+    Set {
+        field: UpdateField,
+        add: bool,
+        value: String,
+    },
+}
 
-    for note in index.active_recent_notes() {
-        if note
-            .status
-            .as_deref()
-            .is_some_and(|status| matches!(status, "open" | "waiting"))
-        {
-            println!("{}", summary_line(note));
+impl UpdateOperation {
+    fn parse(field: UpdateField, raw: &str, index: &Index) -> Result<Self> {
+        match field {
+            UpdateField::Kind => {
+                if raw != "-" {
+                    validate_kind(raw)?;
+                }
+                Ok(Self::Kind((raw != "-").then(|| raw.to_string())))
+            }
+            UpdateField::Status => {
+                if raw != "-" {
+                    validate_status(raw)?;
+                }
+                Ok(Self::Status((raw != "-").then(|| raw.to_string())))
+            }
+            UpdateField::Priority => {
+                if raw != "-" {
+                    validate_priority(raw)?;
+                }
+                Ok(Self::Priority((raw != "-").then(|| raw.to_string())))
+            }
+            UpdateField::Scheduled | UpdateField::Due => {
+                if raw != "-" {
+                    crate::note::validate_date(raw)?;
+                }
+                let value = (raw != "-").then(|| raw.to_string());
+                Ok(if matches!(field, UpdateField::Scheduled) {
+                    Self::Scheduled(value)
+                } else {
+                    Self::Due(value)
+                })
+            }
+            UpdateField::Tag
+            | UpdateField::Collection
+            | UpdateField::Link
+            | UpdateField::Source => {
+                let (add, value) = raw
+                    .strip_prefix('+')
+                    .map(|value| (true, value))
+                    .or_else(|| raw.strip_prefix('-').map(|value| (false, value)))
+                    .ok_or_else(|| {
+                        NtError::Message(format!(
+                            "`{}` update requires +value or -value",
+                            field_name(field)
+                        ))
+                    })?;
+                if value.is_empty() {
+                    return Err(NtError::Message(format!(
+                        "empty `{}` update value",
+                        field_name(field)
+                    )));
+                }
+                match field {
+                    UpdateField::Tag => validate_tag(value)?,
+                    UpdateField::Collection => validate_collection(value)?,
+                    UpdateField::Link => {
+                        validate_id(value)?;
+                        ensure_note_exists(index, value)?;
+                    }
+                    UpdateField::Source => {}
+                    _ => unreachable!(),
+                }
+                Ok(Self::Set {
+                    field,
+                    add,
+                    value: value.to_string(),
+                })
+            }
         }
     }
 
-    Ok(())
-}
-
-fn set_status(id: &str, status: &str) -> Result<()> {
-    if status == "-" {
-        mutate_note(id, |note| {
-            note.status = None;
-            Ok(())
-        })?;
-
-        println!("status {id} -");
-        return Ok(());
+    fn apply(self, note: &mut NoteMeta, now: &str) {
+        match self {
+            Self::Kind(value) => note.kind = value.unwrap_or_else(|| "note".to_string()),
+            Self::Status(value) => apply_status_transition(note, value, now),
+            Self::Priority(value) => note.priority = value,
+            Self::Scheduled(value) => note.scheduled = value,
+            Self::Due(value) => note.due = value,
+            Self::Set { field, add, value } => {
+                let values = match field {
+                    UpdateField::Tag => &mut note.tags,
+                    UpdateField::Collection => &mut note.collections,
+                    UpdateField::Link => &mut note.links,
+                    UpdateField::Source => &mut note.sources,
+                    _ => unreachable!(),
+                };
+                if add {
+                    push_unique_sorted(values, value);
+                } else {
+                    values.retain(|item| item != &value);
+                }
+            }
+        }
     }
-
-    validate_status(status)?;
-    mutate_note(id, |note| {
-        note.status = Some(status.to_string());
-        Ok(())
-    })?;
-
-    println!("status {id} {status}");
-    Ok(())
 }
 
-fn link(from_id: &str, to_id: &str) -> Result<()> {
-    validate_id(from_id)?;
-    validate_id(to_id)?;
-    mutate_index(|index| {
-        ensure_note_exists(index, to_id)?;
-        let from = note_mut(index, from_id)?;
-        push_unique_sorted(&mut from.links, to_id.to_string());
-        Ok(())
-    })?;
-
-    println!("linked {from_id} {to_id}");
-    Ok(())
+fn field_name(field: UpdateField) -> &'static str {
+    match field {
+        UpdateField::Kind => "kind",
+        UpdateField::Status => "status",
+        UpdateField::Priority => "priority",
+        UpdateField::Scheduled => "scheduled",
+        UpdateField::Due => "due",
+        UpdateField::Tag => "tag",
+        UpdateField::Collection => "collection",
+        UpdateField::Link => "link",
+        UpdateField::Source => "source",
+    }
 }
 
-fn unlink(from_id: &str, to_id: &str) -> Result<()> {
-    validate_id(from_id)?;
-    validate_id(to_id)?;
-    mutate_index(|index| {
-        let from = note_mut(index, from_id)?;
-        from.links.retain(|value| value != to_id);
-        Ok(())
-    })?;
-
-    println!("unlinked {from_id} {to_id}");
-    Ok(())
-}
-
-fn links(id: &str, direction: Option<LinkDirection>) -> Result<()> {
+fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     validate_id(id)?;
-    let index = Index::load()?;
+    let mut index = Index::load()?;
     ensure_note_exists(&index, id)?;
+    let operation = UpdateOperation::parse(field, value, &index)?;
+    let now = crate::note::timestamp_now().iso;
+    operation.apply(note_mut(&mut index, id)?, &now);
+    index.rebuild_derived();
+    index.save()?;
+    println!("updated {id} {} {value}", field_name(field));
+    Ok(())
+}
 
-    match direction {
-        Some(LinkDirection::From) => print_out_links(&index, id),
-        Some(LinkDirection::To) => print_in_links(&index, id),
-        None => print_related_links(&index, id),
+fn apply_status_transition(note: &mut NoteMeta, status: Option<String>, now: &str) {
+    let was_terminal = note.status.as_deref().is_some_and(is_terminal_status);
+    let is_terminal = status.as_deref().is_some_and(is_terminal_status);
+    if is_terminal && !was_terminal {
+        note.closed = Some(now.to_string());
+    } else if !is_terminal {
+        note.closed = None;
+    }
+    note.status = status;
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(status, "done" | "dropped")
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgendaSection {
+    Overdue,
+    Today,
+    Upcoming,
+    Waiting,
+    Undated,
+}
+
+fn agenda(view: Option<AgendaView>) -> Result<()> {
+    let index = Index::load()?;
+    let today = crate::note::local_day_now();
+    let sections = select_agenda(&index, &today, view)?;
+    let show_headers = view.is_none();
+    for (section, notes) in sections {
+        if notes.is_empty() {
+            continue;
+        }
+        if show_headers {
+            println!("{}", section_name(section));
+        }
+        for note in notes {
+            println!("{}", agenda_line(note));
+        }
+    }
+    Ok(())
+}
+
+fn select_agenda<'a>(
+    index: &'a Index,
+    today: &str,
+    view: Option<AgendaView>,
+) -> Result<Vec<(AgendaSection, Vec<&'a NoteMeta>)>> {
+    crate::note::validate_date(today)?;
+    let week_end = crate::note::add_days(today, 6)?;
+    let mut sections = vec![
+        (AgendaSection::Overdue, Vec::new()),
+        (AgendaSection::Today, Vec::new()),
+        (AgendaSection::Upcoming, Vec::new()),
+        (AgendaSection::Waiting, Vec::new()),
+        (AgendaSection::Undated, Vec::new()),
+    ];
+    for note in index.active_recent_notes() {
+        if note.kind != "todo" || !matches!(note.status.as_deref(), Some("open" | "waiting")) {
+            continue;
+        }
+        let section = agenda_section(note, today);
+        let include = match view {
+            None => true,
+            Some(AgendaView::Today) => section == AgendaSection::Today,
+            Some(AgendaView::Overdue) => section == AgendaSection::Overdue,
+            Some(AgendaView::Waiting) => section == AgendaSection::Waiting,
+            Some(AgendaView::Undated) => section == AgendaSection::Undated,
+            Some(AgendaView::Week) => {
+                note.status.as_deref() == Some("open")
+                    && (section == AgendaSection::Overdue
+                        || note
+                            .scheduled
+                            .as_deref()
+                            .is_some_and(|day| day >= today && day <= week_end.as_str())
+                        || note
+                            .due
+                            .as_deref()
+                            .is_some_and(|day| day >= today && day <= week_end.as_str()))
+            }
+        };
+        if include {
+            sections
+                .iter_mut()
+                .find(|(candidate, _)| *candidate == section)
+                .unwrap()
+                .1
+                .push(note);
+        }
+    }
+    for (section, notes) in &mut sections {
+        notes.sort_by(|left, right| {
+            agenda_sort_key(left, *section).cmp(&agenda_sort_key(right, *section))
+        });
+    }
+    Ok(sections)
+}
+
+fn agenda_section(note: &NoteMeta, today: &str) -> AgendaSection {
+    if note.status.as_deref() == Some("waiting") {
+        return AgendaSection::Waiting;
+    }
+    if note.due.as_deref().is_some_and(|due| due < today) {
+        return AgendaSection::Overdue;
+    }
+    if note.due.as_deref() == Some(today)
+        || note.scheduled.as_deref().is_some_and(|day| day <= today)
+    {
+        return AgendaSection::Today;
+    }
+    if note.due.is_some() || note.scheduled.is_some() {
+        AgendaSection::Upcoming
+    } else {
+        AgendaSection::Undated
+    }
+}
+
+fn agenda_sort_key(
+    note: &NoteMeta,
+    section: AgendaSection,
+) -> (String, u8, std::cmp::Reverse<String>) {
+    let date = match section {
+        AgendaSection::Overdue => note.due.clone().unwrap_or_default(),
+        AgendaSection::Today | AgendaSection::Upcoming => {
+            [note.scheduled.as_ref(), note.due.as_ref()]
+                .into_iter()
+                .flatten()
+                .min()
+                .cloned()
+                .unwrap_or_default()
+        }
+        AgendaSection::Waiting | AgendaSection::Undated => String::new(),
+    };
+    (
+        date,
+        priority_rank(note.priority.as_deref()),
+        std::cmp::Reverse(note.id.clone()),
+    )
+}
+
+fn priority_rank(priority: Option<&str>) -> u8 {
+    match priority {
+        Some("S") => 0,
+        Some("A") => 1,
+        Some("B") => 2,
+        Some("C") => 3,
+        Some("D") => 4,
+        _ => 5,
+    }
+}
+
+fn section_name(section: AgendaSection) -> &'static str {
+    match section {
+        AgendaSection::Overdue => "Overdue",
+        AgendaSection::Today => "Today",
+        AgendaSection::Upcoming => "Upcoming",
+        AgendaSection::Waiting => "Waiting",
+        AgendaSection::Undated => "Undated",
     }
 }
 
@@ -810,24 +955,6 @@ fn active_vault_path(index: &Index) -> Result<&Path> {
     index.active_vault_path().ok_or(NtError::MissingVault)
 }
 
-fn mutate_index<F>(mutate: F) -> Result<()>
-where
-    F: FnOnce(&mut Index) -> Result<()>,
-{
-    let mut index = Index::load()?;
-    mutate(&mut index)?;
-    index.rebuild_derived();
-    index.save()
-}
-
-fn mutate_note<F>(id: &str, mutate: F) -> Result<()>
-where
-    F: FnOnce(&mut NoteMeta) -> Result<()>,
-{
-    validate_id(id)?;
-    mutate_index(|index| mutate(note_mut(index, id)?))
-}
-
 fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
     let in_active_vault = {
         let note = index
@@ -928,10 +1055,23 @@ fn validate_status(status: &str) -> Result<()> {
     }
 }
 
+fn validate_priority(priority: &str) -> Result<()> {
+    if matches!(priority, "S" | "A" | "B" | "C" | "D") {
+        Ok(())
+    } else {
+        Err(NtError::Message(format!(
+            "invalid priority `{priority}`; use S, A, B, C, or D"
+        )))
+    }
+}
+
 #[derive(Debug, Default)]
 struct CreationMetadata {
     kind: Option<String>,
     status: Option<String>,
+    priority: Option<String>,
+    scheduled: Option<String>,
+    due: Option<String>,
     tags: Vec<String>,
     collections: Vec<String>,
     links: Vec<String>,
@@ -982,17 +1122,32 @@ impl CreationMetadata {
                 set_single_metadata(&mut self.status, field, value)?;
                 validate_status(self.status.as_deref().unwrap_or_default())
             }
+            "priority" => {
+                set_single_metadata(&mut self.priority, field, value)?;
+                validate_priority(self.priority.as_deref().unwrap_or_default())
+            }
+            "scheduled" => {
+                set_single_metadata(&mut self.scheduled, field, value)?;
+                crate::note::validate_date(self.scheduled.as_deref().unwrap_or_default())
+            }
+            "due" => {
+                set_single_metadata(&mut self.due, field, value)?;
+                crate::note::validate_date(self.due.as_deref().unwrap_or_default())
+            }
             _ => Err(NtError::Message(format!(
                 "unknown add metadata field `{field}`"
             ))),
         }
     }
 
-    fn apply(self, note: &mut NoteMeta) {
+    fn apply(self, note: &mut NoteMeta, now: &str) {
         if let Some(kind) = self.kind {
             note.kind = kind;
         }
-        note.status = self.status;
+        apply_status_transition(note, self.status, now);
+        note.priority = self.priority;
+        note.scheduled = self.scheduled;
+        note.due = self.due;
         note.tags = self.tags;
         note.collections = self.collections;
         note.links = self.links;
@@ -1058,9 +1213,10 @@ fn split_metadata_values(field: &str, raw: &str) -> Result<Vec<String>> {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::index::{Index, NoteMeta};
+    use crate::cli::AgendaView;
+    use crate::index::{Index, NoteMeta, VaultMeta};
 
-    use super::CreationMetadata;
+    use super::{AgendaSection, CreationMetadata, apply_status_transition, select_agenda};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -1088,7 +1244,7 @@ mod tests {
         .unwrap();
         let mut note = note("NT20260528T143012");
 
-        metadata.apply(&mut note);
+        metadata.apply(&mut note, "2026-05-28T14:30:12Z");
 
         assert_eq!(note.tags, vec!["cli", "design", "rust"]);
         assert_eq!(note.collections, vec!["projects/nt"]);
@@ -1103,5 +1259,151 @@ mod tests {
             CreationMetadata::parse(&["topic:storage".to_string()], &Index::default()).unwrap_err();
 
         assert_eq!(err.to_string(), "unknown add metadata field `topic`");
+    }
+
+    #[test]
+    fn status_transitions_manage_closed_deterministically() {
+        let mut note = note("NT20260528T143012");
+        apply_status_transition(&mut note, Some("done".to_string()), "2026-05-28T15:00:00Z");
+        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+
+        apply_status_transition(&mut note, Some("done".to_string()), "2026-05-29T15:00:00Z");
+        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+        apply_status_transition(
+            &mut note,
+            Some("dropped".to_string()),
+            "2026-05-30T15:00:00Z",
+        );
+        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+
+        apply_status_transition(&mut note, Some("open".to_string()), "2026-06-01T15:00:00Z");
+        assert_eq!(note.closed, None);
+    }
+
+    fn active_index(notes: Vec<NoteMeta>) -> Index {
+        let mut index = Index::default();
+        index.active_vault = Some("notes".to_string());
+        index.vaults.insert(
+            "notes".to_string(),
+            VaultMeta {
+                path: PathBuf::from("notes"),
+                created: "2026-05-01T00:00:00Z".to_string(),
+            },
+        );
+        for note in notes {
+            index.upsert_note(note);
+        }
+        index
+    }
+
+    fn todo(
+        id: &str,
+        status: &str,
+        priority: Option<&str>,
+        scheduled: Option<&str>,
+        due: Option<&str>,
+    ) -> NoteMeta {
+        let mut note = note(id);
+        note.created = crate::note::iso_from_id(id).unwrap();
+        note.kind = "todo".to_string();
+        note.status = Some(status.to_string());
+        note.priority = priority.map(str::to_string);
+        note.scheduled = scheduled.map(str::to_string);
+        note.due = due.map(str::to_string);
+        note
+    }
+
+    #[test]
+    fn agenda_partitions_once_and_orders_dates_priorities_and_recency() {
+        let notes = vec![
+            todo(
+                "NT20260501T000001",
+                "open",
+                Some("D"),
+                None,
+                Some("2026-05-27"),
+            ),
+            todo(
+                "NT20260502T000001",
+                "open",
+                Some("S"),
+                None,
+                Some("2026-05-27"),
+            ),
+            todo(
+                "NT20260503T000001",
+                "open",
+                Some("A"),
+                Some("2026-05-28"),
+                Some("2026-06-02"),
+            ),
+            todo("NT20260504T000001", "open", None, None, Some("2026-06-01")),
+            todo(
+                "NT20260505T000001",
+                "waiting",
+                Some("B"),
+                Some("2026-05-20"),
+                Some("2026-05-21"),
+            ),
+            todo("NT20260506T000001", "open", Some("C"), None, None),
+            todo(
+                "NT20260507T000001",
+                "done",
+                Some("S"),
+                None,
+                Some("2026-05-20"),
+            ),
+        ];
+        let index = active_index(notes);
+        let sections = select_agenda(&index, "2026-05-28", None).unwrap();
+
+        assert_eq!(sections[0].0, AgendaSection::Overdue);
+        assert_eq!(
+            sections[0]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260502T000001", "NT20260501T000001"]
+        );
+        assert_eq!(
+            sections[1]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260503T000001"]
+        );
+        assert_eq!(
+            sections[2]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260504T000001"]
+        );
+        assert_eq!(
+            sections[3]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260505T000001"]
+        );
+        assert_eq!(
+            sections[4]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260506T000001"]
+        );
+        assert_eq!(
+            sections.iter().map(|(_, notes)| notes.len()).sum::<usize>(),
+            6
+        );
+
+        let week = select_agenda(&index, "2026-05-28", Some(AgendaView::Week)).unwrap();
+        assert_eq!(week.iter().map(|(_, notes)| notes.len()).sum::<usize>(), 4);
     }
 }

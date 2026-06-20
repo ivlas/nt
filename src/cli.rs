@@ -26,7 +26,10 @@ pub enum Command {
         metadata: Vec<String>,
     },
     Rebuild,
-    List,
+    List {
+        #[command(subcommand)]
+        mode: Option<ListMode>,
+    },
     Find {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         expr: Vec<String>,
@@ -40,47 +43,14 @@ pub enum Command {
     Rm {
         id: String,
     },
-    Ids,
-    Tags,
-    Tag {
+    Update {
         id: String,
-        tag: String,
+        field: UpdateField,
+        #[arg(allow_hyphen_values = true)]
+        value: String,
     },
-    Untag {
-        id: String,
-        tag: String,
-    },
-    Collections,
-    Collection {
-        name: String,
-    },
-    Collect {
-        id: String,
-        collection: String,
-    },
-    Uncollect {
-        id: String,
-        collection: String,
-    },
-    Kind {
-        id: String,
-        kind: String,
-    },
-    Status {
-        #[arg(num_args = 2)]
-        args: Vec<String>,
-    },
-    Link {
-        from_id: String,
-        to_id: String,
-    },
-    Unlink {
-        from_id: String,
-        to_id: String,
-    },
-    Links {
-        id: String,
-        direction: Option<LinkDirection>,
+    Agenda {
+        view: Option<AgendaView>,
     },
     Export {
         path: PathBuf,
@@ -111,6 +81,39 @@ pub enum LinkDirection {
     To,
 }
 
+#[derive(Clone, Subcommand)]
+pub enum ListMode {
+    Ids,
+    Tags,
+    Collections,
+    Links {
+        id: String,
+        direction: Option<LinkDirection>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum UpdateField {
+    Kind,
+    Status,
+    Priority,
+    Scheduled,
+    Due,
+    Tag,
+    Collection,
+    Link,
+    Source,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum AgendaView {
+    Today,
+    Week,
+    Overdue,
+    Waiting,
+    Undated,
+}
+
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     Show,
@@ -121,36 +124,28 @@ pub enum ConfigCommand {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{Cli, Command, ConfigCommand};
+    use super::{AgendaView, Cli, Command, ConfigCommand, ListMode, UpdateField};
 
     #[test]
-    fn parses_documented_v1_commands() {
+    fn parses_target_commands() {
         let cases: &[&[&str]] = &[
             &["nt", "init", "notes"],
             &["nt", "add"],
             &["nt", "add", "tag:decision", "kind:note", "status:open"],
             &["nt", "rebuild"],
             &["nt", "list"],
+            &["nt", "list", "ids"],
+            &["nt", "list", "tags"],
+            &["nt", "list", "collections"],
+            &["nt", "list", "links", "NT20260528T143012", "from"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
             &["nt", "open", "NT20260528T143012"],
             &["nt", "rm", "NT20260528T143012"],
-            &["nt", "ids"],
-            &["nt", "tags"],
-            &["nt", "tag", "NT20260528T143012", "decision"],
-            &["nt", "untag", "NT20260528T143012", "decision"],
-            &["nt", "collections"],
-            &["nt", "collection", "projects/nt"],
-            &["nt", "collect", "NT20260528T143012", "projects/nt"],
-            &["nt", "uncollect", "NT20260528T143012", "projects/nt"],
-            &["nt", "kind", "NT20260528T143012", "decision"],
-            &["nt", "status"],
-            &["nt", "status", "NT20260528T143012", "open"],
-            &["nt", "link", "NT20260528T143012", "NT20260527T120000"],
-            &["nt", "unlink", "NT20260528T143012", "NT20260527T120000"],
-            &["nt", "links", "NT20260528T143012"],
-            &["nt", "links", "NT20260528T143012", "from"],
-            &["nt", "links", "NT20260528T143012", "to"],
+            &["nt", "update", "NT20260528T143012", "status", "open"],
+            &["nt", "update", "NT20260528T143012", "tag", "+decision"],
+            &["nt", "agenda"],
+            &["nt", "agenda", "week"],
             &["nt", "export", "archive"],
             &["nt", "export", "archive", "NT20260528T143012"],
             &[
@@ -187,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn help_surface_matches_documented_v1_commands() {
+    fn help_surface_matches_target_commands() {
         let command = Cli::command();
         let commands: Vec<&str> = command
             .get_subcommands()
@@ -205,19 +200,8 @@ mod tests {
                 "show",
                 "open",
                 "rm",
-                "ids",
-                "tags",
-                "tag",
-                "untag",
-                "collections",
-                "collection",
-                "collect",
-                "uncollect",
-                "kind",
-                "status",
-                "link",
-                "unlink",
-                "links",
+                "update",
+                "agenda",
                 "export",
                 "config",
                 "completion",
@@ -238,16 +222,54 @@ mod tests {
     }
 
     #[test]
-    fn status_accepts_zero_or_two_positionals() {
-        assert!(Cli::try_parse_from(["nt", "status"]).is_ok());
-        assert!(Cli::try_parse_from(["nt", "status", "NT20260528T143012", "open"]).is_ok());
-        assert!(Cli::try_parse_from(["nt", "status", "NT20260528T143012"]).is_err());
+    fn typed_target_arguments_parse() {
+        let cli = Cli::parse_from(["nt", "update", "NT20260528T143012", "priority", "S"]);
+        assert!(matches!(
+            cli.command,
+            Command::Update {
+                field: UpdateField::Priority,
+                ..
+            }
+        ));
+        let cli = Cli::parse_from(["nt", "agenda", "today"]);
+        assert!(matches!(
+            cli.command,
+            Command::Agenda {
+                view: Some(AgendaView::Today)
+            }
+        ));
+        let cli = Cli::parse_from(["nt", "list", "ids"]);
+        assert!(matches!(
+            cli.command,
+            Command::List {
+                mode: Some(ListMode::Ids)
+            }
+        ));
     }
 
     #[test]
-    fn links_rejects_retired_directions() {
+    fn list_links_rejects_retired_directions() {
         for direction in ["out", "in", "self", "all"] {
-            assert!(Cli::try_parse_from(["nt", "links", "NT20260528T143012", direction]).is_err());
+            assert!(
+                Cli::try_parse_from(["nt", "list", "links", "NT20260528T143012", direction])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_commands_are_unknown() {
+        for command in [
+            "ids",
+            "tags",
+            "collections",
+            "collection",
+            "links",
+            "tag",
+            "status",
+            "link",
+        ] {
+            assert!(Cli::try_parse_from(["nt", command]).is_err());
         }
     }
 }

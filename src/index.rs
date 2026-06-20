@@ -68,6 +68,14 @@ pub struct NoteMeta {
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub scheduled: Option<String>,
+    #[serde(default)]
+    pub due: Option<String>,
+    #[serde(default)]
+    pub closed: Option<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub collections: Vec<String>,
@@ -125,6 +133,10 @@ impl NoteMeta {
             title,
             kind: default_kind(),
             status: None,
+            priority: None,
+            scheduled: None,
+            due: None,
+            closed: None,
             tags: Vec::new(),
             collections: Vec::new(),
             links: Vec::new(),
@@ -566,6 +578,10 @@ mod tests {
 
         assert_eq!(note.kind, "note");
         assert_eq!(note.status, None);
+        assert_eq!(note.priority, None);
+        assert_eq!(note.scheduled, None);
+        assert_eq!(note.due, None);
+        assert_eq!(note.closed, None);
         assert_eq!(note.tags, vec!["design".to_string()]);
         assert!(note.collections.is_empty());
         assert!(note.links.is_empty());

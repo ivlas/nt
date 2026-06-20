@@ -21,6 +21,10 @@ enum QueryExpr {
     Before(String),
     Kind(String),
     Status(String),
+    Priority(String),
+    Scheduled(String),
+    Due(String),
+    Closed(String),
     Collection(String),
     Link(String),
     Source(String),
@@ -37,6 +41,10 @@ const QUERY_FIELDS: &[&str] = &[
     "before",
     "kind",
     "status",
+    "priority",
+    "scheduled",
+    "due",
+    "closed",
     "collection",
     "link",
     "source",
@@ -132,6 +140,22 @@ impl QueryExpr {
             }
             "kind" => Ok(Self::Kind(value)),
             "status" => Ok(Self::Status(value)),
+            "priority" => {
+                validate_priority(&value)?;
+                Ok(Self::Priority(value.to_ascii_uppercase()))
+            }
+            "scheduled" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Scheduled(value))
+            }
+            "due" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Due(value))
+            }
+            "closed" => {
+                validate_date_value(field, &value)?;
+                Ok(Self::Closed(value))
+            }
             "collection" => Ok(Self::Collection(value)),
             "link" => {
                 validate_note_id_value(field, &value)?;
@@ -169,6 +193,12 @@ impl QueryExpr {
                 .status
                 .as_deref()
                 .is_some_and(|status| normalize(status) == *value)),
+            Self::Priority(value) => Ok(note.priority.as_deref() == Some(value)),
+            Self::Scheduled(value) => Ok(note.scheduled.as_deref() == Some(value)),
+            Self::Due(value) => Ok(note.due.as_deref() == Some(value)),
+            Self::Closed(value) => {
+                Ok(note.closed.as_deref().and_then(|v| v.get(0..10)) == Some(value))
+            }
             Self::Collection(value) => Ok(contains_normalized(&note.collections, value)),
             Self::Link(value) => Ok(note.links.iter().any(|link| normalize(link) == *value)),
             Self::Source(value) => Ok(note
@@ -201,6 +231,7 @@ impl QueryExpr {
                 &index.statuses,
                 value,
             ))),
+            Self::Priority(_) | Self::Scheduled(_) | Self::Due(_) | Self::Closed(_) => None,
             Self::Collection(value) => Some(exact_candidate(ids_for_normalized_key(
                 &index.collections,
                 value,
@@ -232,45 +263,21 @@ fn normalize(value: &str) -> String {
 }
 
 fn validate_date_value(field: &str, value: &str) -> Result<()> {
-    let valid_shape = value.len() == 10
-        && value.as_bytes()[4] == b'-'
-        && value.as_bytes()[7] == b'-'
-        && value
-            .chars()
-            .enumerate()
-            .all(|(index, ch)| matches!(index, 4 | 7) || ch.is_ascii_digit());
-
-    if !valid_shape {
-        return Err(NtError::Message(format!(
-            "invalid `{field}` date `{value}`; use YYYY-MM-DD"
-        )));
-    }
-
-    let month: u32 = value[5..7].parse().unwrap_or(0);
-    let day: u32 = value[8..10].parse().unwrap_or(0);
-    let year: u32 = value[0..4].parse().unwrap_or(0);
-    let max_day = days_in_month(year, month);
-    if max_day == 0 || day == 0 || day > max_day {
-        return Err(NtError::Message(format!(
-            "invalid `{field}` date `{value}`; use YYYY-MM-DD"
-        )));
-    }
-
-    Ok(())
+    crate::note::validate_date(value)
+        .map_err(|_| NtError::Message(format!("invalid `{field}` date `{value}`; use YYYY-MM-DD")))
 }
 
-fn days_in_month(year: u32, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
+fn validate_priority(value: &str) -> Result<()> {
+    if matches!(
+        value.to_ascii_uppercase().as_str(),
+        "S" | "A" | "B" | "C" | "D"
+    ) {
+        Ok(())
+    } else {
+        Err(NtError::Message(format!(
+            "invalid priority `{value}`; use S, A, B, C, or D"
+        )))
     }
-}
-
-fn is_leap_year(year: u32) -> bool {
-    year.is_multiple_of(4) && !year.is_multiple_of(100) || year.is_multiple_of(400)
 }
 
 fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
@@ -439,6 +446,22 @@ fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
             .status
             .as_deref()
             .is_some_and(|status| status.to_ascii_lowercase().contains(needle))
+        || note
+            .priority
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+        || note
+            .scheduled
+            .as_deref()
+            .is_some_and(|value| value.contains(needle))
+        || note
+            .due
+            .as_deref()
+            .is_some_and(|value| value.contains(needle))
+        || note
+            .closed
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
         || note
             .tags
             .iter()

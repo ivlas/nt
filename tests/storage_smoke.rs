@@ -47,12 +47,12 @@ fn config_vault_lists_and_switches_active_vault() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
     let first = run_nt_with_stdin(&home, &["add"], "# First vault\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap().to_string();
-    run_nt(&home, &["status", &first_id, "open"]);
+    run_nt(&home, &["update", &first_id, "status", "open"]);
 
     run_nt(&home, &["init", research.to_str().unwrap()]);
     let second = run_nt_with_stdin(&home, &["add"], "# Second vault\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap().to_string();
-    run_nt(&home, &["status", &second_id, "open"]);
+    run_nt(&home, &["update", &second_id, "status", "open"]);
 
     let vaults = run_nt(&home, &["config", "vault"]);
     assert!(vaults.contains(&format!("- notes {}", notes.display())));
@@ -61,7 +61,7 @@ fn config_vault_lists_and_switches_active_vault() {
     let listed = run_nt(&home, &["list"]);
     assert!(listed.contains(&second_id));
     assert!(!listed.contains(&first_id));
-    let status = run_nt(&home, &["status"]);
+    let status = run_nt(&home, &["find", "status:open"]);
     assert!(status.contains(&second_id));
     assert!(!status.contains(&first_id));
 
@@ -79,7 +79,7 @@ fn config_vault_lists_and_switches_active_vault() {
     let listed = run_nt(&home, &["list"]);
     assert!(listed.contains(&first_id));
     assert!(!listed.contains(&second_id));
-    let status = run_nt(&home, &["status"]);
+    let status = run_nt(&home, &["find", "status:open"]);
     assert!(status.contains(&first_id));
     assert!(!status.contains(&second_id));
 
@@ -278,9 +278,9 @@ fn new_user_release_readiness_smoke_flow() {
         summary_ids(&run_nt(&home, &["find", "body:borrow"])),
         vec![id.as_str()]
     );
-    assert_eq!(run_nt(&home, &["ids"]).trim(), id);
-    assert!(run_nt(&home, &["tags"]).contains("rust\t1"));
-    let status = run_nt(&home, &["status"]);
+    assert_eq!(run_nt(&home, &["list", "ids"]).trim(), id);
+    assert!(run_nt(&home, &["list", "tags"]).contains(&format!("{id}\trust\t")));
+    let status = run_nt(&home, &["find", "status:open"]);
     assert_eq!(summary_ids(&status), vec![id.as_str()]);
     let config = run_nt(&home, &["config", "show"]);
     assert!(config.contains("vault notes"));
@@ -312,11 +312,14 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
     let rebuilt = run_nt(&home, &["rebuild"]);
     assert_eq!(rebuilt.trim(), "rebuilt 2");
 
-    run_nt(&home, &["tag", first_id, "storage"]);
-    run_nt(&home, &["collect", first_id, "projects/nt"]);
-    run_nt(&home, &["kind", first_id, "decision"]);
-    run_nt(&home, &["status", first_id, "open"]);
-    run_nt(&home, &["link", first_id, deleted_id]);
+    run_nt(&home, &["update", first_id, "tag", "+storage"]);
+    run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
+    run_nt(&home, &["update", first_id, "kind", "decision"]);
+    run_nt(&home, &["update", first_id, "status", "open"]);
+    run_nt(
+        &home,
+        &["update", first_id, "link", &format!("+{}", deleted_id)],
+    );
 
     let mut index = read_index(&home);
     assert_eq!(
@@ -436,14 +439,14 @@ fn completion_outputs_dynamic_note_id_hooks() {
     assert!(bash.contains("_nt_note_ids"));
     assert!(bash.contains("_nt_titled_notes"));
     assert!(bash.contains("nt list 2>/dev/null"));
-    assert!(bash.contains("nt ids 2>/dev/null"));
+    assert!(bash.contains("nt list ids 2>/dev/null"));
 
     let zsh = run_nt(&home, &["completion", "zsh"]);
     assert!(zsh.contains("'show:'"));
     assert!(zsh.contains("'open:'"));
     assert!(zsh.contains(":id:_nt_titled_notes"));
     assert!(zsh.contains("command nt list 2>/dev/null"));
-    assert!(zsh.contains("nt ids 2>/dev/null"));
+    assert!(zsh.contains("nt list ids 2>/dev/null"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -455,32 +458,18 @@ fn help_is_a_flagless_command_with_examples() {
 
     let root_help = run_nt(&home, &["help"]);
     assert!(root_help.contains("nt <command> [positional...]"));
-    assert!(root_help.contains("nt help <command>"));
+    assert!(root_help.contains("nt <command> [positional...]"));
     assert!(root_help.contains("Examples:"));
 
     let find_help = run_nt(&home, &["help", "find"]);
     assert!(find_help.contains("nt find <expr...>"));
-    assert!(find_help.contains("nt find tag:decision collection:projects/nt"));
-    assert!(
-        find_help.contains("candidate narrowing") || find_help.contains("indexed body terms"),
-        "find help should document indexed search narrowing"
-    );
-    assert!(
-        find_help.contains(
-            "Quoted multiword body: values match all\nindexed terms, not an exact phrase"
-        )
-    );
-    assert!(!find_help.contains("exact phrase search"));
+    assert!(find_help.contains("nt find kind:todo due:2026-06-30"));
 
     let vault_help = run_nt(&home, &["help", "config", "vault"]);
     assert!(vault_help.contains("nt config vault [vault-name]"));
     assert!(vault_help.contains("nt config vault notes"));
     let rebuild_help = run_nt(&home, &["help", "rebuild"]);
-    assert!(
-        rebuild_help.contains(
-            "preserves existing sources and merges\nURLs currently found in Markdown body"
-        )
-    );
+    assert!(rebuild_help.contains("preserving primary JSON metadata"));
 
     assert_failed(&home, &["--help"], "unexpected argument '--help'");
     assert_failed(&home, &["list", "--help"], "unexpected argument '--help'");
@@ -537,7 +526,7 @@ fn shell_workflow_docs_use_only_core_shell_workflow_commands() {
     assert!(!commands.is_empty());
     for command in commands {
         assert!(
-            ["find", "show", "open", "ids"].contains(&command.as_str()),
+            ["find", "show", "open", "list"].contains(&command.as_str()),
             "docs/shell-workflows.md uses unsupported workflow nt command `{command}`"
         );
     }
@@ -917,31 +906,34 @@ fn metadata_commands_route_through_visible_index() {
     let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
-    run_nt(&home, &["collect", first_id, "projects/nt"]);
-    run_nt(&home, &["tag", first_id, "storage"]);
-    run_nt(&home, &["kind", first_id, "decision"]);
-    run_nt(&home, &["status", first_id, "open"]);
-    run_nt(&home, &["link", first_id, second_id]);
+    run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
+    run_nt(&home, &["update", first_id, "tag", "+storage"]);
+    run_nt(&home, &["update", first_id, "kind", "decision"]);
+    run_nt(&home, &["update", first_id, "status", "open"]);
+    run_nt(
+        &home,
+        &["update", first_id, "link", &format!("+{}", second_id)],
+    );
 
-    let tags = run_nt(&home, &["tags"]);
-    assert!(tags.contains("storage\t1"));
+    let tags = run_nt(&home, &["list", "tags"]);
+    assert!(tags.contains(&format!("{first_id}\tstorage\t")));
 
-    let collections = run_nt(&home, &["collections"]);
-    assert_eq!(collections.trim(), "projects/nt");
+    let collections = run_nt(&home, &["list", "collections"]);
+    assert!(collections.contains(&format!("{first_id}\tprojects/nt\t")));
 
-    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    let collection = run_nt(&home, &["find", "collection:projects/nt"]);
     assert!(collection.contains(first_id));
 
-    let status = run_nt(&home, &["status"]);
+    let status = run_nt(&home, &["find", "status:open"]);
     assert!(status.contains(first_id));
 
-    let links = run_nt(&home, &["links", first_id, "from"]);
+    let links = run_nt(&home, &["list", "links", first_id, "from"]);
     assert_eq!(links.trim(), second_id);
 
-    let backlinks = run_nt(&home, &["links", second_id, "to"]);
+    let backlinks = run_nt(&home, &["list", "links", second_id, "to"]);
     assert_eq!(backlinks.trim(), first_id);
 
-    let related = run_nt(&home, &["links", second_id]);
+    let related = run_nt(&home, &["list", "links", second_id]);
     assert_eq!(related.trim(), first_id);
 
     let found = run_nt(
@@ -957,17 +949,20 @@ fn metadata_commands_route_through_visible_index() {
     );
     assert!(found.contains(first_id));
 
-    run_nt(&home, &["unlink", first_id, second_id]);
-    run_nt(&home, &["untag", first_id, "storage"]);
-    run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+    run_nt(
+        &home,
+        &["update", first_id, "link", &format!("-{}", second_id)],
+    );
+    run_nt(&home, &["update", first_id, "tag", "-storage"]);
+    run_nt(&home, &["update", first_id, "collection", "-projects/nt"]);
 
-    let links = run_nt(&home, &["links", first_id, "from"]);
+    let links = run_nt(&home, &["list", "links", first_id, "from"]);
     assert!(links.trim().is_empty());
 
-    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    let collection = run_nt(&home, &["find", "collection:projects/nt"]);
     assert!(collection.trim().is_empty());
 
-    let tags = run_nt(&home, &["tags"]);
+    let tags = run_nt(&home, &["list", "tags"]);
     assert!(!tags.contains("storage"));
 
     let _ = fs::remove_dir_all(root);
@@ -1052,54 +1047,67 @@ fn collection_and_status_commands_validate_and_update_index_only() {
 
     assert_failed(
         &home,
-        &["collect", "bad-id", "projects/nt"],
+        &["update", "bad-id", "collection", "+projects/nt"],
         "invalid note id",
     );
     assert_failed(
         &home,
-        &["collect", first_id, "Projects/nt"],
+        &["update", first_id, "collection", "+Projects/nt"],
         "invalid collection",
     );
     assert_failed(
         &home,
-        &["collect", first_id, "projects,nt"],
+        &["update", first_id, "collection", "+projects,nt"],
         "without spaces or commas",
     );
-    assert_failed(&home, &["tag", first_id, "Storage"], "invalid tag");
-    assert_failed(&home, &["kind", first_id, "unknown"], "invalid kind");
-    assert_failed(&home, &["status", first_id, "blocked"], "invalid status");
+    assert_failed(
+        &home,
+        &["update", first_id, "tag", "+Storage"],
+        "invalid tag",
+    );
+    assert_failed(
+        &home,
+        &["update", first_id, "kind", "unknown"],
+        "invalid kind",
+    );
+    assert_failed(
+        &home,
+        &["update", first_id, "status", "blocked"],
+        "invalid status",
+    );
 
-    let collected = run_nt(&home, &["collect", first_id, "projects/nt"]);
+    let collected = run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
     assert_eq!(
         collected.trim(),
-        format!("collected {first_id} projects/nt")
+        format!("updated {first_id} collection +projects/nt")
     );
-    let collected_again = run_nt(&home, &["collect", first_id, "projects/nt"]);
+    let collected_again = run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
     assert_eq!(
         collected_again.trim(),
-        format!("collected {first_id} projects/nt")
+        format!("updated {first_id} collection +projects/nt")
     );
 
-    run_nt(&home, &["kind", first_id, "todo"]);
-    run_nt(&home, &["status", first_id, "open"]);
-    run_nt(&home, &["status", second_id, "waiting"]);
+    run_nt(&home, &["update", first_id, "kind", "todo"]);
+    run_nt(&home, &["update", first_id, "status", "open"]);
+    run_nt(&home, &["update", second_id, "kind", "todo"]);
+    run_nt(&home, &["update", second_id, "status", "waiting"]);
 
     let first_body = fs::read_to_string(notes.join(format!("{first_id}.md"))).unwrap();
     assert_eq!(first_body, "# First\n\nbody one.\n");
 
-    let collections = run_nt(&home, &["collections"]);
-    assert_eq!(collections.trim(), "projects/nt");
+    let collections = run_nt(&home, &["list", "collections"]);
+    assert!(collections.contains(&format!("{first_id}\tprojects/nt\t")));
 
-    let collection = run_nt(&home, &["collection", "projects/nt"]);
+    let collection = run_nt(&home, &["find", "collection:projects/nt"]);
     assert_eq!(summary_ids(&collection), vec![first_id]);
 
-    let status = run_nt(&home, &["status"]);
-    assert_eq!(summary_ids(&status), vec![second_id, first_id]);
+    let status = run_nt(&home, &["agenda"]);
+    assert_eq!(note_ids(&status), vec![second_id, first_id]);
 
-    let cleared = run_nt(&home, &["status", first_id, "-"]);
-    assert_eq!(cleared.trim(), format!("status {first_id} -"));
-    let status = run_nt(&home, &["status"]);
-    assert_eq!(summary_ids(&status), vec![second_id]);
+    let cleared = run_nt(&home, &["update", first_id, "status", "-"]);
+    assert_eq!(cleared.trim(), format!("updated {first_id} status -"));
+    let status = run_nt(&home, &["agenda"]);
+    assert_eq!(note_ids(&status), vec![second_id]);
 
     let index = read_index(&home);
     assert_eq!(index["notes"][first_id]["status"], serde_json::Value::Null);
@@ -1116,19 +1124,22 @@ fn collection_and_status_commands_validate_and_update_index_only() {
     );
     assert_eq!(
         index["kinds"]["todo"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
+        &vec![
+            serde_json::Value::String(second_id.to_string()),
+            serde_json::Value::String(first_id.to_string()),
+        ]
     );
     assert!(index["statuses"].get("open").is_none());
 
-    let uncollected = run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+    let uncollected = run_nt(&home, &["update", first_id, "collection", "-projects/nt"]);
     assert_eq!(
         uncollected.trim(),
-        format!("uncollected {first_id} projects/nt")
+        format!("updated {first_id} collection -projects/nt")
     );
-    let uncollected_again = run_nt(&home, &["uncollect", first_id, "projects/nt"]);
+    let uncollected_again = run_nt(&home, &["update", first_id, "collection", "-projects/nt"]);
     assert_eq!(
         uncollected_again.trim(),
-        format!("uncollected {first_id} projects/nt")
+        format!("updated {first_id} collection -projects/nt")
     );
 
     let index = read_index(&home);
@@ -1181,10 +1192,8 @@ fn add_accepts_creation_metadata() {
     assert!(shown.contains(&format!("links {first_id},{second_id}")));
     assert!(shown.contains("sources https://example.com/vm,https://manual.example/spec"));
 
-    let tags = run_nt(&home, &["tags"]);
-    assert!(tags.contains("firecracker\t1"));
-    assert!(tags.contains("qemu\t1"));
-    assert!(tags.contains("research\t1"));
+    let tags = run_nt(&home, &["list", "tags"]);
+    assert!(tags.contains("firecracker,qemu,research"));
 
     let found = run_nt(
         &home,
@@ -1199,10 +1208,10 @@ fn add_accepts_creation_metadata() {
     );
     assert!(found.contains(id));
 
-    let backlinks = run_nt(&home, &["links", first_id, "to"]);
+    let backlinks = run_nt(&home, &["list", "links", first_id, "to"]);
     assert_eq!(backlinks.trim(), id);
 
-    let related = run_nt(&home, &["links", id]);
+    let related = run_nt(&home, &["list", "links", id]);
     assert_eq!(related.trim(), format!("{first_id}\n{second_id}"));
 
     let _ = fs::remove_dir_all(root);
@@ -1549,7 +1558,7 @@ fn common_mistakes_fail_cleanly() {
         "## Section is not a title\n",
         "note must start with a non-empty `# Title` heading",
     );
-    assert!(run_nt(&home, &["ids"]).trim().is_empty());
+    assert!(run_nt(&home, &["list", "ids"]).trim().is_empty());
     assert_failed(
         &home,
         &["find", "collectiom:projects/nt"],
@@ -1654,6 +1663,13 @@ fn summary_ids(output: &str) -> Vec<&str> {
     output
         .lines()
         .map(|line| line.split_whitespace().next().unwrap())
+        .collect()
+}
+
+fn note_ids(output: &str) -> Vec<&str> {
+    summary_ids(output)
+        .into_iter()
+        .filter(|value| is_valid_note_id(value))
         .collect()
 }
 
@@ -1828,19 +1844,8 @@ const ROOT_COMMANDS: &[&str] = &[
     "show",
     "open",
     "rm",
-    "ids",
-    "tags",
-    "tag",
-    "untag",
-    "collections",
-    "collection",
-    "collect",
-    "uncollect",
-    "kind",
-    "status",
-    "link",
-    "unlink",
-    "links",
+    "update",
+    "agenda",
     "export",
     "config",
     "completion",

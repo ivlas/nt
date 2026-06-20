@@ -19,6 +19,10 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
         None => text.push_str("null"),
     }
     text.push('\n');
+    optional_value(&mut text, "priority", note.priority.as_deref())?;
+    optional_value(&mut text, "scheduled", note.scheduled.as_deref())?;
+    optional_value(&mut text, "due", note.due.as_deref())?;
+    optional_value(&mut text, "closed", note.closed.as_deref())?;
     text.push_str(&format!("tags: {}\n", json_list(&note.tags)?));
     text.push_str(&format!("collections: {}\n", json_list(&note.collections)?));
     text.push_str(&format!("links: {}\n", json_list(&note.links)?));
@@ -27,6 +31,17 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
     text.push_str(body);
 
     Ok(text)
+}
+
+fn optional_value(text: &mut String, field: &str, value: Option<&str>) -> Result<()> {
+    text.push_str(field);
+    text.push_str(": ");
+    match value {
+        Some(value) => text.push_str(&json_value(value)?),
+        None => text.push_str("null"),
+    }
+    text.push('\n');
+    Ok(())
 }
 
 fn json_value(value: &str) -> Result<String> {
@@ -79,6 +94,10 @@ updated: \"2026-05-28T14:30:12Z\"\n\
 title: \"Storage: \\\"shape\\\"\"\n\
 kind: \"decision\"\n\
 status: \"open\"\n\
+priority: null\n\
+scheduled: null\n\
+due: null\n\
+closed: null\n\
 tags: [\"cli\",\"storage\"]\n\
 collections: [\"projects/nt\"]\n\
 links: [\"NT20260527T120000\"]\n\

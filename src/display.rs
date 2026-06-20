@@ -27,6 +27,22 @@ pub(crate) fn joined_or_dash(values: &[String]) -> String {
     }
 }
 
+pub(crate) fn metadata_projection(note: &NoteMeta, values: &[String]) -> String {
+    format!("{}\t{}\t{}", note.id, joined_or_dash(values), note.title)
+}
+
+pub(crate) fn agenda_line(note: &NoteMeta) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        note.id,
+        note.status.as_deref().unwrap_or("-"),
+        note.priority.as_deref().unwrap_or("-"),
+        note.scheduled.as_deref().unwrap_or("-"),
+        note.due.as_deref().unwrap_or("-"),
+        note.title
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

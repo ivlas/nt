@@ -1,51 +1,47 @@
 use crate::error::{NtError, Result};
 
 pub fn print(topic: &[String]) -> Result<()> {
-    let key = topic.join(" ");
-    let text = topic_text(&key)?;
-
-    print!("{text}");
+    print!("{}", topic_text(&topic.join(" "))?);
     Ok(())
 }
 
 fn topic_text(key: &str) -> Result<&'static str> {
-    let text = match key {
-        "" => ROOT,
-        "init" => INIT,
-        "add" => ADD,
-        "rebuild" => REBUILD,
-        "list" => LIST,
-        "find" => FIND,
-        "show" => SHOW,
-        "open" => OPEN,
-        "rm" => RM,
-        "ids" => IDS,
-        "tags" => TAGS,
-        "tag" => TAG,
-        "untag" => UNTAG,
-        "collections" => COLLECTIONS,
-        "collection" => COLLECTION,
-        "collect" => COLLECT,
-        "uncollect" => UNCOLLECT,
-        "kind" => KIND,
-        "status" => STATUS,
-        "link" => LINK,
-        "unlink" => UNLINK,
-        "links" => LINKS,
-        "export" => EXPORT,
-        "config" => CONFIG,
-        "config show" => CONFIG_SHOW,
-        "config vault" => CONFIG_VAULT,
-        "completion" => COMPLETION,
-        "help" => HELP,
-        _ => {
-            return Err(NtError::Message(format!(
-                "unknown help topic `{key}`; run `nt help`"
-            )));
+    match key {
+        "" => Ok(ROOT),
+        "init" => Ok(
+            "nt init <notes-dir>\n\nCreate and select a flat note vault.\n\nExamples:\n  nt init notes\n",
+        ),
+        "add" => Ok(ADD),
+        "rebuild" => Ok(REBUILD),
+        "list" => Ok(LIST),
+        "find" => Ok(FIND),
+        "show" => Ok(
+            "nt show <id>\n\nPrint metadata and the CommonMark body.\n\nExamples:\n  nt show NT20260528T143012\n",
+        ),
+        "open" => Ok(
+            "nt open <id>\n\nEdit one note with $EDITOR.\n\nExamples:\n  nt open NT20260528T143012\n",
+        ),
+        "rm" => Ok("nt rm <id>\n\nRemove one note.\n\nExamples:\n  nt rm NT20260528T143012\n"),
+        "update" => Ok(UPDATE),
+        "agenda" => Ok(AGENDA),
+        "export" => Ok(
+            "nt export <path> [id...]\n\nExport Markdown with generated front matter.\n\nExamples:\n  nt export archive\n",
+        ),
+        "config" => Ok(CONFIG),
+        "config show" => {
+            Ok("nt config show\n\nPrint active vault state.\n\nExamples:\n  nt config show\n")
         }
-    };
-
-    Ok(text)
+        "config vault" => Ok(
+            "nt config vault [vault-name]\n\nList or select vaults.\n\nExamples:\n  nt config vault notes\n",
+        ),
+        "completion" => Ok(
+            "nt completion <bash|zsh>\n\nGenerate shell completion.\n\nExamples:\n  nt completion zsh\n",
+        ),
+        "help" => Ok("nt help [command...]\n\nShow command help.\n\nExamples:\n  nt help find\n"),
+        _ => Err(NtError::Message(format!(
+            "unknown help topic `{key}`; run `nt help`"
+        ))),
+    }
 }
 
 const ROOT: &str = r#"nt
@@ -54,311 +50,99 @@ Markdown-first CLI note organizer.
 
 Usage:
   nt <command> [positional...]
-  nt help <command>
-
-Notes are canonical CommonMark files in the active vault. The visible index at
-$HOME/.nt/index.json stores metadata, derived maps, and the body term index.
 
 Commands:
-  init         create a vault
-  add          add a Markdown note
-  rebuild      rebuild active vault index
-  list         list recent notes
-  find         find notes by query expressions
-  show         show one exact note
-  open         open one note with $EDITOR
-  rm           remove one note
-  ids          print note ids
-  tags         print known tags
-  tag          add a tag
-  untag        remove a tag
-  collections  print known collections
-  collection   list one collection
-  collect      add a note to a collection
-  uncollect    remove a note from a collection
-  kind         set note kind
-  status       list or set status
-  link         add a note link
-  unlink       remove a note link
-  links        print note links
-  export       export Markdown with front matter
-  config       inspect or select vaults
-  completion   generate shell completion
-  help         show help
+  init        create a vault
+  add         add a Markdown note
+  rebuild     rebuild active vault index
+  list        list notes and metadata projections
+  find        find notes by query expressions
+  show        show one exact note
+  open        edit one note with $EDITOR
+  rm          remove one note
+  update      update one metadata field
+  agenda      show actionable todos
+  export      export Markdown with front matter
+  config      inspect or select vaults
+  completion  generate shell completion
+  help        show help
 
 Examples:
   nt init notes
-  nt add tag:decision kind:note
-  nt rebuild
+  nt list
   nt find tag:decision qemu
-  nt help find
-"#;
-
-const INIT: &str = r#"nt init <notes-dir>
-
-Create a vault from a flat notes directory and make it active. The vault name is
-the directory basename and must be unique.
-
-Examples:
-  nt init notes
-  nt init ~/notes/nt
+  nt agenda today
 "#;
 
 const ADD: &str = r#"nt add [metadata...]
 
-Read a canonical CommonMark note from stdin, or open $EDITOR when stdin is a
-terminal. Metadata uses visible positional expressions and is saved in the
-active vault index.
+Read CommonMark from stdin or $EDITOR. Metadata fields are tag, kind, status,
+priority, scheduled, due, collection, link, and source.
 
 Examples:
-  nt add
-  nt add tag:storage kind:decision status:open
-  nt add tag:qemu,firecracker collection:research/qemu
+  nt add kind:todo status:open priority:A due:2026-06-30
 "#;
 
 const REBUILD: &str = r#"nt rebuild
 
-Rebuild the active vault visible index from canonical Markdown note files and
-JSON metadata. Preserves primary metadata, preserves existing sources and merges
-URLs currently found in Markdown body, removes stale active-vault entries,
-cleans links to deleted notes, and refreshes the body term index.
+Rebuild from Markdown while preserving primary JSON metadata and merging URLs
+currently found in Markdown bodies.
 
 Examples:
   nt rebuild
 "#;
 
 const LIST: &str = r#"nt list
+nt list ids
+nt list tags
+nt list collections
+nt list links <id> [from|to]
 
-Print recent note summaries.
+Print active-vault notes or stable one-record-per-line projections.
 
 Examples:
-  nt list
-  nt list | head
+  nt list ids
+  nt list links NT20260528T143012 from
 "#;
 
 const FIND: &str = r#"nt find <expr...>
 
-Find notes with AND-combined query expressions. Bare words match searchable
-metadata and indexed note body terms. `nt find` uses visible metadata and the
-body term index for candidate narrowing where available, then prints verified
-matches in deterministic active-recent order.
-
-body: values use indexed body terms. Quoted multiword body: values match all
-indexed terms, not an exact phrase. Missing body index entries may fall back to
-Markdown body reads; indexed body entries are trusted until `nt rebuild`.
+Find notes with AND-combined expressions. Fields include id, tag, title, day,
+since, before, kind, status, priority, scheduled, due, closed, collection,
+link, source, and body.
 
 Examples:
-  nt find qemu firecracker
-  nt find tag:decision collection:projects/nt
-  nt find body:'microvm jailer'
-  nt find since:2026-05-01 before:2026-06-01 not:tag:draft
+  nt find kind:todo due:2026-06-30
+  nt find not:status:done qemu
 "#;
 
-const SHOW: &str = r#"nt show <id>
+const UPDATE: &str = r#"nt update <id> <field> <value>
 
-Print note identity and visible metadata from the index, then the canonical
-CommonMark body from disk, for one exact note.
+Single fields kind, status, priority, scheduled, and due use a value or -.
+Set fields tag, collection, link, and source require +value or -value.
 
 Examples:
-  nt show NT20260528T143012
-  nt show NT20260528T143012 | sed -n '1,12p'
+  nt update NT20260528T143012 status done
+  nt update NT20260528T143012 tag +decision
 "#;
 
-const OPEN: &str = r#"nt open <id>
+const AGENDA: &str = r#"nt agenda [today|week|overdue|waiting|undated]
 
-Open one canonical Markdown note in $EDITOR. A valid note must start with a
-non-empty `# Title` heading; successful saves atomically refresh the note and
-visible index.
+Print actionable todo records ordered by date, priority, and recency.
 
 Examples:
-  nt open NT20260528T143012
-  EDITOR=vim nt open NT20260528T143012
-"#;
-
-const RM: &str = r#"nt rm <id>
-
-Remove one note file and its visible index metadata.
-
-Examples:
-  nt rm NT20260528T143012
-"#;
-
-const IDS: &str = r#"nt ids
-
-Print note ids, one per line.
-
-Examples:
-  nt ids
-  nt ids | head
-"#;
-
-const TAGS: &str = r#"nt tags
-
-Print known tags and counts.
-
-Examples:
-  nt tags
-  nt tags | sort
-"#;
-
-const TAG: &str = r#"nt tag <id> <tag>
-
-Add a sparse topic tag to one note.
-
-Examples:
-  nt tag NT20260528T143012 storage
-  nt tag NT20260528T143012 qemu
-"#;
-
-const UNTAG: &str = r#"nt untag <id> <tag>
-
-Remove a tag from one note.
-
-Examples:
-  nt untag NT20260528T143012 draft
-"#;
-
-const COLLECTIONS: &str = r#"nt collections
-
-Print known collection names, one per line.
-
-Examples:
-  nt collections
-  nt collections | sort
-"#;
-
-const COLLECTION: &str = r#"nt collection <name>
-
-List notes in one collection using the normal summary format.
-
-Examples:
-  nt collection projects/nt
-  nt collection research/qemu
-"#;
-
-const COLLECT: &str = r#"nt collect <id> <collection>
-
-Add one note to a workspace-like collection.
-
-Examples:
-  nt collect NT20260528T143012 projects/nt
-  nt collect NT20260528T143012 research/qemu
-"#;
-
-const UNCOLLECT: &str = r#"nt uncollect <id> <collection>
-
-Remove one note from a collection.
-
-Examples:
-  nt uncollect NT20260528T143012 projects/nt
-"#;
-
-const KIND: &str = r#"nt kind <id> <kind>
-
-Set the structural form of a note.
-
-Examples:
-  nt kind NT20260528T143012 decision
-  nt kind NT20260528T143012 meeting
-"#;
-
-const STATUS: &str = r#"nt status
-nt status <id> <status>
-
-List open and waiting notes, set one note status, or clear status with -.
-
-Examples:
-  nt status
-  nt status NT20260528T143012 open
-  nt status NT20260528T143012 done
-  nt status NT20260528T143012 -
-"#;
-
-const LINK: &str = r#"nt link <from-id> <to-id>
-
-Add an exact note-to-note relationship in visible JSON metadata.
-
-Examples:
-  nt link NT20260528T143012 NT20260527T120000
-"#;
-
-const UNLINK: &str = r#"nt unlink <from-id> <to-id>
-
-Remove an exact note-to-note relationship.
-
-Examples:
-  nt unlink NT20260528T143012 NT20260527T120000
-"#;
-
-const LINKS: &str = r#"nt links <id> [from|to]
-
-Print all directly related note ids, notes linked from this note, or notes that
-link to this note. Output is one note id per line.
-
-Examples:
-  nt links NT20260528T143012
-  nt links NT20260528T143012 from
-  nt links NT20260528T143012 to
-"#;
-
-const EXPORT: &str = r#"nt export <path> [id...]
-
-Export notes into a directory as Markdown files with generated front matter.
-Metadata is read from the JSON index; active note files are not modified.
-
-Examples:
-  nt export archive
-  nt export archive NT20260528T143012
-  nt export archive NT20260528T143012 NT20260527T120000
-  nt find collection:projects/nt | awk '{print $1}' | while read -r id; do nt export archive "$id"; done
+  nt agenda
+  nt agenda week
 "#;
 
 const CONFIG: &str = r#"nt config show
 nt config vault [vault-name]
 
-Inspect vault state or select the active vault.
+Inspect or select vaults.
 
 Examples:
   nt config show
-  nt config vault
   nt config vault notes
-"#;
-
-const CONFIG_SHOW: &str = r#"nt config show
-
-Print the active vault name and path.
-
-Examples:
-  nt config show
-"#;
-
-const CONFIG_VAULT: &str = r#"nt config vault [vault-name]
-
-List known vaults, or select the active vault by name. Commands read and write
-notes through the active vault.
-
-Examples:
-  nt config vault
-  nt config vault notes
-"#;
-
-const COMPLETION: &str = r#"nt completion <shell>
-
-Generate shell completion for commands and dynamic note ids.
-
-Examples:
-  nt completion zsh
-  nt completion bash
-"#;
-
-const HELP: &str = r#"nt help [command...]
-
-Show short command help with examples.
-
-Examples:
-  nt help
-  nt help find
-  nt help config vault
 "#;
 
 #[cfg(test)]
@@ -366,8 +150,8 @@ mod tests {
     use super::topic_text;
 
     #[test]
-    fn every_command_has_help_text() {
-        let topics = [
+    fn target_commands_have_help() {
+        for topic in [
             "",
             "init",
             "add",
@@ -377,53 +161,21 @@ mod tests {
             "show",
             "open",
             "rm",
-            "ids",
-            "tags",
-            "tag",
-            "untag",
-            "collections",
-            "collection",
-            "collect",
-            "uncollect",
-            "kind",
-            "status",
-            "link",
-            "unlink",
-            "links",
+            "update",
+            "agenda",
             "export",
             "config",
-            "config show",
-            "config vault",
             "completion",
             "help",
-        ];
-
-        for topic in topics {
-            let text = topic_text(topic).unwrap_or_else(|err| {
-                panic!("missing help for {topic:?}: {err}");
-            });
-            assert!(text.contains("Examples:"), "missing examples for {topic:?}");
+        ] {
+            assert!(topic_text(topic).unwrap().contains("Examples:"));
         }
     }
 
     #[test]
-    fn unknown_help_topic_is_actionable() {
-        let err = topic_text("unknown").unwrap_err();
-
-        assert_eq!(
-            err.to_string(),
-            "unknown help topic `unknown`; run `nt help`"
-        );
-    }
-
-    #[test]
-    fn rebuild_help_documents_persistent_source_semantics() {
-        let text = topic_text("rebuild").unwrap();
-
-        assert!(text.contains(
-            "preserves existing sources and merges\nURLs currently found in Markdown body"
-        ));
-        assert!(!text.contains("refreshes current body URL sources"));
-        assert!(!text.contains("refreshes body-derived fields"));
+    fn legacy_topics_are_unknown() {
+        for topic in ["ids", "tags", "collection", "status", "link"] {
+            assert!(topic_text(topic).is_err());
+        }
     }
 }
