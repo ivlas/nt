@@ -22,7 +22,7 @@ Use `nt` as the visible note system. Do not edit note files or
 Workflow:
 
 1. Draft a concise CommonMark note with a clear title.
-2. Run `nt tags` and `nt collections` before choosing metadata.
+2. Run `nt list tags` and `nt list collections` before choosing metadata.
 3. Prefer one to three existing tags.
 4. Ask before mutation when the user has not already approved saving.
 5. Save with `nt add [metadata...]`.
@@ -58,8 +58,8 @@ indexed text search as the direction before falling back to file scanning.
 
 Workflow:
 
-1. Start with cheap indexes: `nt list`, `nt tags`, `nt collections`, or
-   `nt ids`.
+1. Start with cheap indexes: `nt list`, `nt list tags`, `nt list collections`,
+   or `nt list ids`.
 2. Use exact metadata filters and `nt find <expr...>` for candidate notes.
 3. Use `nt show <id>` before relying on a note.
 4. Answer from shown note content and cite supporting note ids.
@@ -90,20 +90,19 @@ Use explicit metadata commands. Do not edit `$HOME/.nt/index.json` directly.
 
 Workflow:
 
-1. Inspect current state with `nt config show`, `nt tags`, `nt collections`,
-   `nt status`, and targeted `nt find` commands.
+1. Inspect current state with `nt config show`, `nt list tags`, `nt list
+   collections`, `nt agenda`, and targeted `nt find` commands.
 2. Propose exact commands before mutating metadata.
-3. Use `nt tag`, `nt untag`, `nt collect`, `nt uncollect`, `nt kind`,
-   `nt status`, `nt link`, and `nt unlink`.
+3. Use `nt update <id> <field> <value>` for metadata changes.
 4. Verify with `nt show <id>` or the relevant list command.
 
 Examples:
 
 ```sh
-nt tag NT20260528T143012 storage
-nt collect NT20260528T143012 projects/nt
-nt status NT20260528T143012 done
-nt link NT20260528T143012 NT20260527T120000
+nt update NT20260528T143012 tag +storage
+nt update NT20260528T143012 collection +projects/nt
+nt update NT20260528T143012 status done
+nt update NT20260528T143012 link +NT20260527T120000
 ```
 ````
 

@@ -39,29 +39,22 @@ launcher, or Hermes replacement.
 
 ## Commands
 
-Current command surface:
+Target command surface (implementation pending; see
+`docs/command-surface-implementation-plan.md`):
 
 - `nt init <notes-dir>`
 - `nt add [metadata...]`
 - `nt list`
+- `nt list ids`
+- `nt list tags`
+- `nt list collections`
+- `nt list links <id> [from|to]`
 - `nt find <expr...>`
 - `nt show <id>`
 - `nt open <id>`
 - `nt rm <id>`
-- `nt ids`
-- `nt tags`
-- `nt tag <id> <tag>`
-- `nt untag <id> <tag>`
-- `nt collections`
-- `nt collection <name>`
-- `nt collect <id> <collection>`
-- `nt uncollect <id> <collection>`
-- `nt kind <id> <kind>`
-- `nt status`
-- `nt status <id> <status>`
-- `nt link <from-id> <to-id>`
-- `nt unlink <from-id> <to-id>`
-- `nt links <id> [from|to]`
+- `nt update <id> <field> <value>`
+- `nt agenda [today|week|overdue|waiting|undated]`
 - `nt export <path> [id...]`
 - `nt config show`
 - `nt config vault`
@@ -117,6 +110,10 @@ Initial query fields:
 - `before:<YYYY-MM-DD>`
 - `kind:<kind>`
 - `status:<status>`
+- `priority:<priority>`
+- `scheduled:<YYYY-MM-DD>`
+- `due:<YYYY-MM-DD>`
+- `closed:<YYYY-MM-DD>`
 - `collection:<name>`
 - `link:<id>`
 - `source:<term>`
@@ -142,6 +139,10 @@ Primary note metadata should stay small:
 - `title`
 - `kind`
 - `status`
+- `priority`
+- `scheduled`
+- `due`
+- `closed`
 - `tags`
 - `collections`
 - `links`
@@ -168,13 +169,17 @@ Use distinct fields instead of overloading tags:
 - `kind`: the structural form of a note, such as `note`, `todo`, `meeting`,
   `decision`, `source`, `research`, or `project`.
 - `status`: agenda state, such as `open`, `waiting`, `done`, or `dropped`.
+- `priority`: optional urgency ordered `S`, `A`, `B`, `C`, `D`.
+- `scheduled`: optional calendar date when a todo should appear.
+- `due`: optional calendar date for a todo, formatted as `YYYY-MM-DD`.
+- `closed`: system-managed UTC timestamp for the terminal status transition.
 - `collection`: where a note belongs, such as `todos`, `meetings`,
   `projects/nt`, or `research/qemu`.
 - `tag`: sparse topics or entities.
 - `link`: exact note-to-note relationships stored in JSON metadata.
 - `source`: external source references.
 
-Tags should stay sparse. Agents should run `nt tags` before choosing tags,
+Tags should stay sparse. Agents should run `nt list tags` before choosing tags,
 prefer existing tags, use one to three tags by default, and create a new tag
 only when the concept is likely to recur.
 
@@ -188,12 +193,12 @@ syntax for note links.
 
 Agents should retrieve notes through cheap, visible operations:
 
-- Use `nt ids` for completion and direct id lists.
-- Use `nt list` for recent note summaries.
-- Use `nt tags` and `nt collections` before choosing metadata.
+- Use `nt list ids` for completion and direct id lists.
+- Use `nt list` for all active-vault notes in active-recent order.
+- Use `nt list tags` and `nt list collections` before choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
-- Use `nt links <id>`, `nt links <id> from`, and `nt links <id> to` for
+- Use `nt list links <id>`, `nt list links <id> from`, and `nt list links <id> to` for
   explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
 
@@ -204,8 +209,8 @@ Agent-driven writes require approval before mutation:
 - New notes: produce a CommonMark draft and ask before saving with `nt add`.
 - Note edits: produce a proposed replacement or patch, then open `$EDITOR`
   before saving.
-- Metadata updates: show planned commands such as `nt collect`, `nt link`,
-  `nt tag`, `nt kind`, or `nt status` before running them.
+- Metadata updates: show planned `nt update <id> <field> <value>` commands
+  before running them.
 
 Rejection must leave notes and metadata unchanged.
 
@@ -226,8 +231,8 @@ their agent system.
 - Avoid decorative boxes, banners, spinners, and progress bars.
 - Use ANSI color only when stdout is a TTY.
 - Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing commands such as `ids`, `find`, `tags`, `collections`, and
-  direct `links` modes must stay stable and one-record-per-line.
+- Machine-facing `list` submodes and `find` must stay stable and
+  one-record-per-line.
 
 Suggested TTY colors:
 

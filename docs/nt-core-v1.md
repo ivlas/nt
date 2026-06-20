@@ -7,6 +7,11 @@ metadata commands, and shell/agent interface are coherent enough for daily use.
 Future work should be fixes, polish, and features layered on this core, not a
 redesign of the storage/search model.
 
+The next CLI grammar consolidates listing and metadata mutation and adds a
+minimal todo agenda. That command-surface migration does not change the core
+storage/search model. See
+[command-surface-implementation-plan.md](command-surface-implementation-plan.md).
+
 ## Readiness Checklist
 
 | Area | Status | Evidence |
@@ -16,7 +21,8 @@ redesign of the storage/search model.
 | Capture/read/edit/delete | Ready | `nt add`, `nt show`, `nt open`, and `nt rm` are covered by smoke tests. |
 | Rebuild | Ready | `nt rebuild` reconstructs active-vault metadata/body indexes, preserves primary metadata, removes stale entries, and cleans deleted links. |
 | Search | Ready | `nt find` supports documented expressions, indexed body terms, candidate narrowing, active-recent ordering, and clear unknown-field failures. |
-| Metadata | Ready | Tags, collections, kind, status, and links are reflected in index/search/show behavior. |
+| Metadata | Ready | Tags, collections, kind, status, and links are reflected in index/search/show behavior; command consolidation is planned. |
+| Agenda | Planned | Add scheduled/due dates, priorities S through D, completion timestamps, and positional views for actionable todo notes. |
 | Shell/agent interface | Ready | Commands use stable stdout/stderr behavior and avoid hidden agent-only state. |
 | Release hygiene | Ready | README quickstart, changelog, release checklist, fmt/test/clippy commands, and docs-content checks are documented. |
 

@@ -10,6 +10,11 @@ exact note id and the note content behind it.
 See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact command and query
 syntax contract.
 
+This guide describes the next command surface. The current binary retains the
+legacy metadata commands until the staged
+[command-surface implementation plan](command-surface-implementation-plan.md)
+is complete.
+
 ## Setup
 
 Create a vault from a notes directory:
@@ -36,8 +41,8 @@ EOF
 Attach metadata while creating the note:
 
 ```sh
-cat <<'EOF' | nt add tag:storage kind:decision status:open collection:projects/nt
-# Storage decision
+cat <<'EOF' | nt add tag:storage kind:todo status:open priority:S scheduled:2026-06-25 due:2026-06-30 collection:projects/nt
+# Finish storage design
 
 Keep note metadata outside Markdown.
 EOF
@@ -67,9 +72,9 @@ If stdin is a terminal, `nt add` opens `$EDITOR`.
 
 ```sh
 nt list
-nt ids
-nt tags
-nt collections
+nt list ids
+nt list tags
+nt list collections
 nt find storage
 nt find since:2026-05-01 before:2026-06-01 tag:decision
 nt show NT20260528T143012
@@ -111,30 +116,45 @@ notes, rebuilds derived maps and the body term index, and prints
 ## Organize Metadata
 
 ```sh
-nt collect NT20260528T143012 projects/nt
-nt uncollect NT20260528T143012 projects/nt
-nt tag NT20260528T143012 storage
-nt untag NT20260528T143012 storage
-nt kind NT20260528T143012 decision
-nt status NT20260528T143012 open
-nt status NT20260528T143012 -
-nt link NT20260528T143012 NT20260527T120000
-nt unlink NT20260528T143012 NT20260527T120000
+nt update NT20260528T143012 collection +projects/nt
+nt update NT20260528T143012 collection -projects/nt
+nt update NT20260528T143012 tag +storage
+nt update NT20260528T143012 tag -storage
+nt update NT20260528T143012 kind todo
+nt update NT20260528T143012 status open
+nt update NT20260528T143012 priority S
+nt update NT20260528T143012 scheduled 2026-06-25
+nt update NT20260528T143012 due 2026-06-30
+nt update NT20260528T143012 link +NT20260527T120000
+nt update NT20260528T143012 link -NT20260527T120000
 ```
 
-List open and waiting notes:
+Single-value fields use `-` to clear them. Set-like fields require `+value` or
+`-value`, so repeating a command is safe and never toggles metadata implicitly.
+
+Show actionable todo notes in Overdue, Today, Upcoming, Waiting, and Undated
+sections:
 
 ```sh
-nt status
+nt agenda
+nt agenda today
+nt agenda week
+nt agenda overdue
+nt agenda waiting
+nt agenda undated
 ```
+
+Agenda rows show status, priority, scheduled date, and due date. Priorities are
+`S`, `A`, `B`, `C`, and `D`, highest to lowest. Marking a note `done` or
+`dropped` records a `closed` UTC timestamp; reopening it clears that timestamp.
 
 Inspect collections and links:
 
 ```sh
-nt collection projects/nt
-nt links NT20260528T143012
-nt links NT20260528T143012 from
-nt links NT20260528T143012 to
+nt find collection:projects/nt
+nt list links NT20260528T143012
+nt list links NT20260528T143012 from
+nt list links NT20260528T143012 to
 ```
 
 ## Edit And Remove
@@ -190,7 +210,7 @@ nt help config vault
 ```
 
 Completion uses `clap_complete` and dynamic note id completion backed by
-visible `nt ids` output. It also completes query and metadata expressions such
+visible `nt list ids` output. It also completes query and metadata expressions such
 as `tag:`, `status:`, `collection:`, and comma-separated values:
 
 ```sh
@@ -209,8 +229,9 @@ Agents should use the same visible commands as humans:
 ```sh
 nt help
 nt list
-nt tags
-nt collections
+nt list tags
+nt list collections
+nt agenda
 nt find meeting
 nt show NT20260528T143012
 ```
@@ -231,8 +252,8 @@ outside the core command surface. A TUI is intentionally deferred and is not
 part of the current core.
 
 ```sh
-nt ids | head
+nt list ids | head
 nt find meeting | awk '{print $1}'
-nt tags | sort
-nt collections | sort
+nt list tags | sort
+nt list collections | sort
 ```

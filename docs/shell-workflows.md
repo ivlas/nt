@@ -55,5 +55,5 @@ nt find tag:rust | awk '{print $1}'
 ## Batch Inspect Exact Ids
 
 ```sh
-nt ids | fzf --multi | xargs -n1 nt show
+nt list ids | fzf --multi | xargs -n1 nt show
 ```

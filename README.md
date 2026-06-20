@@ -22,6 +22,12 @@ checklist.
 
 `nt` 0.1.0 is usable as the initial stable core.
 
+The documentation now defines the next command surface: consolidated `list`
+submodes, `update`, and a read-only `agenda`. The released binary still exposes
+the legacy metadata commands until the staged work in
+[docs/command-surface-implementation-plan.md](docs/command-surface-implementation-plan.md)
+is complete.
+
 The core model is intentionally small:
 
 - canonical CommonMark notes in an active vault
@@ -34,10 +40,12 @@ The core model is intentionally small:
 Future work should be fixes, polish, and features layered on this core, not a
 redesign of the storage/search model.
 
-### What is stable now
+### Target command surface
 
 - `init`, `add`, `list`, `find`, `show`, `open`, and `rm`
-- metadata commands for tags, collections, kind, status, and links
+- consolidated metadata updates through `nt update`
+- a read-only todo agenda with scheduling, deadlines, five priorities, and
+  completion timestamps
 - `rebuild`
 - active vault config
 - completion generation
@@ -105,24 +113,16 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list ids
+nt list tags
+nt list collections
+nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>
 nt open <id>
 nt rm <id>
-nt ids
-nt tags
-nt tag <id> <tag>
-nt untag <id> <tag>
-nt collections
-nt collection <name>
-nt collect <id> <collection>
-nt uncollect <id> <collection>
-nt kind <id> <kind>
-nt status
-nt status <id> <status>
-nt link <from-id> <to-id>
-nt unlink <from-id> <to-id>
-nt links <id> [from|to]
+nt update <id> <field> <value>
+nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]
 nt config show
 nt config vault
@@ -158,6 +158,10 @@ tag:decision          exact tag
 title:storage         title contains storage
 kind:meeting          exact kind
 status:open           exact status
+priority:S            exact priority
+scheduled:2026-06-25  exact scheduled date
+due:2026-06-30        exact due date
+closed:2026-06-30     closed during the UTC calendar day
 collection:projects/nt
 day:2026-05-28
 since:2026-05-01
@@ -186,8 +190,8 @@ use the same visible workflow:
 ```sh
 nt help
 nt list
-nt tags
-nt collections
+nt list tags
+nt list collections
 nt find collection:projects/nt status:open
 nt show NT20260528T143012
 ```

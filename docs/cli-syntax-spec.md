@@ -5,6 +5,11 @@ Markdown-first personal knowledge index optimized for `time-to-knowledge`: the
 shortest path from vague memory to an exact note id and the note content behind
 it.
 
+This document defines the next command contract. The current binary retains the
+legacy metadata commands until
+[command-surface-implementation-plan.md](command-surface-implementation-plan.md)
+is complete.
+
 ## General Form
 
 ```text
@@ -29,24 +34,16 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list ids
+nt list tags
+nt list collections
+nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>
 nt open <id>
 nt rm <id>
-nt ids
-nt tags
-nt tag <id> <tag>
-nt untag <id> <tag>
-nt collections
-nt collection <name>
-nt collect <id> <collection>
-nt uncollect <id> <collection>
-nt kind <id> <kind>
-nt status
-nt status <id> <status>
-nt link <from-id> <to-id>
-nt unlink <from-id> <to-id>
-nt links <id> [from|to]
+nt update <id> <field> <value>
+nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]
 nt config show
 nt config vault
@@ -76,13 +73,32 @@ framework, agent runtime, or vector/RAG system. Agent integrations should live
 outside `nt` as docs, skills, shell wrappers, or agent-specific configuration.
 A TUI is intentionally deferred and is not part of the current core.
 
-## Links
+## List
 
 ```text
-nt links <id> [from|to]
+nt list
+nt list ids
+nt list tags
+nt list collections
+nt list links <id> [from|to]
 ```
 
-Link modes:
+`nt list` prints all active-vault notes in active-recent order using the normal
+`id, date, tags, title` summary format. Its submodes provide stable,
+one-record-per-line projections:
+
+```text
+ids                     note id
+tags                    note id, tags, title
+collections             note id, collections, title
+links <id> [from|to]    related note ids
+```
+
+`tags` and `collections` print one record per note, not a deduplicated vocabulary.
+Use ordinary shell tools when only unique values are needed. Use `nt find
+collection:<name>` to list one collection.
+
+Link directions:
 
 ```text
 no direction           all directly related note ids
@@ -96,9 +112,9 @@ outbound relationships.
 Examples:
 
 ```sh
-nt links NT20260605T101500
-nt links NT20260605T101500 from
-nt links NT20260605T101500 to
+nt list links NT20260605T101500
+nt list links NT20260605T101500 from
+nt list links NT20260605T101500 to
 ```
 
 Example default output:
@@ -141,6 +157,10 @@ updated: "2026-05-28T14:30:12Z"
 title: "Storage shape"
 kind: "decision"
 status: "open"
+priority: "S"
+scheduled: "2026-06-25"
+due: "2026-06-30"
+closed: null
 tags: ["storage"]
 collections: ["projects/nt"]
 links: []
@@ -167,7 +187,7 @@ Markdown heading is the source of truth for required indexed title metadata.
 Examples:
 
 ```sh
-cat <<'EOF' | nt add tag:qemu kind:decision status:open collection:projects/nt
+cat <<'EOF' | nt add tag:qemu kind:todo status:open priority:S scheduled:2026-06-25 due:2026-06-30 collection:projects/nt
 # Note Body
 
 Text.
@@ -192,15 +212,19 @@ Creation metadata fields:
 tag:<tag>              add tag; comma-separated values are allowed
 kind:<kind>            set one kind
 status:<status>        set one status
+priority:<priority>    set one priority: S, A, B, C, or D
+scheduled:<YYYY-MM-DD> set one scheduled date
 collection:<name>      add collection; comma-separated values are allowed
 link:<id>              add outbound link; comma-separated ids are allowed
 source:<term>          add one external source reference
+due:<YYYY-MM-DD>       set one due date
 ```
 
-`kind` and `status` accept one value. Repeat `tag`, `collection`, `link`, and
-`source` expressions when multiple values are needed. `tag`, `collection`, and
-`link` also accept comma-separated values. All `link:` target notes must already
-exist.
+`kind`, `status`, `priority`, `scheduled`, and `due` accept one value. Repeat
+`tag`, `collection`, `link`, and `source` expressions when multiple values are
+needed. `tag`, `collection`, and `link` also accept comma-separated values. All
+`link:` target notes must already exist. `closed` is system-managed and cannot
+be supplied to `add`.
 
 These tag forms are equivalent:
 
@@ -222,6 +246,89 @@ Repeat `source:` for multiple source references:
 ```sh
 nt add source:https://a.example/spec source:https://b.example/spec
 ```
+
+## Update
+
+```text
+nt update <id> <field> <value>
+```
+
+`update` is the single metadata mutation command. Single-value fields take a
+plain value and use `-` to clear it. Set-like fields require an explicit `+` or
+`-` prefix so updates are idempotent and do not silently toggle state.
+
+```text
+kind          <kind> or -
+status        <status> or -
+priority      S, A, B, C, D, or -
+scheduled     <YYYY-MM-DD> or -
+due           <YYYY-MM-DD> or -
+tag           +<tag> or -<tag>
+collection    +<name> or -<name>
+link          +<id> or -<id>
+source        +<term> or -<term>
+```
+
+Examples:
+
+```sh
+nt update NT20260528T143012 kind todo
+nt update NT20260528T143012 status open
+nt update NT20260528T143012 priority S
+nt update NT20260528T143012 scheduled 2026-06-25
+nt update NT20260528T143012 due 2026-06-30
+nt update NT20260528T143012 tag +nt
+nt update NT20260528T143012 collection +projects/nt
+nt update NT20260528T143012 link +NT20260527T120000
+nt update NT20260528T143012 tag -draft
+nt update NT20260528T143012 due -
+```
+
+Each invocation changes exactly one field value and writes the index atomically.
+Successful updates print `updated <id> <field> <value>`.
+
+## Agenda
+
+```text
+nt agenda
+nt agenda today
+nt agenda week
+nt agenda overdue
+nt agenda waiting
+nt agenda undated
+```
+
+`agenda` is a read-only view of actionable todo notes. It includes notes whose
+kind is `todo` and whose status is `open` or `waiting`.
+
+The default view partitions each note into exactly one section, in this
+precedence order:
+
+```text
+Overdue    open notes whose due date is before today
+Today      open notes due today or scheduled on or before today
+Upcoming   remaining dated open notes
+Waiting    all waiting notes
+Undated    open notes with neither scheduled nor due
+```
+
+`today` prints Overdue and Today. `week` prints overdue items plus items due or
+scheduled from today through the following six calendar days. The other
+selectors print their matching section. Dates use the local calendar day.
+
+Each record contains `id, status, priority, scheduled, due, title`; absent
+values print `-`. Overdue uses due as its relevant date. Today and Upcoming use
+the earliest scheduled or due date that places the note in that section. Dated
+sections sort by relevant date ascending, then by priority (`S`, `A`, `B`, `C`,
+`D`, then no priority), then by active-recent order. Waiting and Undated sort by
+priority and then active-recent order.
+
+When status changes to `done` or `dropped`, `nt` records the current UTC time in
+`closed`. Repeating the same terminal status preserves the original timestamp.
+Changing status to `open`, `waiting`, or `-` clears `closed`.
+
+The first version does not parse Markdown task syntax and does not add
+recurrence, effort estimates, time tracking, or habits.
 
 Completion may complete comma-separated metadata values when the expression
 stays one shell word:
@@ -255,6 +362,8 @@ nt find qemu
 nt find qemu firecracker
 nt find tag:decision qemu
 nt find kind:meeting status:open
+nt find kind:todo due:2026-06-30
+nt find kind:todo scheduled:2026-06-25 priority:S
 nt find collection:projects/nt
 nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
 nt find link:NT20260605T101500
@@ -292,6 +401,10 @@ since:<YYYY-MM-DD>     created on or after day
 before:<YYYY-MM-DD>    created before day
 kind:<kind>            exact kind
 status:<status>        exact status
+priority:<priority>    exact priority
+scheduled:<YYYY-MM-DD> exact scheduled date
+due:<YYYY-MM-DD>       exact due date
+closed:<YYYY-MM-DD>    closed during the UTC calendar day
 collection:<name>      exact collection
 link:<id>              outbound link to id
 source:<term>          source reference contains term
@@ -350,7 +463,18 @@ done
 dropped
 ```
 
-Use `nt status <id> -` to clear the optional status field.
+Use `nt update <id> <field> -` to clear a user-settable single-value field such
+as status, priority, scheduled, or due.
+
+Priorities, highest to lowest:
+
+```text
+S
+A
+B
+C
+D
+```
 
 Completion shells:
 

@@ -39,7 +39,9 @@ nt list
 nt find <expr...>
 nt show <id>
 nt open <id>
-nt tags
+nt list tags
+nt update <id> <field> <value>
+nt agenda
 ```
 
 Core workflows should remain flagless and composable. The canonical CLI command
@@ -61,9 +63,9 @@ Avoid broader commands such as `search`, `grep`, `graph`, `browse`,
 `agent`, `discuss`, workflow orchestration, or runtime management until real
 usage proves they are necessary.
 
-Metadata mutations should go through explicit commands, such as `nt collect`,
-`nt tag`, `nt kind`, `nt status`, and `nt link`, instead of direct edits to
-`$HOME/.nt/index.json`.
+Metadata mutations should go through `nt update <id> <field> <value>` instead of
+direct edits to `$HOME/.nt/index.json`. Set-like fields use explicit `+value`
+and `-value` operations; single-value fields use a plain value and `-` to clear.
 
 ## Query Model
 
@@ -99,8 +101,8 @@ Search/filter speed is a first-class design constraint because the useful unit
 of work is getting from a vague memory to the exact note id quickly. `nt` should
 prefer narrow, deterministic filters over broad, ranked retrieval.
 
-- Exact metadata filters come first: ids, tags, kinds, statuses, collections,
-  days, links, and sources.
+- Exact metadata filters come first: ids, tags, kinds, statuses, priorities,
+  scheduled/due/closed dates, collections, created days, links, and sources.
 - Text search should use body term index candidate narrowing before file
   scanning.
 - Results should be deterministic, not scored or personalized.
@@ -142,6 +144,10 @@ updated
 title
 kind
 status
+priority
+scheduled
+due
+closed
 tags
 collections
 links
@@ -186,6 +192,10 @@ Use distinct fields instead of overloading tags:
 - `kind`: structural form, such as `note`, `todo`, `meeting`, `decision`,
   `source`, `research`, or `project`.
 - `status`: agenda state, such as `open`, `waiting`, `done`, or `dropped`.
+- `priority`: optional urgency ordered `S`, `A`, `B`, `C`, `D`.
+- `scheduled`: optional `YYYY-MM-DD` date when a todo should appear.
+- `due`: optional calendar date for a todo, formatted as `YYYY-MM-DD`.
+- `closed`: system-managed UTC timestamp for the terminal status transition.
 - `collection`: workspace-like group, such as `todos`, `meetings`,
   `projects/nt`, or `research/qemu`.
 - `tag`: sparse topic or entity.
@@ -196,6 +206,9 @@ The intended separation is:
 
 - `kind`: what form of note is this?
 - `status`: what agenda state is it in?
+- `priority`: how urgent is it relative to other todo notes?
+- `scheduled`: when should work on it appear in the agenda?
+- `due`: when is the todo due?
 - `collection`: where does it belong?
 - `tag`: what topics or entities are involved?
 - `link`: which exact notes are related?
@@ -214,12 +227,24 @@ done
 dropped
 ```
 
-Bare `nt status` should print actionable notes in stable order, primarily open
-and waiting todos, using the normal summary format. `nt status <id> <status>`
-mutates visible JSON metadata.
+`nt agenda` is the read-only action view. It prints notes whose kind is `todo`
+and whose status is `open` or `waiting`. Its default sections are Overdue,
+Today, Upcoming, Waiting, and Undated. A note appears in exactly one section;
+overdue due dates take precedence, then items due today or scheduled on or
+before today, then future dated items, waiting items, and undated items.
 
-`nt status` may later include dated meetings or scheduled items if date metadata
-is added, but it should not become a workflow engine.
+`nt agenda today`, `week`, `overdue`, `waiting`, and `undated` provide bounded
+positional views. Agenda records show id, status, priority, scheduled date, due
+date, and title. Priorities sort `S`, `A`, `B`, `C`, `D`, then no priority after
+the relevant agenda date.
+
+Changing a todo to `done` or `dropped` records a `closed` UTC timestamp. An
+idempotent repeat preserves that timestamp; reopening or clearing status clears
+it. Users do not set `closed` directly.
+
+The first agenda must not parse Markdown task syntax or add recurrence, effort
+estimates, time tracking, or habits. Those require separate evidence and design
+work.
 
 ## Collections
 
@@ -239,10 +264,10 @@ people/alice
 Collection names should be lowercase and may use `/` for hierarchy-like
 organization. This is a naming convention, not nested file storage.
 
-`nt collections` prints known collection names one per line. `nt collection
-<name>` prints notes in that collection using the normal summary format.
-`nt collect` and `nt uncollect` mutate visible JSON metadata only; they do not
-edit the CommonMark note body.
+`nt list collections` prints note id, collections, and title. `nt find
+collection:<name>` prints notes in one collection using the normal summary
+format. `nt update <id> collection +<name>` and its `-<name>` counterpart mutate
+visible JSON metadata only; they do not edit the CommonMark note body.
 
 ## Links And References
 
@@ -254,10 +279,11 @@ materializes current JSON metadata into Markdown front matter for
 interoperability and archiving, but the active notes directory and
 `$HOME/.nt/index.json` remain the canonical storage pair.
 
-Note-to-note links live in JSON metadata. `nt link <from-id> <to-id>` and
-`nt unlink <from-id> <to-id>` mutate outbound links. `nt links <id> from` prints
-notes linked from the selected note, `nt links <id> to` prints notes linking to
-it, and `nt links <id>` prints the deduplicated set of direct relationships.
+Note-to-note links live in JSON metadata. `nt update <id> link +<target-id>` and
+its `-<target-id>` counterpart mutate outbound links. `nt list links <id> from`
+prints notes linked from the selected note, `nt list links <id> to` prints notes
+linking to it, and `nt list links <id>` prints the deduplicated set of direct
+relationships.
 
 External source references can live in JSON metadata as `sources`. Markdown links
 in the body remain valid CommonMark and may be extracted into `sources` as a
@@ -270,7 +296,7 @@ Tags should stay sparse and useful. Agents and humans should inspect existing
 tags before creating new ones:
 
 ```sh
-nt tags
+nt list tags
 ```
 
 Tag rules:
@@ -301,8 +327,9 @@ Agent-friendly flow:
 ```sh
 nt help
 nt list
-nt tags
-nt collections
+nt list tags
+nt list collections
+nt agenda
 nt find <expr...>
 nt show <id>
 ```
@@ -312,8 +339,8 @@ Agent-driven writes require approval before mutation:
 - New notes: produce a CommonMark draft and ask before saving with `nt add`.
 - Note edits: produce a proposed replacement or patch, then open `$EDITOR`
   before saving.
-- Metadata updates: show planned commands such as `nt collect`, `nt link`,
-  `nt tag`, `nt kind`, or `nt status` before running them.
+- Metadata updates: show planned `nt update <id> <field> <value>` commands
+  before running them.
 
 Rejection must leave notes and metadata unchanged.
 
@@ -330,8 +357,8 @@ Output should be plain, stable, grep-friendly, and fast.
 - Avoid decorative boxes, banners, spinners, and progress bars.
 - Use ANSI color only when stdout is a TTY.
 - Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing commands such as `ids`, `find`, `tags`, `collections`, and
-  direct `links` modes must stay stable and one-record-per-line.
+- Machine-facing `list` submodes and `find` must stay stable and
+  one-record-per-line.
 
 ## Future Extensions
 
