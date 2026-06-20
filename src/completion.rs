@@ -109,13 +109,13 @@ _nt_titled_notes() {
 _nt_tags() {
     local token
     token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "$(nt list tags 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u)" -- "${token}") )
+    COMPREPLY=( $(compgen -W "$(_nt_tag_values)" -- "${token}") )
 }
 
 _nt_collections() {
     local token
     token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "$(nt list collections 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u)" -- "${token}") )
+    COMPREPLY=( $(compgen -W "$(_nt_collection_values)" -- "${token}") )
 }
 
 _nt_vaults() {
@@ -167,6 +167,33 @@ _nt_tag_values() {
     nt list tags 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u
 }
 
+_nt_collection_values() {
+    nt list collections 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u
+}
+
+_nt_source_values() {
+    local home="${HOME:-${USERPROFILE:-}}"
+    local index="${home}/.nt/index.json"
+    local line value in_sources=0
+
+    [[ -r "$index" ]] || return
+    while IFS= read -r line; do
+        if [[ "$line" == *'"sources": ['* ]]; then
+            in_sources=1
+            continue
+        fi
+        if (( in_sources )); then
+            if [[ "$line" == *']'* ]]; then
+                in_sources=0
+                continue
+            fi
+            value="${line#*\"}"
+            value="${value%%\"*}"
+            [[ -n "$value" ]] && printf '%s\n' "$value"
+        fi
+    done < "$index"
+}
+
 _nt_complete_metadata_expr() {
     local token="$1"
     local fields="$2"
@@ -197,9 +224,10 @@ _nt_complete_metadata_expr() {
 
     case "$field" in
         tag) _nt_complete_prefixed_values "$token" tag $(_nt_tag_values) ;;
-        collection) _nt_complete_prefixed_values "$token" collection $(nt list collections 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u) ;;
+        collection) _nt_complete_prefixed_values "$token" collection $(_nt_collection_values) ;;
         kind) _nt_complete_prefixed_values "$token" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "$token" status open waiting done dropped ;;
+        priority) _nt_complete_prefixed_values "$token" priority S A B C D ;;
         id) _nt_complete_prefixed_values "$token" id $(nt list ids 2>/dev/null) ;;
         link) _nt_complete_prefixed_values "$token" link $(nt list ids 2>/dev/null) ;;
         *) COMPREPLY=() ;;
@@ -229,14 +257,27 @@ _nt_complete_add_metadata() {
     _nt_complete_metadata_expr "$(_nt_current_token)" "tag: kind: status: priority: scheduled: due: collection: link: source:"
 }
 
+_nt_complete_update_set_values() {
+    local token value candidates
+    token="$(_nt_current_token)"
+    shift
+    candidates=""
+    for value in "$@"; do
+        candidates="${candidates} +${value} -${value}"
+    done
+    COMPREPLY=( $(compgen -W "$candidates" -- "$token") )
+}
+
 _nt_update_value() {
     case "${COMP_WORDS[3]}" in
         kind) COMPREPLY=( $(compgen -W "note todo meeting decision source research project -" -- "$(_nt_current_token)") ) ;;
         status) COMPREPLY=( $(compgen -W "open waiting done dropped -" -- "$(_nt_current_token)") ) ;;
         priority) COMPREPLY=( $(compgen -W "S A B C D -" -- "$(_nt_current_token)") ) ;;
-        tag) _nt_tags ;;
-        collection) _nt_collections ;;
-        link) _nt_note_ids ;;
+        scheduled|due) COMPREPLY=( $(compgen -W "-" -- "$(_nt_current_token)") ) ;;
+        tag) _nt_complete_update_set_values tags $(_nt_tag_values) ;;
+        collection) _nt_complete_update_set_values collections $(_nt_collection_values) ;;
+        link) _nt_complete_update_set_values links $(nt list ids 2>/dev/null) ;;
+        source) _nt_complete_update_set_values sources $(_nt_source_values) ;;
     esac
 }
 
@@ -314,21 +355,35 @@ _nt_titled_notes() {
     fi
 }
 
-_nt_tags() {
-    local -a tags
-    tags=("${(@f)$(command nt list tags 2>/dev/null)}")
-    tags=("${(@)${(@)tags#*$'\t'}%%$'\t'*}")
+_nt_tag_values() {
+    local -a lines tags
+    lines=("${(@f)$(command nt list tags 2>/dev/null)}")
+    tags=("${(@)${(@)lines#*$'\t'}%%$'\t'*}")
     tags=("${(@s:,:)tags}")
     tags=("${(@)tags:#-}")
+    typeset -U tags
+    print -rl -- "$tags[@]"
+}
+
+_nt_tags() {
+    local -a tags
+    tags=("${(@f)$(_nt_tag_values)}")
     _describe -t tags 'tags' tags "$@"
+}
+
+_nt_collection_values() {
+    local -a lines collections
+    lines=("${(@f)$(command nt list collections 2>/dev/null)}")
+    collections=("${(@)${(@)lines#*$'\t'}%%$'\t'*}")
+    collections=("${(@s:,:)collections}")
+    collections=("${(@)collections:#-}")
+    typeset -U collections
+    print -rl -- "$collections[@]"
 }
 
 _nt_collections() {
     local -a collections
-    collections=("${(@f)$(command nt list collections 2>/dev/null)}")
-    collections=("${(@)${(@)collections#*$'\t'}%%$'\t'*}")
-    collections=("${(@s:,:)collections}")
-    collections=("${(@)collections:#-}")
+    collections=("${(@f)$(_nt_collection_values)}")
     _describe -t collections 'collections' collections "$@"
 }
 
@@ -446,8 +501,7 @@ _nt_query_expr() {
     fields=(id: tag: title: day: since: before: kind: status: priority: scheduled: due: closed: collection: link: source: body: not:)
 
     if [[ "$token" == \#* ]]; then
-        tags=("${(@f)$(command nt list tags 2>/dev/null)}")
-        tags=("${(@)tags%%[[:space:]]*}")
+        tags=("${(@f)$(_nt_tag_values)}")
         compadd -Q -- "${(@/#/#)tags}"
         return
     fi
@@ -459,13 +513,13 @@ _nt_query_expr() {
 
     case "$field" in
         tag)
-            tags=("${(@f)$(command nt list tags 2>/dev/null)}")
-            tags=("${(@)tags%%[[:space:]]*}")
+            tags=("${(@f)$(_nt_tag_values)}")
             _nt_complete_prefixed_values "$outer_prefix" tag "$tags[@]"
             ;;
-        collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(command nt list collections 2>/dev/null)}" ;;
+        collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(_nt_collection_values)}" ;;
         kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
+        priority) _nt_complete_prefixed_values "$outer_prefix" priority S A B C D ;;
         id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt list ids 2>/dev/null)}" ;;
         link) _nt_complete_prefixed_values "$outer_prefix" link "${(@f)$(command nt list ids 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "$outer_prefix" source "${(@f)$(_nt_sources)}" ;;
@@ -486,16 +540,27 @@ _nt_add_metadata() {
 
     case "$field" in
         tag)
-            tags=("${(@f)$(command nt list tags 2>/dev/null)}")
-            tags=("${(@)tags%%[[:space:]]*}")
+            tags=("${(@f)$(_nt_tag_values)}")
             _nt_complete_prefixed_values "" tag "$tags[@]"
             ;;
-        collection) _nt_complete_prefixed_values "" collection "${(@f)$(command nt list collections 2>/dev/null)}" ;;
+        collection) _nt_complete_prefixed_values "" collection "${(@f)$(_nt_collection_values)}" ;;
         kind) _nt_complete_prefixed_values "" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "" status open waiting done dropped ;;
+        priority) _nt_complete_prefixed_values "" priority S A B C D ;;
         link) _nt_complete_prefixed_values "" link "${(@f)$(command nt list ids 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "" source "${(@f)$(_nt_sources)}" ;;
     esac
+}
+
+_nt_complete_update_set_values() {
+    local description="$1"
+    shift
+    local value
+    local -a candidates
+    for value in "$@"; do
+        candidates+=("+${value}" "-${value}")
+    done
+    _describe -t update-values "$description" candidates
 }
 
 _nt_update_value() {
@@ -503,9 +568,11 @@ _nt_update_value() {
         kind) _values kinds note todo meeting decision source research project - ;;
         status) _values statuses open waiting done dropped - ;;
         priority) _values priorities S A B C D - ;;
-        tag) _nt_tags ;;
-        collection) _nt_collections ;;
-        link) _nt_note_ids ;;
+        scheduled|due) _values dates - ;;
+        tag) _nt_complete_update_set_values tags "${(@f)$(_nt_tag_values)}" ;;
+        collection) _nt_complete_update_set_values collections "${(@f)$(_nt_collection_values)}" ;;
+        link) _nt_complete_update_set_values links "${(@f)$(command nt list ids 2>/dev/null)}" ;;
+        source) _nt_complete_update_set_values sources "${(@f)$(_nt_sources)}" ;;
     esac
 }
 "#;
@@ -538,6 +605,12 @@ mod tests {
         assert!(script.contains("(( count >= 10 )) && break"));
         assert!(script.contains("update:4"));
         assert!(script.contains("S A B C D -"));
+        assert!(
+            script.contains("priority) _nt_complete_prefixed_values \"$token\" priority S A B C D")
+        );
+        assert!(script.contains("_nt_complete_update_set_values"));
+        assert!(script.contains("candidates=\"${candidates} +${value} -${value}\""));
+        assert!(script.contains("source) _nt_complete_update_set_values sources"));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
 
@@ -566,7 +639,16 @@ mod tests {
         assert!(script.contains("*::expr:_nt_query_expr"));
         assert!(script.contains("_nt_tags"));
         assert!(script.contains("_nt_collections"));
+        assert!(script.contains("_nt_tag_values"));
+        assert!(script.contains("_nt_collection_values"));
+        assert!(script.contains("lines#*$'\\t'"));
+        assert!(!script.contains("tags%%[[:space:]]*"));
         assert!(script.contains("S A B C D -"));
+        assert!(script.contains(
+            "priority) _nt_complete_prefixed_values \"$outer_prefix\" priority S A B C D"
+        ));
+        assert!(script.contains("candidates+=(\"+${value}\" \"-${value}\")"));
+        assert!(script.contains("source) _nt_complete_update_set_values sources"));
         assert!(script.contains("nt list ids 2>/dev/null"));
         assert!(script.contains("nt list tags 2>/dev/null"));
         assert!(script.contains("_nt_complete_fields"));

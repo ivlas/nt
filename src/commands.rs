@@ -573,9 +573,8 @@ fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
 }
 
 fn apply_status_transition(note: &mut NoteMeta, status: Option<String>, now: &str) {
-    let was_terminal = note.status.as_deref().is_some_and(is_terminal_status);
     let is_terminal = status.as_deref().is_some_and(is_terminal_status);
-    if is_terminal && !was_terminal {
+    if is_terminal && note.status != status {
         note.closed = Some(now.to_string());
     } else if !is_terminal {
         note.closed = None;
@@ -636,7 +635,9 @@ fn select_agenda<'a>(
         let section = agenda_section(note, today);
         let include = match view {
             None => true,
-            Some(AgendaView::Today) => section == AgendaSection::Today,
+            Some(AgendaView::Today) => {
+                matches!(section, AgendaSection::Overdue | AgendaSection::Today)
+            }
             Some(AgendaView::Overdue) => section == AgendaSection::Overdue,
             Some(AgendaView::Waiting) => section == AgendaSection::Waiting,
             Some(AgendaView::Undated) => section == AgendaSection::Undated,
@@ -1274,7 +1275,14 @@ mod tests {
             Some("dropped".to_string()),
             "2026-05-30T15:00:00Z",
         );
-        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+        assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
+
+        apply_status_transition(
+            &mut note,
+            Some("dropped".to_string()),
+            "2026-05-31T15:00:00Z",
+        );
+        assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
 
         apply_status_transition(&mut note, Some("open".to_string()), "2026-06-01T15:00:00Z");
         assert_eq!(note.closed, None);
@@ -1405,5 +1413,18 @@ mod tests {
 
         let week = select_agenda(&index, "2026-05-28", Some(AgendaView::Week)).unwrap();
         assert_eq!(week.iter().map(|(_, notes)| notes.len()).sum::<usize>(), 4);
+
+        let today = select_agenda(&index, "2026-05-28", Some(AgendaView::Today)).unwrap();
+        assert_eq!(
+            today
+                .iter()
+                .flat_map(|(_, notes)| notes.iter().map(|note| note.id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                "NT20260502T000001",
+                "NT20260501T000001",
+                "NT20260503T000001"
+            ]
+        );
     }
 }

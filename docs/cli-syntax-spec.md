@@ -5,10 +5,8 @@ Markdown-first personal knowledge index optimized for `time-to-knowledge`: the
 shortest path from vague memory to an exact note id and the note content behind
 it.
 
-This document defines the next command contract. The current binary retains the
-legacy metadata commands until
-[command-surface-implementation-plan.md](command-surface-implementation-plan.md)
-is complete.
+This document defines the current command contract. The consolidated `list`,
+`update`, and `agenda` commands replace the legacy metadata command surface.
 
 ## General Form
 
