@@ -93,17 +93,21 @@ Examples:
 "#;
 
 const LIST: &str = r#"nt list
+nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links <id> [from|to]
 
-Print active-vault notes, available metadata values, or filtered note tables.
+Print active-vault metadata rows with optional structured filters. Fields include
+id, path, created, updated, title, kind, status, priority, scheduled, due,
+closed, tag, collection, link, and source. Bare list prints every field.
 
 Examples:
-  nt list ids
-  nt list titles
+  nt list id
+  nt list id,title,status status:open
+  nt list title,tag collection:projects/nt
   nt list tags storage
   nt list collections projects/nt
   nt list links NT20260528T143012 from

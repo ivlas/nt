@@ -65,6 +65,21 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
+    pub fn parse_list(exprs: &[String]) -> Result<Self> {
+        let mut parsed = Vec::new();
+        for expr in exprs {
+            let parsed_expr = QueryExpr::parse(expr)?;
+            if !parsed_expr.is_structured() {
+                return Err(NtError::Message(format!(
+                    "search expression `{expr}` is not supported by `nt list`; use `nt find`"
+                )));
+            }
+            parsed.push(parsed_expr);
+        }
+
+        Ok(Self { exprs: parsed })
+    }
+
     pub fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
         for expr in &self.exprs {
             if !expr.matches(index, note)? {
@@ -95,6 +110,14 @@ struct CandidateSet {
 }
 
 impl QueryExpr {
+    fn is_structured(&self) -> bool {
+        match self {
+            Self::Bare(_) | Self::Title(_) | Self::Source(_) | Self::Body(_) => false,
+            Self::Not(expr) => expr.is_structured(),
+            _ => true,
+        }
+    }
+
     fn parse(expr: &str) -> Result<Self> {
         if let Some(tag) = expr.strip_prefix('#') {
             if tag.is_empty() {
@@ -583,6 +606,17 @@ mod tests {
             err.to_string(),
             "unknown query field `collectiom`; did you mean `collection`?"
         );
+    }
+
+    #[test]
+    fn list_queries_accept_only_structured_filters() {
+        Query::parse_list(&["status:open".to_string(), "not:tag:draft".to_string()]).unwrap();
+        Query::parse_list(&[]).unwrap();
+
+        for expression in ["storage", "title:storage", "source:example", "body:storage"] {
+            let error = Query::parse_list(&[expression.to_string()]).unwrap_err();
+            assert!(error.to_string().contains("use `nt find`"));
+        }
     }
 
     #[test]

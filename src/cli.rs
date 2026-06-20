@@ -27,8 +27,8 @@ pub enum Command {
     },
     Rebuild,
     List {
-        #[command(subcommand)]
-        mode: Option<ListMode>,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     Find {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
@@ -75,26 +75,10 @@ pub enum Shell {
     Zsh,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum LinkDirection {
     From,
     To,
-}
-
-#[derive(Clone, Subcommand)]
-pub enum ListMode {
-    Ids,
-    Titles,
-    Tags {
-        tag: Option<String>,
-    },
-    Collections {
-        collection: Option<String>,
-    },
-    Links {
-        id: String,
-        direction: Option<LinkDirection>,
-    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -129,7 +113,7 @@ pub enum ConfigCommand {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AgendaView, Cli, Command, ConfigCommand, ListMode, UpdateField};
+    use super::{AgendaView, Cli, Command, ConfigCommand, UpdateField};
 
     #[test]
     fn parses_target_commands() {
@@ -246,51 +230,12 @@ mod tests {
                 view: Some(AgendaView::Today)
             }
         ));
-        let cli = Cli::parse_from(["nt", "list", "ids"]);
+        let cli = Cli::parse_from(["nt", "list", "id,title", "status:open"]);
         assert!(matches!(
             cli.command,
-            Command::List {
-                mode: Some(ListMode::Ids)
-            }
+            Command::List { args }
+                if args == ["id,title", "status:open"]
         ));
-
-        let cli = Cli::parse_from(["nt", "list", "titles"]);
-        assert!(matches!(
-            cli.command,
-            Command::List {
-                mode: Some(ListMode::Titles)
-            }
-        ));
-
-        let cli = Cli::parse_from(["nt", "list", "tags", "decision"]);
-        assert!(matches!(
-            cli.command,
-            Command::List {
-                mode: Some(ListMode::Tags {
-                    tag: Some(ref tag)
-                })
-            } if tag == "decision"
-        ));
-
-        let cli = Cli::parse_from(["nt", "list", "collections", "projects/nt"]);
-        assert!(matches!(
-            cli.command,
-            Command::List {
-                mode: Some(ListMode::Collections {
-                    collection: Some(ref collection)
-                })
-            } if collection == "projects/nt"
-        ));
-    }
-
-    #[test]
-    fn list_links_rejects_retired_directions() {
-        for direction in ["out", "in", "self", "all"] {
-            assert!(
-                Cli::try_parse_from(["nt", "list", "links", "NT20260528T143012", direction])
-                    .is_err()
-            );
-        }
     }
 
     #[test]

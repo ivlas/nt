@@ -7,6 +7,7 @@ mod export;
 mod fs;
 mod help;
 mod index;
+mod listing;
 mod note;
 mod query;
 mod terminal;

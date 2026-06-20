@@ -4,13 +4,14 @@ use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{AgendaView, Cli, Command, ConfigCommand, LinkDirection, ListMode, UpdateField};
+use crate::cli::{AgendaView, Cli, Command, ConfigCommand, LinkDirection, UpdateField};
 use crate::completion::print_completion;
 use crate::display::{agenda_line, joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
+use crate::listing::{ListRequest, render_row};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
 use crate::terminal::{Style, paint};
@@ -20,7 +21,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Init { notes_dir } => init(&notes_dir),
         Command::Add { metadata } => add(&metadata),
         Command::Rebuild => rebuild(),
-        Command::List { mode } => list(mode),
+        Command::List { args } => list(&args),
         Command::Find { expr } => find(&expr),
         Command::Show { id } => show(&id),
         Command::Open { id } => open(&id),
@@ -221,38 +222,37 @@ fn add(metadata: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn list(mode: Option<ListMode>) -> Result<()> {
+fn list(args: &[String]) -> Result<()> {
     let index = Index::load()?;
-    if let Some(mode) = mode {
-        return match mode {
-            ListMode::Ids => list_ids(&index),
-            ListMode::Titles => list_titles(&index),
-            ListMode::Tags { tag } => {
-                list_metadata(&index, tag.as_deref(), validate_tag, |note| &note.tags)
+    match ListRequest::parse(args)? {
+        ListRequest::Notes { fields, query } => {
+            let candidates = query.candidate_ids(&index);
+            if candidates.as_ref().is_some_and(BTreeSet::is_empty) {
+                return Ok(());
             }
-            ListMode::Collections { collection } => {
-                list_metadata(&index, collection.as_deref(), validate_collection, |note| {
-                    &note.collections
-                })
+            for note in index.active_recent_notes() {
+                if candidates
+                    .as_ref()
+                    .is_some_and(|ids| !ids.contains(&note.id))
+                {
+                    continue;
+                }
+                if query.matches(&index, note)? {
+                    println!("{}", render_row(note, &fields));
+                }
             }
-            ListMode::Links { id, direction } => links_in_index(&index, &id, direction),
-        };
+            Ok(())
+        }
+        ListRequest::Tags(tag) => {
+            list_metadata(&index, tag.as_deref(), validate_tag, |note| &note.tags)
+        }
+        ListRequest::Collections(collection) => {
+            list_metadata(&index, collection.as_deref(), validate_collection, |note| {
+                &note.collections
+            })
+        }
+        ListRequest::Links { id, direction } => links_in_index(&index, &id, direction),
     }
-    print_note_list(index.active_recent_notes())
-}
-
-fn list_ids(index: &Index) -> Result<()> {
-    for note in index.active_recent_notes() {
-        println!("{}", note.id);
-    }
-    Ok(())
-}
-
-fn list_titles(index: &Index) -> Result<()> {
-    for note in index.active_recent_notes() {
-        println!("{}  {}", note.id, note.title);
-    }
-    Ok(())
 }
 
 fn list_metadata<'a>(

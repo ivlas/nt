@@ -449,15 +449,17 @@ fn completion_outputs_dynamic_note_id_hooks() {
     assert!(bash.contains("init add rebuild list find show open"));
     assert!(bash.contains("_nt_note_ids"));
     assert!(bash.contains("_nt_titled_notes"));
-    assert!(bash.contains("nt list 2>/dev/null"));
-    assert!(bash.contains("nt list ids 2>/dev/null"));
+    assert!(bash.contains("nt list id,title 2>/dev/null"));
+    assert!(bash.contains("nt list id 2>/dev/null"));
+    assert!(bash.contains("_nt_complete_list_arg"));
 
     let zsh = run_nt(&home, &["completion", "zsh"]);
     assert!(zsh.contains("'show:'"));
     assert!(zsh.contains("'open:'"));
     assert!(zsh.contains(":id:_nt_titled_notes"));
-    assert!(zsh.contains("command nt list 2>/dev/null"));
-    assert!(zsh.contains("nt list ids 2>/dev/null"));
+    assert!(zsh.contains("command nt list id,title 2>/dev/null"));
+    assert!(zsh.contains("nt list id 2>/dev/null"));
+    assert!(zsh.contains("_nt_list_arg"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -900,11 +902,54 @@ fn piped_list_and_show_output_stay_plain() {
     assert!(!listed.contains("\x1b["));
 
     let titled = run_nt(&home, &["list", "titles"]);
-    assert_eq!(titled.trim(), format!("{id}  Plain"));
+    assert_eq!(titled.trim(), format!("{id}\tPlain"));
 
     let shown = run_nt(&home, &["show", id]);
     assert!(shown.contains("tags plain"));
     assert!(!shown.contains("\x1b["));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn list_projects_fields_and_applies_structured_filters() {
+    let root = temp_dir("list-projections");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let first = run_nt_with_stdin(
+        &home,
+        &["add", "tag:design", "status:open", "kind:decision"],
+        "# First decision\n\nbody.\n",
+    );
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add", "tag:draft"], "# Second note\n\nbody.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+
+    let ids = run_nt(&home, &["list", "id"]);
+    assert_eq!(ids.lines().collect::<Vec<_>>(), vec![second_id, first_id]);
+
+    let selected = run_nt(&home, &["list", "id,title,status", "status:open"]);
+    assert_eq!(selected.trim(), format!("{first_id}\tFirst decision\topen"));
+
+    let filtered_default = run_nt(&home, &["list", "tag:design"]);
+    let columns = filtered_default.trim().split('\t').collect::<Vec<_>>();
+    assert_eq!(columns.len(), 15);
+    assert_eq!(columns[0], first_id);
+    assert_eq!(columns[4], "First decision");
+    assert_eq!(columns[6], "open");
+    assert_eq!(columns[11], "design");
+
+    let optional = run_nt(
+        &home,
+        &["list", "id,status,tag", &format!("id:{second_id}")],
+    );
+    assert_eq!(optional.trim(), format!("{second_id}\t-\tdraft"));
+
+    assert_failed(&home, &["list", "id,title", "body:body"], "use `nt find`");
+    assert_failed(&home, &["list", "id,titel"], "unknown list field `titel`");
+    assert_failed(&home, &["list", "id,id"], "duplicate list field `id`");
 
     let _ = fs::remove_dir_all(root);
 }
