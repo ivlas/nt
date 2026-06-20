@@ -1155,6 +1155,131 @@ fn collection_and_status_commands_validate_and_update_index_only() {
 }
 
 #[test]
+fn failed_updates_leave_index_bytes_unchanged() {
+    let root = temp_dir("update-atomic-validation");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let saved = run_nt_with_stdin(&home, &["add"], "# Stable\n\nbody.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let index_path = home.join(".nt/index.json");
+    let original = fs::read(&index_path).unwrap();
+
+    for (field, value, expected) in [
+        ("kind", "unknown", "invalid kind"),
+        ("status", "blocked", "invalid status"),
+        ("priority", "X", "invalid priority"),
+        ("scheduled", "2026-02-29", "invalid date"),
+        ("due", "2026-13-01", "invalid date"),
+        ("tag", "storage", "requires +value or -value"),
+        ("collection", "+Projects/nt", "invalid collection"),
+        (
+            "link",
+            "+NT20990101T000000",
+            "note not found: NT20990101T000000",
+        ),
+        (
+            "source",
+            "https://example.com/spec",
+            "requires +value or -value",
+        ),
+    ] {
+        assert_failed(&home, &["update", id, field, value], expected);
+        assert_eq!(fs::read(&index_path).unwrap(), original);
+    }
+
+    assert_failed(
+        &home,
+        &["update", id, "topic", "value"],
+        "invalid value 'topic'",
+    );
+    assert_eq!(fs::read(&index_path).unwrap(), original);
+    assert_failed(
+        &home,
+        &["update", "bad-id", "status", "open"],
+        "invalid note id",
+    );
+    assert_eq!(fs::read(&index_path).unwrap(), original);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn agenda_metadata_round_trips_through_commands_export_and_rebuild() {
+    let root = temp_dir("agenda-metadata-round-trip");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let archive = root.join("archive");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let saved = run_nt_with_stdin(
+        &home,
+        &[
+            "add",
+            "kind:todo",
+            "status:open",
+            "priority:A",
+            "scheduled:2099-06-25",
+            "due:2099-06-30",
+        ],
+        "# Future task\n\nbody.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains("priority A\n"));
+    assert!(shown.contains("scheduled 2099-06-25\n"));
+    assert!(shown.contains("due 2099-06-30\n"));
+    assert!(shown.contains("closed -\n"));
+    let found = run_nt(
+        &home,
+        &[
+            "find",
+            "priority:A",
+            "scheduled:2099-06-25",
+            "due:2099-06-30",
+        ],
+    );
+    assert_eq!(summary_ids(&found), vec![id]);
+
+    run_nt(&home, &["update", id, "status", "done"]);
+    let index = read_index(&home);
+    let closed = index["notes"][id]["closed"].as_str().unwrap().to_string();
+    let closed_day = &closed[..10];
+    let found = run_nt(
+        &home,
+        &["find", "status:done", &format!("closed:{closed_day}")],
+    );
+    assert_eq!(summary_ids(&found), vec![id]);
+
+    run_nt(&home, &["export", archive.to_str().unwrap(), id]);
+    let exported = fs::read_to_string(archive.join(format!("{id}.md"))).unwrap();
+    assert!(exported.contains("priority: \"A\"\n"));
+    assert!(exported.contains("scheduled: \"2099-06-25\"\n"));
+    assert!(exported.contains("due: \"2099-06-30\"\n"));
+    assert!(exported.contains(&format!("closed: \"{closed}\"\n")));
+
+    assert_eq!(run_nt(&home, &["rebuild"]).trim(), "rebuilt 1");
+    let rebuilt = read_index(&home);
+    assert_eq!(rebuilt["notes"][id]["priority"].as_str(), Some("A"));
+    assert_eq!(
+        rebuilt["notes"][id]["scheduled"].as_str(),
+        Some("2099-06-25")
+    );
+    assert_eq!(rebuilt["notes"][id]["due"].as_str(), Some("2099-06-30"));
+    assert_eq!(
+        rebuilt["notes"][id]["closed"].as_str(),
+        Some(closed.as_str())
+    );
+
+    run_nt(&home, &["update", id, "status", "open"]);
+    assert!(read_index(&home)["notes"][id]["closed"].is_null());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn add_accepts_creation_metadata() {
     let root = temp_dir("add-creation-metadata");
     let home = root.join("home");

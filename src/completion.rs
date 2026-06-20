@@ -22,21 +22,10 @@ fn completion_script(shell: Shell) -> String {
         Shell::Bash => script.push_str(BASH_NOTE_ID_COMPLETION),
         Shell::Zsh => {
             script = script.replace(":id:_default", ":id:_nt_note_ids");
-            script = script.replace(":from_id:_default", ":from_id:_nt_note_ids");
-            script = script.replace(":to_id:_default", ":to_id:_nt_note_ids");
             script = script.replace("*::metadata:_default", "*::metadata:_nt_add_metadata");
             script = script.replace("*::expr:_default", "*::expr:_nt_query_expr");
-            script = script.replace(":tag:_default", ":tag:_nt_tags");
             script = script.replace("'::name:_default'", "'::name:_nt_vaults'");
-            script = script.replace(":name:_default", ":name:_nt_collections");
-            script = script.replace(":collection:_default", ":collection:_nt_collections");
-            script = script.replace(":kind:_default", ":kind:_nt_kinds");
-            script = script.replace(":status:_default", ":status:_nt_statuses");
             script = script.replace(":value:_default", ":value:_nt_update_value");
-            script = script.replace(
-                "*::args:_default",
-                ":id:_nt_note_ids' \\\n':status:_nt_statuses",
-            );
             script = script.replace("*::ids:_default", "*::ids:_nt_note_ids");
             script = script.replace(
                 "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
@@ -106,34 +95,10 @@ _nt_titled_notes() {
     fi
 }
 
-_nt_tags() {
-    local token
-    token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "$(_nt_tag_values)" -- "${token}") )
-}
-
-_nt_collections() {
-    local token
-    token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "$(_nt_collection_values)" -- "${token}") )
-}
-
 _nt_vaults() {
     local token
     token="$(_nt_current_token)"
     COMPREPLY=( $(compgen -W "$(nt config vault 2>/dev/null | while read -r _ name _; do printf '%s\n' "$name"; done)" -- "${token}") )
-}
-
-_nt_kinds() {
-    local token
-    token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "note todo meeting decision source research project" -- "${token}") )
-}
-
-_nt_statuses() {
-    local token
-    token="$(_nt_current_token)"
-    COMPREPLY=( $(compgen -W "open waiting done dropped" -- "${token}") )
 }
 
 _nt_complete_prefixed_values() {
@@ -365,12 +330,6 @@ _nt_tag_values() {
     print -rl -- "$tags[@]"
 }
 
-_nt_tags() {
-    local -a tags
-    tags=("${(@f)$(_nt_tag_values)}")
-    _describe -t tags 'tags' tags "$@"
-}
-
 _nt_collection_values() {
     local -a lines collections
     lines=("${(@f)$(command nt list collections 2>/dev/null)}")
@@ -381,29 +340,11 @@ _nt_collection_values() {
     print -rl -- "$collections[@]"
 }
 
-_nt_collections() {
-    local -a collections
-    collections=("${(@f)$(_nt_collection_values)}")
-    _describe -t collections 'collections' collections "$@"
-}
-
 _nt_vaults() {
     local -a lines vaults
     lines=("${(@f)$(command nt config vault 2>/dev/null)}")
     vaults=("${(@)${(@)lines#? }%% *}")
     _describe -t vaults 'vaults' vaults "$@"
-}
-
-_nt_kinds() {
-    local -a kinds
-    kinds=(note todo meeting decision source research project)
-    _describe -t kinds 'kinds' kinds "$@"
-}
-
-_nt_statuses() {
-    local -a statuses
-    statuses=(open waiting done dropped)
-    _describe -t statuses 'statuses' statuses "$@"
 }
 
 _nt_sources() {
@@ -637,10 +578,14 @@ mod tests {
         assert!(script.contains(":value:_nt_update_value"));
         assert!(script.contains("*::metadata:_nt_add_metadata"));
         assert!(script.contains("*::expr:_nt_query_expr"));
-        assert!(script.contains("_nt_tags"));
-        assert!(script.contains("_nt_collections"));
         assert!(script.contains("_nt_tag_values"));
         assert!(script.contains("_nt_collection_values"));
+        assert!(!script.contains("_nt_tags()"));
+        assert!(!script.contains("_nt_collections()"));
+        assert!(!script.contains(":from_id:_nt_note_ids"));
+        assert!(!script.contains(":to_id:_nt_note_ids"));
+        assert!(!script.contains("_nt_kinds"));
+        assert!(!script.contains("_nt_statuses"));
         assert!(script.contains("lines#*$'\\t'"));
         assert!(!script.contains("tags%%[[:space:]]*"));
         assert!(script.contains("S A B C D -"));

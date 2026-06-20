@@ -690,10 +690,7 @@ fn agenda_section(note: &NoteMeta, today: &str) -> AgendaSection {
     }
 }
 
-fn agenda_sort_key(
-    note: &NoteMeta,
-    section: AgendaSection,
-) -> (String, u8, std::cmp::Reverse<String>) {
+fn agenda_sort_key(note: &NoteMeta, section: AgendaSection) -> (String, u8) {
     let date = match section {
         AgendaSection::Overdue => note.due.clone().unwrap_or_default(),
         AgendaSection::Today | AgendaSection::Upcoming => {
@@ -706,11 +703,7 @@ fn agenda_sort_key(
         }
         AgendaSection::Waiting | AgendaSection::Undated => String::new(),
     };
-    (
-        date,
-        priority_rank(note.priority.as_deref()),
-        std::cmp::Reverse(note.id.clone()),
-    )
+    (date, priority_rank(note.priority.as_deref()))
 }
 
 fn priority_rank(priority: Option<&str>) -> u8 {
@@ -1426,5 +1419,72 @@ mod tests {
                 "NT20260503T000001"
             ]
         );
+    }
+
+    #[test]
+    fn agenda_orders_all_priorities_and_preserves_active_recency_for_ties() {
+        let priorities = [None, Some("D"), Some("C"), Some("B"), Some("A"), Some("S")];
+        let notes = priorities
+            .into_iter()
+            .enumerate()
+            .map(|(index, priority)| {
+                todo(
+                    &format!("NT202605{:02}T000001", index + 10),
+                    "open",
+                    priority,
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        let index = active_index(notes);
+        let sections = select_agenda(&index, "2026-05-28", Some(AgendaView::Undated)).unwrap();
+        let priorities: Vec<Option<&str>> = sections[4]
+            .1
+            .iter()
+            .map(|note| note.priority.as_deref())
+            .collect();
+        assert_eq!(
+            priorities,
+            vec![Some("S"), Some("A"), Some("B"), Some("C"), Some("D"), None]
+        );
+
+        let mut newer = todo("NT20260520T000001", "open", Some("A"), None, None);
+        newer.created = "2026-06-02T00:00:00Z".to_string();
+        let mut older = todo("NT20260521T000001", "open", Some("A"), None, None);
+        older.created = "2026-06-01T00:00:00Z".to_string();
+        let index = active_index(vec![older, newer]);
+        let sections = select_agenda(&index, "2026-05-28", Some(AgendaView::Undated)).unwrap();
+        assert_eq!(
+            sections[4]
+                .1
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["NT20260520T000001", "NT20260521T000001"]
+        );
+    }
+
+    #[test]
+    fn agenda_excludes_non_actionable_notes_and_handles_empty_results() {
+        let done = todo("NT20260520T000001", "done", Some("S"), None, None);
+        let dropped = todo("NT20260521T000001", "dropped", Some("A"), None, None);
+        let mut statusless = todo("NT20260522T000001", "open", Some("B"), None, None);
+        statusless.status = None;
+        let mut non_todo = todo("NT20260523T000001", "open", Some("C"), None, None);
+        non_todo.kind = "note".to_string();
+        let index = active_index(vec![done, dropped, statusless, non_todo]);
+
+        for view in [
+            None,
+            Some(AgendaView::Today),
+            Some(AgendaView::Week),
+            Some(AgendaView::Overdue),
+            Some(AgendaView::Waiting),
+            Some(AgendaView::Undated),
+        ] {
+            let sections = select_agenda(&index, "2026-05-28", view).unwrap();
+            assert!(sections.iter().all(|(_, notes)| notes.is_empty()));
+        }
     }
 }
