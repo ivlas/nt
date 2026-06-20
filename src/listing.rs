@@ -201,6 +201,26 @@ impl ListField {
             Self::Source => values(&note.sources),
         }
     }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Id => "id",
+            Self::Path => "path",
+            Self::Created => "created",
+            Self::Updated => "updated",
+            Self::Title => "title",
+            Self::Kind => "kind",
+            Self::Status => "status",
+            Self::Priority => "priority",
+            Self::Scheduled => "scheduled",
+            Self::Due => "due",
+            Self::Closed => "closed",
+            Self::Tag => "tag",
+            Self::Collection => "collection",
+            Self::Link => "link",
+            Self::Source => "source",
+        }
+    }
 }
 
 pub fn render_row(note: &NoteMeta, fields: &[ListField]) -> String {
@@ -209,6 +229,55 @@ pub fn render_row(note: &NoteMeta, fields: &[ListField]) -> String {
         .map(|field| field.render(note))
         .collect::<Vec<_>>()
         .join("\t")
+}
+
+pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
+    let headers = fields.iter().map(|field| field.name()).collect::<Vec<_>>();
+    let rows = notes
+        .iter()
+        .map(|note| {
+            fields
+                .iter()
+                .map(|field| field.render(note))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let widths = fields
+        .iter()
+        .enumerate()
+        .map(|(column, _)| {
+            rows.iter()
+                .map(|row| row[column].chars().count())
+                .chain([headers[column].len()])
+                .max()
+                .unwrap_or(0)
+        })
+        .collect::<Vec<_>>();
+
+    std::iter::once(format_columns(
+        headers.iter().map(|header| (*header).to_string()),
+        &widths,
+    ))
+    .chain(
+        rows.into_iter()
+            .map(|row| format_columns(row.into_iter(), &widths)),
+    )
+    .collect()
+}
+
+fn format_columns(values: impl Iterator<Item = String>, widths: &[usize]) -> String {
+    let last = widths.len().saturating_sub(1);
+    values
+        .enumerate()
+        .map(|(column, value)| {
+            if column == last {
+                value
+            } else {
+                let padding = widths[column].saturating_sub(value.chars().count()) + 2;
+                format!("{value}{}", " ".repeat(padding))
+            }
+        })
+        .collect()
 }
 
 fn is_filter(value: &str) -> bool {
@@ -229,10 +298,42 @@ fn values(values: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListField, ListRequest};
+    use std::path::PathBuf;
+
+    use crate::index::NoteMeta;
+
+    use super::{ListField, ListRequest, render_table};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn table_has_headers_and_aligned_columns() {
+        let mut short = NoteMeta::new_note(
+            "NT20260621T100000".to_string(),
+            PathBuf::from("NT20260621T100000.md"),
+            "2026-06-21T10:00:00Z".to_string(),
+            "2026-06-21T10:00:00Z".to_string(),
+            "Short".to_string(),
+        );
+        short.status = Some("open".to_string());
+        let long = NoteMeta::new_note(
+            "NT20260621T110000".to_string(),
+            PathBuf::from("NT20260621T110000.md"),
+            "2026-06-21T11:00:00Z".to_string(),
+            "2026-06-21T11:00:00Z".to_string(),
+            "A much longer title".to_string(),
+        );
+
+        let lines = render_table(
+            &[&short, &long],
+            &[ListField::Id, ListField::Title, ListField::Status],
+        );
+
+        assert_eq!(lines[0], "id                 title                status");
+        assert_eq!(lines[1], "NT20260621T100000  Short                open");
+        assert_eq!(lines[2], "NT20260621T110000  A much longer title  -");
     }
 
     #[test]

@@ -150,9 +150,10 @@ nt list id,title,status
 nt list title,tag
 ```
 
-Rows contain no header. Columns are separated by one tab, set-like values are
-comma-separated within their column, and absent optional or set-like values are
-`-`. Paths are relative to the current directory when possible. Explicit
+Interactive output includes a header and aligns columns with spaces. Redirected
+output contains no header and separates columns with one tab. Set-like values
+are comma-separated within their column, and absent optional or set-like values
+are `-`. Paths are relative to the current directory when possible. Explicit
 projections are the stable interface for scripts; fields added in future are
 appended deliberately to the `all` projection.
 

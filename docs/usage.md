@@ -67,11 +67,12 @@ nt find since:2026-06-01 body:'metadata CommonMark'
 nt show NT20260620T101500
 ```
 
-Bare `nt list` prints `id`, `title`, `kind`, `status`, `due`, and `tag` as
-tab-separated rows. `nt list all` prints every indexed field. A comma-separated
-first argument selects custom fields; following arguments use the exact
-structured subset of the `find` grammar. Use `find` for bare words and title,
-source, or body search.
+Bare `nt list` prints `id`, `title`, `kind`, `status`, `due`, and `tag` with a
+header and aligned columns in a terminal. Redirected output is headerless and
+tab-separated. `nt list all` prints every indexed field. A comma-separated first
+argument selects custom fields; following arguments use the exact structured
+subset of the `find` grammar. Use `find` for bare words and title, source, or
+body search.
 
 Every `find` expression is combined with `AND`; order does not matter and
 matching is case-insensitive. Bare words search metadata and body terms. Use

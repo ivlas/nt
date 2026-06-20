@@ -166,10 +166,11 @@ mutations print one short lowercase status line. Summary records keep the id
 visually dominant, and paths are relative to the current directory when
 possible.
 
-List projections use a comma-separated field argument and tab-separated output
-without a header. Bare `nt list` expands to the fixed summary `id`, `title`,
-`kind`, `status`, `due`, and `tag`; `nt list all` expands to every indexed
-metadata field. Scripts should request explicit fields, such as
+List projections use a comma-separated field argument. Interactive output has
+a header and aligned columns; redirected output is headerless and tab-separated.
+Bare `nt list` expands to the fixed summary `id`, `title`, `kind`, `status`,
+`due`, and `tag`; `nt list all` expands to every indexed metadata field. Scripts
+should request explicit fields, such as
 `nt list id,title,status`, so defaults can evolve without changing their column
 positions. Plural `tags`, `collections`, and `links` remain explicit metadata
 vocabulary and relationship operations.

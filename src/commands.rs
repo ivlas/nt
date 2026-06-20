@@ -11,7 +11,7 @@ use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
-use crate::listing::{ListRequest, render_row};
+use crate::listing::{ListRequest, render_row, render_table};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
 use crate::terminal::{Style, paint};
@@ -227,17 +227,26 @@ fn list(args: &[String]) -> Result<()> {
     match ListRequest::parse(args)? {
         ListRequest::Notes { fields, query } => {
             let candidates = query.candidate_ids(&index);
-            if candidates.as_ref().is_some_and(BTreeSet::is_empty) {
-                return Ok(());
-            }
-            for note in index.active_recent_notes() {
-                if candidates
-                    .as_ref()
-                    .is_some_and(|ids| !ids.contains(&note.id))
-                {
-                    continue;
+            let notes = index
+                .active_recent_notes()
+                .filter(|note| {
+                    !candidates
+                        .as_ref()
+                        .is_some_and(|ids| !ids.contains(&note.id))
+                })
+                .filter_map(|note| match query.matches(&index, note) {
+                    Ok(true) => Some(Ok(note)),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            if io::stdout().is_terminal() {
+                for line in render_table(&notes, &fields) {
+                    println!("{line}");
                 }
-                if query.matches(&index, note)? {
+            } else {
+                for note in notes {
                     println!("{}", render_row(note, &fields));
                 }
             }
