@@ -899,6 +899,9 @@ fn piped_list_and_show_output_stay_plain() {
     assert!(listed.contains(id));
     assert!(!listed.contains("\x1b["));
 
+    let titled = run_nt(&home, &["list", "titles"]);
+    assert_eq!(titled.trim(), format!("{id}  Plain"));
+
     let shown = run_nt(&home, &["show", id]);
     assert!(shown.contains("tags plain"));
     assert!(!shown.contains("\x1b["));

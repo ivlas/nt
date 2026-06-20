@@ -226,6 +226,7 @@ fn list(mode: Option<ListMode>) -> Result<()> {
     if let Some(mode) = mode {
         return match mode {
             ListMode::Ids => list_ids(&index),
+            ListMode::Titles => list_titles(&index),
             ListMode::Tags { tag } => {
                 list_metadata(&index, tag.as_deref(), validate_tag, |note| &note.tags)
             }
@@ -243,6 +244,13 @@ fn list(mode: Option<ListMode>) -> Result<()> {
 fn list_ids(index: &Index) -> Result<()> {
     for note in index.active_recent_notes() {
         println!("{}", note.id);
+    }
+    Ok(())
+}
+
+fn list_titles(index: &Index) -> Result<()> {
+    for note in index.active_recent_notes() {
+        println!("{}  {}", note.id, note.title);
     }
     Ok(())
 }

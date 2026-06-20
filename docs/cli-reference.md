@@ -25,6 +25,7 @@ nt add [metadata...]
 nt rebuild
 nt list
 nt list ids
+nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links <id> [from|to]
@@ -116,6 +117,7 @@ Re-reads valid notes in the active vault and prints `rebuilt <count>`. It:
 ```text
 nt list
 nt list ids
+nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links <id> [from|to]
@@ -133,6 +135,7 @@ Submode output:
 | Form | Output |
 |---|---|
 | `list ids` | One active note id per line, newest first. |
+| `list titles` | Active note id and title per line, newest first. |
 | `list tags` | Sorted, deduplicated active tag names. |
 | `list tags <tag>` | Matching summary records, newest first. |
 | `list collections` | Sorted, deduplicated active collection names. |

@@ -94,6 +94,7 @@ Examples:
 
 const LIST: &str = r#"nt list
 nt list ids
+nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links <id> [from|to]
@@ -102,6 +103,7 @@ Print active-vault notes, available metadata values, or filtered note tables.
 
 Examples:
   nt list ids
+  nt list titles
   nt list tags storage
   nt list collections projects/nt
   nt list links NT20260528T143012 from

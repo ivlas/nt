@@ -84,6 +84,7 @@ pub enum LinkDirection {
 #[derive(Clone, Subcommand)]
 pub enum ListMode {
     Ids,
+    Titles,
     Tags {
         tag: Option<String>,
     },
@@ -139,6 +140,7 @@ mod tests {
             &["nt", "rebuild"],
             &["nt", "list"],
             &["nt", "list", "ids"],
+            &["nt", "list", "titles"],
             &["nt", "list", "tags"],
             &["nt", "list", "tags", "decision"],
             &["nt", "list", "collections"],
@@ -249,6 +251,14 @@ mod tests {
             cli.command,
             Command::List {
                 mode: Some(ListMode::Ids)
+            }
+        ));
+
+        let cli = Cli::parse_from(["nt", "list", "titles"]);
+        assert!(matches!(
+            cli.command,
+            Command::List {
+                mode: Some(ListMode::Titles)
             }
         ));
 
