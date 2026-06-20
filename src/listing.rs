@@ -57,6 +57,15 @@ const ALL_FIELDS: &[ListField] = &[
     ListField::Source,
 ];
 
+const DEFAULT_FIELDS: &[ListField] = &[
+    ListField::Id,
+    ListField::Title,
+    ListField::Kind,
+    ListField::Status,
+    ListField::Due,
+    ListField::Tag,
+];
+
 impl ListRequest {
     pub fn parse(args: &[String]) -> Result<Self> {
         if let Some(argument) = args.iter().find(|argument| argument.starts_with('-')) {
@@ -66,6 +75,9 @@ impl ListRequest {
         }
 
         match args {
+            [mode, filters @ ..] if mode == "all" => {
+                return Self::notes(ALL_FIELDS.to_vec(), filters);
+            }
             [mode] if mode == "ids" => return Self::notes(vec![ListField::Id], &[]),
             [mode] if mode == "titles" => {
                 return Self::notes(vec![ListField::Id, ListField::Title], &[]);
@@ -111,11 +123,11 @@ impl ListRequest {
         }
 
         if args.is_empty() {
-            return Self::notes(ALL_FIELDS.to_vec(), &[]);
+            return Self::notes(DEFAULT_FIELDS.to_vec(), &[]);
         }
 
         if is_filter(&args[0]) {
-            return Self::notes(ALL_FIELDS.to_vec(), args);
+            return Self::notes(DEFAULT_FIELDS.to_vec(), args);
         }
 
         let fields = ListField::parse_list(&args[0])?;
@@ -237,9 +249,34 @@ mod tests {
     }
 
     #[test]
-    fn filters_without_fields_use_all_fields() {
+    fn default_and_filter_only_requests_use_summary_fields() {
+        let ListRequest::Notes { fields, .. } = ListRequest::parse(&[]).unwrap() else {
+            panic!("expected note listing");
+        };
+        assert_eq!(
+            fields,
+            vec![
+                ListField::Id,
+                ListField::Title,
+                ListField::Kind,
+                ListField::Status,
+                ListField::Due,
+                ListField::Tag,
+            ]
+        );
+
         let ListRequest::Notes { fields, .. } =
             ListRequest::parse(&args(&["status:open"])).unwrap()
+        else {
+            panic!("expected note listing");
+        };
+        assert_eq!(fields.len(), 6);
+    }
+
+    #[test]
+    fn all_selects_every_field_and_accepts_filters() {
+        let ListRequest::Notes { fields, .. } =
+            ListRequest::parse(&args(&["all", "status:open"])).unwrap()
         else {
             panic!("expected note listing");
         };

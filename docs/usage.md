@@ -57,6 +57,7 @@ Start with cheap visible projections, then narrow the result:
 
 ```sh
 nt list
+nt list all status:done
 nt list id,title,status status:open
 nt list title,tag kind:decision
 nt list tags
@@ -66,8 +67,9 @@ nt find since:2026-06-01 body:'metadata CommonMark'
 nt show NT20260620T101500
 ```
 
-Bare `nt list` prints all indexed metadata as tab-separated rows. Its first
-argument may select comma-separated fields; following arguments use the exact
+Bare `nt list` prints `id`, `title`, `kind`, `status`, `due`, and `tag` as
+tab-separated rows. `nt list all` prints every indexed field. A comma-separated
+first argument selects custom fields; following arguments use the exact
 structured subset of the `find` grammar. Use `find` for bare words and title,
 source, or body search.
 

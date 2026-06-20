@@ -106,6 +106,7 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
@@ -129,11 +130,14 @@ nt help <command>
 
 ## Search
 
-`nt list` prints indexed note metadata. Bare `nt list` prints every field;
-select comma-separated fields for stable shell pipelines and add exact structured
+`nt list` prints the useful summary fields `id`, `title`, `kind`, `status`,
+`due`, and `tag`. Use `all` for every indexed metadata field, select
+comma-separated fields for stable shell pipelines, and add exact structured
 filters when needed:
 
 ```sh
+nt list
+nt list all status:done
 nt list id
 nt list id,title,status status:open
 nt list title,tag collection:projects/nt

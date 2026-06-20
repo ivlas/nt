@@ -24,6 +24,7 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
@@ -117,6 +118,7 @@ Re-reads valid notes in the active vault and prints `rebuilt <count>`. It:
 
 ```text
 nt list
+nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
@@ -126,7 +128,13 @@ nt list links <id> [from|to]
 ```
 
 `nt list` prints active notes in newest-created-first order. Bare `nt list`
-prints every indexed metadata field in this fixed order:
+prints this fixed summary:
+
+```text
+id, title, kind, status, due, tag
+```
+
+`nt list all` prints every indexed metadata field in this fixed order:
 
 ```text
 id, path, created, updated, title, kind, status, priority, scheduled, due,
@@ -137,6 +145,7 @@ Select one or more fields with a comma-separated first argument:
 
 ```sh
 nt list id
+nt list all status:done
 nt list id,title,status
 nt list title,tag
 ```
@@ -145,7 +154,7 @@ Rows contain no header. Columns are separated by one tab, set-like values are
 comma-separated within their column, and absent optional or set-like values are
 `-`. Paths are relative to the current directory when possible. Explicit
 projections are the stable interface for scripts; fields added in future are
-appended deliberately to the bare-list projection.
+appended deliberately to the `all` projection.
 
 After an optional projection, `list` accepts `AND`-combined structured filters:
 

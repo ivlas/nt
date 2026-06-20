@@ -167,11 +167,12 @@ visually dominant, and paths are relative to the current directory when
 possible.
 
 List projections use a comma-separated field argument and tab-separated output
-without a header. Bare `nt list` expands to a fixed ordered set of all indexed
-metadata fields. Scripts should request explicit fields, such as
-`nt list id,title,status`, so adding a field to the wide human-facing view does
-not change their column positions. Plural `tags`, `collections`, and `links`
-remain explicit metadata vocabulary and relationship operations.
+without a header. Bare `nt list` expands to the fixed summary `id`, `title`,
+`kind`, `status`, `due`, and `tag`; `nt list all` expands to every indexed
+metadata field. Scripts should request explicit fields, such as
+`nt list id,title,status`, so defaults can evolve without changing their column
+positions. Plural `tags`, `collections`, and `links` remain explicit metadata
+vocabulary and relationship operations.
 
 ANSI color is limited to TTY output and disabled for pipes, `NO_COLOR`, or
 `TERM=dumb`. Paging, fuzzy selection, previews, and batching belong to `less`,

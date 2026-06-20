@@ -235,7 +235,7 @@ _nt_complete_list_arg() {
         fi
         COMPREPLY=( $(compgen -W "$(for field in $fields; do printf '%s\n' "${prefix}${field}"; done)" -- "$token") )
         if [[ -z "$prefix" ]]; then
-            COMPREPLY+=( $(compgen -W "ids titles tags collections links" -- "$token") )
+            COMPREPLY+=( $(compgen -W "all ids titles tags collections links" -- "$token") )
         fi
         return
     fi
@@ -582,7 +582,7 @@ _nt_list_arg() {
         for field in "$fields[@]"; do
             [[ "$field" == "$value"* ]] && candidates+=("${prefix}${field}")
         done
-        [[ -z "$prefix" ]] && candidates+=(ids titles tags collections links)
+        [[ -z "$prefix" ]] && candidates+=(all ids titles tags collections links)
         compadd -Q -S '' -U -a candidates
         return
     fi

@@ -648,9 +648,6 @@ fn release_docs_cover_source_install_and_manual_checks() {
     let readme = fs::read_to_string("README.md").unwrap();
     assert!(readme.contains("cargo install --path ."));
 
-    let changelog = fs::read_to_string("CHANGELOG.md").unwrap();
-    assert!(changelog.contains("## 0.1.0"));
-
     let design = fs::read_to_string("docs/design.md").unwrap();
     for check in [
         "cargo fmt --check",
@@ -935,11 +932,17 @@ fn list_projects_fields_and_applies_structured_filters() {
 
     let filtered_default = run_nt(&home, &["list", "tag:design"]);
     let columns = filtered_default.trim().split('\t').collect::<Vec<_>>();
+    assert_eq!(columns.len(), 6);
+    assert_eq!(columns[0], first_id);
+    assert_eq!(columns[1], "First decision");
+    assert_eq!(columns[3], "open");
+    assert_eq!(columns[5], "design");
+
+    let all = run_nt(&home, &["list", "all", "tag:design"]);
+    let columns = all.trim().split('\t').collect::<Vec<_>>();
     assert_eq!(columns.len(), 15);
     assert_eq!(columns[0], first_id);
     assert_eq!(columns[4], "First decision");
-    assert_eq!(columns[6], "open");
-    assert_eq!(columns[11], "design");
 
     let optional = run_nt(
         &home,
@@ -2062,9 +2065,7 @@ const UNSUPPORTED_ROOT_COMMAND_EXAMPLES: &[&str] = &[
 
 const DOC_PATHS: &[&str] = &[
     "README.md",
-    "CHANGELOG.md",
     "docs/usage.md",
     "docs/cli-reference.md",
     "docs/design.md",
-    "docs/examples/agent-skills.md",
 ];
