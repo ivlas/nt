@@ -232,7 +232,10 @@ pub fn render_row(note: &NoteMeta, fields: &[ListField]) -> String {
 }
 
 pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
-    let headers = fields.iter().map(|field| field.name()).collect::<Vec<_>>();
+    let headers = fields
+        .iter()
+        .map(|field| field.name().to_ascii_uppercase())
+        .collect::<Vec<_>>();
     let rows = notes
         .iter()
         .map(|note| {
@@ -254,15 +257,12 @@ pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
         })
         .collect::<Vec<_>>();
 
-    std::iter::once(format_columns(
-        headers.iter().map(|header| (*header).to_string()),
-        &widths,
-    ))
-    .chain(
-        rows.into_iter()
-            .map(|row| format_columns(row.into_iter(), &widths)),
-    )
-    .collect()
+    std::iter::once(format_columns(headers.iter().cloned(), &widths))
+        .chain(
+            rows.into_iter()
+                .map(|row| format_columns(row.into_iter(), &widths)),
+        )
+        .collect()
 }
 
 fn format_columns(values: impl Iterator<Item = String>, widths: &[usize]) -> String {
@@ -331,7 +331,7 @@ mod tests {
             &[ListField::Id, ListField::Title, ListField::Status],
         );
 
-        assert_eq!(lines[0], "id                 title                status");
+        assert_eq!(lines[0], "ID                 TITLE                STATUS");
         assert_eq!(lines[1], "NT20260621T100000  Short                open");
         assert_eq!(lines[2], "NT20260621T110000  A much longer title  -");
     }
