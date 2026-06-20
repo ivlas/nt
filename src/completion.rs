@@ -24,6 +24,8 @@ fn completion_script(shell: Shell) -> String {
             script = script.replace(":id:_default", ":id:_nt_note_ids");
             script = script.replace("*::metadata:_default", "*::metadata:_nt_add_metadata");
             script = script.replace("*::expr:_default", "*::expr:_nt_query_expr");
+            script = script.replace(":tag:_default", ":tag:_nt_tags");
+            script = script.replace(":collection:_default", ":collection:_nt_collections");
             script = script.replace("'::name:_default'", "'::name:_nt_vaults'");
             script = script.replace(":value:_default", ":value:_nt_update_value");
             script = script.replace("*::ids:_default", "*::ids:_nt_note_ids");
@@ -129,11 +131,11 @@ _nt_complete_prefixed_values() {
 }
 
 _nt_tag_values() {
-    nt list tags 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u
+    nt list tags 2>/dev/null
 }
 
 _nt_collection_values() {
-    nt list collections 2>/dev/null | cut -f2 | tr ',' '\n' | grep -v '^-\?$' | sort -u
+    nt list collections 2>/dev/null
 }
 
 _nt_source_values() {
@@ -267,8 +269,16 @@ _nt() {
             _nt_titled_notes
             return 0
             ;;
-        rm:2|update:2|export:[3-9]|export:[1-9][0-9]*|list:3)
+        rm:2|update:2|export:[3-9]|export:[1-9][0-9]*)
             _nt_note_ids
+            return 0
+            ;;
+        list:3)
+            case "${COMP_WORDS[2]}" in
+                links) _nt_note_ids ;;
+                tags) COMPREPLY=( $(compgen -W "$(_nt_tag_values)" -- "$(_nt_current_token)") ) ;;
+                collections) COMPREPLY=( $(compgen -W "$(_nt_collection_values)" -- "$(_nt_current_token)") ) ;;
+            esac
             return 0
             ;;
         update:4)
@@ -321,23 +331,23 @@ _nt_titled_notes() {
 }
 
 _nt_tag_values() {
-    local -a lines tags
-    lines=("${(@f)$(command nt list tags 2>/dev/null)}")
-    tags=("${(@)${(@)lines#*$'\t'}%%$'\t'*}")
-    tags=("${(@s:,:)tags}")
-    tags=("${(@)tags:#-}")
-    typeset -U tags
-    print -rl -- "$tags[@]"
+    command nt list tags 2>/dev/null
+}
+
+_nt_tags() {
+    local -a tags
+    tags=("${(@f)$(_nt_tag_values)}")
+    _describe -t tags 'tags' tags "$@"
 }
 
 _nt_collection_values() {
-    local -a lines collections
-    lines=("${(@f)$(command nt list collections 2>/dev/null)}")
-    collections=("${(@)${(@)lines#*$'\t'}%%$'\t'*}")
-    collections=("${(@s:,:)collections}")
-    collections=("${(@)collections:#-}")
-    typeset -U collections
-    print -rl -- "$collections[@]"
+    command nt list collections 2>/dev/null
+}
+
+_nt_collections() {
+    local -a collections
+    collections=("${(@f)$(_nt_collection_values)}")
+    _describe -t collections 'collections' collections "$@"
 }
 
 _nt_vaults() {
@@ -552,6 +562,8 @@ mod tests {
         assert!(script.contains("_nt_complete_update_set_values"));
         assert!(script.contains("candidates=\"${candidates} +${value} -${value}\""));
         assert!(script.contains("source) _nt_complete_update_set_values sources"));
+        assert!(script.contains("list:3"));
+        assert!(script.contains("links) _nt_note_ids"));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
 
@@ -580,14 +592,15 @@ mod tests {
         assert!(script.contains("*::expr:_nt_query_expr"));
         assert!(script.contains("_nt_tag_values"));
         assert!(script.contains("_nt_collection_values"));
-        assert!(!script.contains("_nt_tags()"));
-        assert!(!script.contains("_nt_collections()"));
+        assert!(script.contains("_nt_tags()"));
+        assert!(script.contains("_nt_collections()"));
+        assert!(script.contains(":tag:_nt_tags"));
+        assert!(script.contains(":collection:_nt_collections"));
         assert!(!script.contains(":from_id:_nt_note_ids"));
         assert!(!script.contains(":to_id:_nt_note_ids"));
         assert!(!script.contains("_nt_kinds"));
         assert!(!script.contains("_nt_statuses"));
-        assert!(script.contains("lines#*$'\\t'"));
-        assert!(!script.contains("tags%%[[:space:]]*"));
+        assert!(!script.contains("lines#*$'\\t'"));
         assert!(script.contains("S A B C D -"));
         assert!(script.contains(
             "priority) _nt_complete_prefixed_values \"$outer_prefix\" priority S A B C D"

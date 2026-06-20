@@ -114,8 +114,8 @@ nt add [metadata...]
 nt rebuild
 nt list
 nt list ids
-nt list tags
-nt list collections
+nt list tags [tag]
+nt list collections [collection]
 nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>

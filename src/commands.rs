@@ -6,9 +6,7 @@ use std::process::Command as ProcessCommand;
 
 use crate::cli::{AgendaView, Cli, Command, ConfigCommand, LinkDirection, ListMode, UpdateField};
 use crate::completion::print_completion;
-use crate::display::{
-    agenda_line, joined_or_dash, metadata_projection, summary_line, summary_line_for_display,
-};
+use crate::display::{agenda_line, joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
@@ -228,18 +226,18 @@ fn list(mode: Option<ListMode>) -> Result<()> {
     if let Some(mode) = mode {
         return match mode {
             ListMode::Ids => list_ids(&index),
-            ListMode::Tags => list_metadata(&index, |note| &note.tags),
-            ListMode::Collections => list_metadata(&index, |note| &note.collections),
+            ListMode::Tags { tag } => {
+                list_metadata(&index, tag.as_deref(), validate_tag, |note| &note.tags)
+            }
+            ListMode::Collections { collection } => {
+                list_metadata(&index, collection.as_deref(), validate_collection, |note| {
+                    &note.collections
+                })
+            }
             ListMode::Links { id, direction } => links_in_index(&index, &id, direction),
         };
     }
-    let color = crate::terminal::stdout_color_enabled();
-
-    for note in index.active_recent_notes() {
-        println!("{}", summary_line_for_display(note, color));
-    }
-
-    Ok(())
+    print_note_list(index.active_recent_notes())
 }
 
 fn list_ids(index: &Index) -> Result<()> {
@@ -251,10 +249,33 @@ fn list_ids(index: &Index) -> Result<()> {
 
 fn list_metadata<'a>(
     index: &'a Index,
+    selected: Option<&str>,
+    validate: impl Fn(&str) -> Result<()>,
     values: impl Fn(&'a NoteMeta) -> &'a [String],
 ) -> Result<()> {
+    if let Some(selected) = selected {
+        validate(selected)?;
+        return print_note_list(
+            index
+                .active_recent_notes()
+                .filter(|note| values(note).iter().any(|value| value == selected)),
+        );
+    }
+
+    let mut available = BTreeSet::new();
     for note in index.active_recent_notes() {
-        println!("{}", metadata_projection(note, values(note)));
+        available.extend(values(note).iter().map(String::as_str));
+    }
+    for value in available {
+        println!("{value}");
+    }
+    Ok(())
+}
+
+fn print_note_list<'a>(notes: impl IntoIterator<Item = &'a NoteMeta>) -> Result<()> {
+    let color = crate::terminal::stdout_color_enabled();
+    for note in notes {
+        println!("{}", summary_line_for_display(note, color));
     }
     Ok(())
 }

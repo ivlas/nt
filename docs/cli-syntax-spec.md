@@ -33,8 +33,8 @@ nt add [metadata...]
 nt rebuild
 nt list
 nt list ids
-nt list tags
-nt list collections
+nt list tags [tag]
+nt list collections [collection]
 nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>
@@ -76,25 +76,27 @@ A TUI is intentionally deferred and is not part of the current core.
 ```text
 nt list
 nt list ids
-nt list tags
-nt list collections
+nt list tags [tag]
+nt list collections [collection]
 nt list links <id> [from|to]
 ```
 
 `nt list` prints all active-vault notes in active-recent order using the normal
 `id, date, tags, title` summary format. Its submodes provide stable,
-one-record-per-line projections:
+one-record-per-line output:
 
 ```text
-ids                     note id
-tags                    note id, tags, title
-collections             note id, collections, title
-links <id> [from|to]    related note ids
+ids                          note id
+tags                         available tag
+tags <tag>                   notes with tag
+collections                  available collection
+collections <collection>     notes in collection
+links <id> [from|to]         related note ids
 ```
 
-`tags` and `collections` print one record per note, not a deduplicated vocabulary.
-Use ordinary shell tools when only unique values are needed. Use `nt find
-collection:<name>` to list one collection.
+Unfiltered `tags` and `collections` print sorted, deduplicated values from the
+active vault. Supplying a value prints matching notes in active-recent order
+using the normal note summary format.
 
 Link directions:
 
@@ -104,8 +106,8 @@ from                   notes this note links to
 to                     notes linking to this note
 ```
 
-Every form prints one note id per line. The default view deduplicates inbound and
-outbound relationships.
+Every links form prints one note id per line. The default view deduplicates
+inbound and outbound relationships.
 
 Examples:
 
@@ -113,6 +115,8 @@ Examples:
 nt list links NT20260605T101500
 nt list links NT20260605T101500 from
 nt list links NT20260605T101500 to
+nt list tags storage
+nt list collections projects/nt
 ```
 
 Example default output:

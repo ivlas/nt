@@ -10,10 +10,7 @@ exact note id and the note content behind it.
 See [cli-syntax-spec.md](cli-syntax-spec.md) for the compact command and query
 syntax contract.
 
-This guide describes the next command surface. The current binary retains the
-legacy metadata commands until the staged
-[command-surface implementation plan](command-surface-implementation-plan.md)
-is complete.
+This guide describes the current consolidated command surface.
 
 ## Setup
 
@@ -75,6 +72,8 @@ nt list
 nt list ids
 nt list tags
 nt list collections
+nt list tags storage
+nt list collections projects/nt
 nt find storage
 nt find since:2026-05-01 before:2026-06-01 tag:decision
 nt show NT20260528T143012
@@ -254,6 +253,6 @@ part of the current core.
 ```sh
 nt list ids | head
 nt find meeting | awk '{print $1}'
-nt list tags | sort
-nt list collections | sort
+nt list tags
+nt list collections
 ```

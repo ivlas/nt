@@ -39,7 +39,8 @@ nt list
 nt find <expr...>
 nt show <id>
 nt open <id>
-nt list tags
+nt list tags [tag]
+nt list collections [collection]
 nt update <id> <field> <value>
 nt agenda
 ```
@@ -264,8 +265,8 @@ people/alice
 Collection names should be lowercase and may use `/` for hierarchy-like
 organization. This is a naming convention, not nested file storage.
 
-`nt list collections` prints note id, collections, and title. `nt find
-collection:<name>` prints notes in one collection using the normal summary
+`nt list collections` prints the available collection names. `nt list
+collections <name>` prints notes in one collection using the normal summary
 format. `nt update <id> collection +<name>` and its `-<name>` counterpart mutate
 visible JSON metadata only; they do not edit the CommonMark note body.
 

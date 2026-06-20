@@ -84,8 +84,12 @@ pub enum LinkDirection {
 #[derive(Clone, Subcommand)]
 pub enum ListMode {
     Ids,
-    Tags,
-    Collections,
+    Tags {
+        tag: Option<String>,
+    },
+    Collections {
+        collection: Option<String>,
+    },
     Links {
         id: String,
         direction: Option<LinkDirection>,
@@ -136,7 +140,9 @@ mod tests {
             &["nt", "list"],
             &["nt", "list", "ids"],
             &["nt", "list", "tags"],
+            &["nt", "list", "tags", "decision"],
             &["nt", "list", "collections"],
+            &["nt", "list", "collections", "projects/nt"],
             &["nt", "list", "links", "NT20260528T143012", "from"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
@@ -244,6 +250,26 @@ mod tests {
             Command::List {
                 mode: Some(ListMode::Ids)
             }
+        ));
+
+        let cli = Cli::parse_from(["nt", "list", "tags", "decision"]);
+        assert!(matches!(
+            cli.command,
+            Command::List {
+                mode: Some(ListMode::Tags {
+                    tag: Some(ref tag)
+                })
+            } if tag == "decision"
+        ));
+
+        let cli = Cli::parse_from(["nt", "list", "collections", "projects/nt"]);
+        assert!(matches!(
+            cli.command,
+            Command::List {
+                mode: Some(ListMode::Collections {
+                    collection: Some(ref collection)
+                })
+            } if collection == "projects/nt"
         ));
     }
 

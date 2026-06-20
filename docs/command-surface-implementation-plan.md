@@ -12,7 +12,7 @@ The storage model remains CommonMark notes plus the visible JSON index.
 - `nt list` prints all active-vault notes in active-recent order using the
   current summary format.
 - `nt list ids`, `tags`, and `collections` are stable one-record-per-line
-  projections.
+  vocabularies or projections, with optional tag and collection filters.
 - `nt list links <id> [from|to]` preserves the current link direction behavior.
 - `nt update <id> <field> <value>` changes exactly one metadata field per call.
 - `kind`, `status`, `priority`, `scheduled`, and `due` use a plain value; `-`
@@ -35,8 +35,8 @@ The storage model remains CommonMark notes plus the visible JSON index.
 
 Scope: `src/cli.rs`, `src/commands.rs`, `src/help.rs`, CLI parser tests.
 
-1. Model `list` submodes: none, `ids`, `tags`, `collections`, and `links` with
-   its id and optional direction.
+1. Model `list` submodes: none, `ids`, `tags [tag]`, `collections [collection]`,
+   and `links` with its id and optional direction.
 2. Add `update <id> <field> <value>` and `agenda [view]` command variants.
 3. Route new variants to focused command functions; keep legacy routing
    temporarily so behavior can migrate incrementally.
@@ -57,16 +57,17 @@ Scope: `src/commands.rs`, `src/display.rs`, storage smoke tests.
    behavior behind `nt list` submodes.
 2. Define stable records:
    - `list ids`: id
-   - `list tags`: id, tags, title
-   - `list collections`: id, collections, title
+   - `list tags`: available tag
+   - `list tags <tag>`: matching note summaries
+   - `list collections`: available collection
+   - `list collections <collection>`: matching note summaries
    - `list links`: one related id
-3. Use `nt find collection:<name>` as the supported collection-specific view.
-4. Preserve active-vault filtering and deterministic ordering.
+3. Preserve active-vault filtering and deterministic ordering.
 
 Acceptance:
 
 - Each projection is one record per line and works when stdout is piped.
-- Empty tags or collections print `-` rather than dropping the note.
+- Empty tag or collection vocabularies print no output.
 - Link direction and deduplication match current behavior.
 - Focused smoke tests cover empty and populated metadata.
 
