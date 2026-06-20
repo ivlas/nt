@@ -81,16 +81,21 @@ _nt_note_ids() {
 }
 
 _nt_titled_notes() {
-    local token token_lower id _date _tags title id_lower title_lower candidates
+    local token token_lower id _date _tags title id_lower title_lower candidates count
     token="$(_nt_current_token)"
     token_lower="$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]')"
     candidates=""
+    count=0
 
     while read -r id _date _tags title; do
         id_lower="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
         title_lower="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]')"
         case "$id_lower:$title_lower" in
-            "$token_lower"*|*:"$token_lower"*) candidates="${candidates} ${id}" ;;
+            "$token_lower"*|*:"$token_lower"*)
+                candidates="${candidates} ${id}"
+                count=$((count + 1))
+                (( count >= 10 )) && break
+                ;;
         esac
     done < <(nt list 2>/dev/null)
 
@@ -288,17 +293,25 @@ _nt_note_ids() {
 _nt_titled_notes() {
     local token="${PREFIX:l}"
     local id _date _tags title
-    local -a ids titles
+    local -a ids displays
 
     while read -r id _date _tags title; do
         if [[ "${id:l}" == "$token"* || "${title:l}" == "$token"* ]]; then
             ids+=("$id")
-            titles+=("$title")
+            displays+=("$id $title")
+            (( ${#ids} >= 10 )) && break
         fi
     done < <(command nt list 2>/dev/null)
 
     (( ${#ids} > 0 )) || return
-    compadd -Q -S '' -U -d titles -a ids
+    compadd -Q -S '' -U -d displays -a ids
+    if (( ${#ids} > 1 )); then
+        if [[ -n "$compstate[old_list]" ]]; then
+            compstate[insert]=menu
+        elif [[ "$compstate[insert]" != menu ]]; then
+            compstate[insert]=
+        fi
+    fi
 }
 
 _nt_tags() {
@@ -503,6 +516,7 @@ mod tests {
         ));
         assert!(script.contains("show:2|open:2"));
         assert!(script.contains("nt list 2>/dev/null"));
+        assert!(script.contains("(( count >= 10 )) && break"));
         assert!(script.contains("link:2|link:3|unlink:2|unlink:3"));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
@@ -520,6 +534,12 @@ mod tests {
             "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'"
         ));
         assert!(script.contains("command nt list 2>/dev/null"));
+        assert!(script.contains("displays+=(\"$id $title\")"));
+        assert!(script.contains("(( ${#ids} >= 10 )) && break"));
+        assert!(script.contains("(( ${#ids} > 1 ))"));
+        assert!(script.contains("[[ -n \"$compstate[old_list]\" ]]"));
+        assert!(script.contains("compstate[insert]=menu"));
+        assert!(script.contains("compstate[insert]="));
         assert!(script.contains(":id:_nt_note_ids"));
         assert!(script.contains(":from_id:_nt_note_ids"));
         assert!(script.contains(":to_id:_nt_note_ids"));
