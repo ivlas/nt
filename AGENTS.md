@@ -44,6 +44,7 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt init <notes-dir>`
 - `nt add [metadata...]`
 - `nt list`
+- `nt list <field>[,<field>...] [filter...]`
 - `nt list ids`
 - `nt list tags`
 - `nt list collections`
@@ -192,8 +193,11 @@ syntax for note links.
 
 Agents should retrieve notes through cheap, visible operations:
 
-- Use `nt list ids` for completion and direct id lists.
-- Use `nt list` for all active-vault notes in active-recent order.
+- Use `nt list id` for completion and direct id lists (`nt list ids` remains a
+  compatibility alias).
+- Use `nt list` for every indexed metadata field in active-recent order.
+- Use projections such as `nt list id,title,status status:open` for stable,
+  tab-separated metadata rows and exact structured filtering.
 - Use `nt list tags` and `nt list collections` before choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.

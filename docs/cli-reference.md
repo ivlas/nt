@@ -24,6 +24,7 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
 nt list tags [tag]
@@ -116,6 +117,7 @@ Re-reads valid notes in the active vault and prints `rebuilt <count>`. It:
 
 ```text
 nt list
+nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
 nt list tags [tag]
@@ -123,19 +125,49 @@ nt list collections [collection]
 nt list links <id> [from|to]
 ```
 
-`nt list` prints active notes in newest-created-first order using the summary
-record:
+`nt list` prints active notes in newest-created-first order. Bare `nt list`
+prints every indexed metadata field in this fixed order:
 
 ```text
-<id>  <created-day>  <comma-tags-or-dash>  <title>
+id, path, created, updated, title, kind, status, priority, scheduled, due,
+closed, tag, collection, link, source
 ```
 
-Submode output:
+Select one or more fields with a comma-separated first argument:
+
+```sh
+nt list id
+nt list id,title,status
+nt list title,tag
+```
+
+Rows contain no header. Columns are separated by one tab, set-like values are
+comma-separated within their column, and absent optional or set-like values are
+`-`. Paths are relative to the current directory when possible. Explicit
+projections are the stable interface for scripts; fields added in future are
+appended deliberately to the bare-list projection.
+
+After an optional projection, `list` accepts `AND`-combined structured filters:
+
+```sh
+nt list id,title,status status:open
+nt list title,tag kind:decision since:2026-06-01 not:tag:draft
+nt list status:waiting
+```
+
+Supported list filters are `id`, `tag`, `day`, `since`, `before`, `kind`,
+`status`, `priority`, `scheduled`, `due`, `closed`, `collection`, `link`, and
+`not` around another supported filter. Matching is case-insensitive and uses
+the same validation, candidate narrowing, and active-recent ordering as `find`.
+Bare words and `title`, `source`, and `body` expressions are search operations;
+`list` rejects them and directs the user to `nt find`.
+
+Compatibility and metadata operations:
 
 | Form | Output |
 |---|---|
-| `list ids` | One active note id per line, newest first. |
-| `list titles` | Active note id and title per line, newest first. |
+| `list ids` | Compatibility alias for `list id`. |
+| `list titles` | Compatibility alias for `list id,title`. |
 | `list tags` | Sorted, deduplicated active tag names. |
 | `list tags <tag>` | Matching summary records, newest first. |
 | `list collections` | Sorted, deduplicated active collection names. |
@@ -152,7 +184,9 @@ nt find <expr...>
 
 Every argument is one expression. Expressions are case-insensitive, combined
 with `AND`, and independent of order. Matches print stable summary records in
-active newest-first order. An empty result prints nothing and succeeds.
+active newest-first order. An empty result prints nothing and succeeds. Use
+`list` when only structured filtering and metadata projection are needed; use
+`find` for bare terms or title, source, and body search.
 
 Expression forms:
 
@@ -363,7 +397,8 @@ nt completion zsh
 ```
 
 Writes a completion script to stdout. Completion covers the typed command
-grammar, note ids through `nt list ids`, known metadata values, query prefixes,
+grammar, note ids through `nt list id`, list fields and structured filters,
+known metadata values, query prefixes,
 and comma-separated creation metadata.
 
 ## help

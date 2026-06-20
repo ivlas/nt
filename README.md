@@ -106,6 +106,7 @@ nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
 nt list
+nt list <field>[,<field>...] [filter...]
 nt list ids
 nt list titles
 nt list tags [tag]
@@ -127,6 +128,23 @@ nt help <command>
 ```
 
 ## Search
+
+`nt list` prints indexed note metadata. Bare `nt list` prints every field;
+select comma-separated fields for stable shell pipelines and add exact structured
+filters when needed:
+
+```sh
+nt list id
+nt list id,title,status status:open
+nt list title,tag collection:projects/nt
+```
+
+Rows are newest-first and tab-separated without a header. Available fields are
+`id`, `path`, `created`, `updated`, `title`, `kind`, `status`, `priority`,
+`scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and `source`.
+Structured filters include `id`, `tag`, created-date filters, `kind`, `status`,
+`priority`, scheduling dates, `collection`, `link`, and `not`. Use `nt find` for
+bare terms or title, source, and body search.
 
 `nt find` takes positional query expressions. All expressions are combined with
 `AND`; order does not matter; search is case-insensitive. It uses visible
@@ -183,7 +201,7 @@ use the same visible workflow:
 
 ```sh
 nt help
-nt list
+nt list id,title,status status:open
 nt list tags
 nt list collections
 nt find collection:projects/nt status:open

@@ -39,6 +39,7 @@ Module responsibilities are deliberately narrow:
 | `cli.rs` | Public command, subcommand, field, view, and shell enums. |
 | `commands.rs` | Command routing, validation, vault operations, agenda selection, and mutation rollback. |
 | `index.rs` | Serialized metadata, vault state, derived maps, text indexes, and migrations. |
+| `listing.rs` | List request parsing, metadata projections, compatibility forms, and row rendering. |
 | `query.rs` | Query parsing, candidate planning, and final match verification. |
 | `note.rs` | Ids, timestamps, calendar dates, title validation, and URL extraction. |
 | `fs.rs` | Paths and atomic temp-file-and-rename writes. |
@@ -71,6 +72,8 @@ An `nt add` demonstrates the normal ownership and persistence flow:
 Reads follow the same explicit route without mutation. For example, `find`
 loads the index, parses expressions, intersects available candidate sets,
 verifies candidates, and prints matching summaries in active-recent order.
+`list` follows the same selection path for structured filters, then projects
+the requested `NoteMeta` fields into tab-separated rows.
 
 ## Storage Decisions
 
@@ -121,6 +124,12 @@ prevents a misspelled structured filter from silently becoming a broad text
 search. There is no scoring, fuzzy matching, semantic search, regex, full
 Boolean grammar, or public heading query.
 
+Structured selection is shared with `nt list`. List accepts exact metadata and
+created-date expressions, including `not`, but rejects bare words and `title`,
+`source`, and `body` search expressions. This keeps list responsible for
+metadata inspection and projection while find remains the textual retrieval
+command. Both retain active-recent order and use the same candidate planner.
+
 ## Metadata Decisions
 
 Fields have distinct meanings instead of overloading tags:
@@ -157,6 +166,13 @@ mutations print one short lowercase status line. Summary records keep the id
 visually dominant, and paths are relative to the current directory when
 possible.
 
+List projections use a comma-separated field argument and tab-separated output
+without a header. Bare `nt list` expands to a fixed ordered set of all indexed
+metadata fields. Scripts should request explicit fields, such as
+`nt list id,title,status`, so adding a field to the wide human-facing view does
+not change their column positions. Plural `tags`, `collections`, and `links`
+remain explicit metadata vocabulary and relationship operations.
+
 ANSI color is limited to TTY output and disabled for pipes, `NO_COLOR`, or
 `TERM=dumb`. Paging, fuzzy selection, previews, and batching belong to `less`,
 `fzf`, `awk`, `xargs`, and similar tools. A TUI is intentionally deferred and
@@ -168,11 +184,11 @@ drafted and approved before `nt add`, `$EDITOR`, or `nt update` mutates state.
 
 ## Decision Status
 
-The original command-surface plan is complete in the current code: `list`
-projections, typed `update`, agenda fields and views, dynamic completion, and
-legacy command removal are implemented and covered by tests. The 0.1.0 stable
-core is therefore the current storage, retrieval, metadata, and shell contract,
-not a pending migration.
+The command surface includes generic list projections and structured filters,
+typed `update`, agenda fields and views, dynamic completion, and compatibility
+forms for the original list submodes. The 0.1.0 stable
+core remains the current storage, retrieval, metadata, and shell contract, not
+a pending storage migration.
 
 Future changes are constrained to preserve canonical CommonMark, visible JSON,
 explicit commands, deterministic output, atomic writes, and no hidden runtime.

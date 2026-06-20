@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `nt list` supports explicit comma-separated metadata projections and shared
+  structured filters. Bare `nt list` prints every indexed metadata field.
+- List rows use tab-separated columns; the existing `ids`, `titles`, `tags`,
+  `collections`, and `links` forms remain available for compatibility.
+
 ## 0.1.0
 
 Initial stable core.

@@ -57,12 +57,19 @@ Start with cheap visible projections, then narrow the result:
 
 ```sh
 nt list
+nt list id,title,status status:open
+nt list title,tag kind:decision
 nt list tags
 nt list collections
 nt find kind:decision tag:storage
 nt find since:2026-06-01 body:'metadata CommonMark'
 nt show NT20260620T101500
 ```
+
+Bare `nt list` prints all indexed metadata as tab-separated rows. Its first
+argument may select comma-separated fields; following arguments use the exact
+structured subset of the `find` grammar. Use `find` for bare words and title,
+source, or body search.
 
 Every `find` expression is combined with `AND`; order does not matter and
 matching is case-insensitive. Bare words search metadata and body terms. Use
@@ -80,7 +87,7 @@ Use normal shell tools for paging, selection, previews, and batching:
 nt find rust | less
 nt find rust | fzf --preview 'nt show {1}'
 nt find rust | fzf | awk '{print $1}' | xargs nt open
-nt list ids | fzf --multi | xargs -n1 nt show
+nt list id | fzf --multi | xargs -n1 nt show
 ```
 
 This shell-first workflow is the interactive interface. A TUI is intentionally
@@ -205,6 +212,7 @@ Agents use the same commands and storage as humans:
 ```sh
 nt list tags
 nt list collections
+nt list id,title,status status:open
 nt find collection:projects/nt status:open
 nt show NT20260620T101500
 ```
