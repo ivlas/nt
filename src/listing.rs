@@ -15,7 +15,9 @@ pub enum ListRequest {
     },
     Tags(Option<String>),
     Collections(Option<String>),
-    LinkGraph,
+    LinkGraph {
+        query: Query,
+    },
     Links {
         id: String,
         direction: Option<LinkDirection>,
@@ -95,8 +97,12 @@ impl ListRequest {
             [mode] if mode == "titles" => {
                 return Self::notes(vec![ListField::Id, ListField::Title], &[]);
             }
-            [mode] if mode == "links" => {
-                return Ok(Self::LinkGraph);
+            [mode, filters @ ..]
+                if mode == "links" && filters.first().is_none_or(|value| is_filter(value)) =>
+            {
+                return Ok(Self::LinkGraph {
+                    query: Query::parse_list(filters)?,
+                });
             }
             [mode] if mode == "tags" => return Ok(Self::Tags(None)),
             [mode, tag] if mode == "tags" => return Ok(Self::Tags(Some(tag.clone()))),
@@ -433,7 +439,11 @@ mod tests {
     fn links_without_an_id_selects_the_link_graph() {
         assert!(matches!(
             ListRequest::parse(&args(&["links"])).unwrap(),
-            ListRequest::LinkGraph
+            ListRequest::LinkGraph { .. }
+        ));
+        assert!(matches!(
+            ListRequest::parse(&args(&["links", "day:2026-06-20"])).unwrap(),
+            ListRequest::LinkGraph { .. }
         ));
     }
 

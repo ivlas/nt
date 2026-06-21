@@ -30,7 +30,7 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
-nt list links
+nt list links [filter...]
 nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>
@@ -186,14 +186,16 @@ Compatibility and metadata operations:
 | `list tags <tag>` | Matching summary records, newest first. |
 | `list collections` | Sorted, deduplicated active collection names. |
 | `list collections <name>` | Matching summary records, newest first. |
-| `list links` | One row per outbound link: from id/title, then to id/title. |
+| `list links [filter...]` | One row per outbound link: from id/title, then to id/title. |
 | `list links <id> from` | Existing outbound ids. |
 | `list links <id> to` | Existing backlink ids. |
 | `list links <id>` | Sorted, deduplicated union of both directions. |
 
 Bare `list links` omits notes with no relationships. Interactive output has
 `FROM ID`, `FROM TITLE`, `TO ID`, and `TO TITLE` columns. Redirected output is
-the same four fields separated by tabs, one stored relationship per line.
+the same four fields separated by tabs, one stored relationship per line. It
+accepts the structured `list` filters described above; filters select the
+`FROM` notes that own the outbound relationships.
 
 ## find
 

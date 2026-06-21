@@ -226,20 +226,7 @@ fn list(args: &[String]) -> Result<()> {
     let index = Index::load()?;
     match ListRequest::parse(args)? {
         ListRequest::Notes { fields, query } => {
-            let candidates = query.candidate_ids(&index);
-            let notes = index
-                .active_recent_notes()
-                .filter(|note| {
-                    !candidates
-                        .as_ref()
-                        .is_some_and(|ids| !ids.contains(&note.id))
-                })
-                .filter_map(|note| match query.matches(&index, note) {
-                    Ok(true) => Some(Ok(note)),
-                    Ok(false) => None,
-                    Err(error) => Some(Err(error)),
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let notes = matching_notes(&index, &query)?;
 
             if io::stdout().is_terminal() {
                 for line in render_table(&notes, &fields) {
@@ -260,14 +247,31 @@ fn list(args: &[String]) -> Result<()> {
                 &note.collections
             })
         }
-        ListRequest::LinkGraph => list_link_graph(&index),
+        ListRequest::LinkGraph { query } => list_link_graph(&index, &query),
         ListRequest::Links { id, direction } => links_in_index(&index, &id, direction),
     }
 }
 
-fn list_link_graph(index: &Index) -> Result<()> {
-    let links = index
+fn matching_notes<'a>(index: &'a Index, query: &Query) -> Result<Vec<&'a NoteMeta>> {
+    let candidates = query.candidate_ids(index);
+    index
         .active_recent_notes()
+        .filter(|note| {
+            !candidates
+                .as_ref()
+                .is_some_and(|ids| !ids.contains(&note.id))
+        })
+        .filter_map(|note| match query.matches(index, note) {
+            Ok(true) => Some(Ok(note)),
+            Ok(false) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+fn list_link_graph(index: &Index, query: &Query) -> Result<()> {
+    let links = matching_notes(index, query)?
+        .into_iter()
         .flat_map(|from| {
             from.links
                 .iter()

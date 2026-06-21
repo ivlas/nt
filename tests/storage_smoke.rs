@@ -1012,6 +1012,11 @@ fn metadata_commands_route_through_visible_index() {
         vec![format!("{first_id}\tFirst\t{second_id}\tSecond")]
     );
 
+    let filtered_links = run_nt(&home, &["list", "links", &format!("id:{first_id}")]);
+    assert_eq!(filtered_links, link_metadata);
+    let no_outbound_links = run_nt(&home, &["list", "links", &format!("id:{second_id}")]);
+    assert!(no_outbound_links.is_empty());
+
     let found = run_nt(
         &home,
         &[
