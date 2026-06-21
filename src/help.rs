@@ -37,7 +37,10 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "completion" => Ok(
             "nt completion <bash|zsh>\n\nGenerate shell completion.\n\nExamples:\n  nt completion zsh\n",
         ),
-        "help" => Ok("nt help [command...]\n\nShow command help.\n\nExamples:\n  nt help find\n"),
+        "help" => Ok(
+            "nt help [command...]\nnt help reference\n\nShow command help or the compact CLI reference.\n\nExamples:\n  nt help find\n  nt help reference\n",
+        ),
+        "reference" => Ok(REFERENCE),
         _ => Err(NtError::Message(format!(
             "unknown help topic `{key}`; run `nt help`"
         ))),
@@ -49,29 +52,39 @@ const ROOT: &str = r#"nt
 Markdown-first CLI note organizer.
 
 Usage:
-  nt <command> [positional...]
+  nt <command> [args...]
 
-Commands:
-  init        create a vault
-  add         add a Markdown note
-  rebuild     rebuild active vault index
-  list        list notes and metadata projections
-  find        find notes by query expressions
-  show        show one exact note
-  open        edit one note with $EDITOR
-  rm          remove one or more notes
-  update      update one metadata field
-  agenda      show actionable todos
-  export      export Markdown with front matter
-  config      inspect or select vaults
-  completion  generate shell completion
-  help        show help
+Getting started:
+  init <notes-dir>                    create and select a vault
+  add [metadata...]                   add a CommonMark note
+  list [projection] [filter...]       list notes and metadata
+  find <expr...>                      find notes by query expressions
+
+Read and edit:
+  show <id>                           show one exact note
+  open <id>                           edit one note with $EDITOR
+  rm <id...>                          remove one or more notes
+
+Plan and organize:
+  update <id> <field> <value>         update one metadata field
+  agenda [today|week|overdue|waiting|undated]  show actionable todos
+
+Maintenance:
+  rebuild                             rebuild the active vault index
+  export <path> [id...]               export Markdown with front matter
+  config show                         inspect the active vault
+  config vault [vault-name]           list or select vaults
+  completion <bash|zsh>               generate shell completion
+
+Help:
+  help [command...]                   show command help
+  help reference                      show the compact CLI reference
 
 Examples:
   nt init notes
-  nt list
+  nt add kind:todo status:open
   nt find tag:decision qemu
-  nt agenda today
+  nt show NT20260528T143012
 "#;
 
 const ADD: &str = r#"nt add [metadata...]
@@ -174,9 +187,82 @@ Examples:
   nt config vault notes
 "#;
 
+const REFERENCE: &str = r#"nt CLI reference
+
+Commands:
+  nt init <notes-dir>
+  nt add [metadata...]
+  nt rebuild
+  nt list [projection] [filter...]
+  nt find <expr...>
+  nt show <id>
+  nt open <id>
+  nt rm <id...>
+  nt update <id> <field> <value>
+  nt agenda [today|week|overdue|waiting|undated]
+  nt export <path> [id...]
+  nt config show
+  nt config vault [vault-name]
+  nt completion <bash|zsh>
+  nt help [command...]
+  nt help reference
+
+Add metadata:
+  kind:<kind> status:<status> priority:<priority>
+  scheduled:<date> due:<date>
+  tag:<tag>[,<tag>...] collection:<name>[,<name>...]
+  link:<id>[,<id>...] source:<value>
+  Set metadata is repeatable; commas in source values are literal.
+  Example:
+    printf '%s\n' '# Research' '' 'Compare runtimes.' |
+      nt add kind:research tag:qemu collection:research/vm
+
+List:
+  projections  all | <field>[,<field>...]
+  fields       id path created updated title kind status priority scheduled
+               due closed tag collection link source
+  modes        ids | titles | tags [tag] | collections [name] | links
+  filters      id:<prefix> tag:<tag> day:<date> since:<date> before:<date>
+               kind:<kind> status:<status> priority:<priority>
+               scheduled:<date> due:<date> closed:<date>
+               collection:<name> link:<id> not:<filter>
+  link edges   from:<id> to:<id> (with `nt list links`)
+
+Find:
+  <word> #<tag> id:<prefix> tag:<tag> title:<term>
+  day:<date> since:<date> before:<date> kind:<kind> status:<status>
+  priority:<priority> scheduled:<date> due:<date> closed:<date>
+  collection:<name> link:<id> source:<term> body:<term> not:<expr>
+  Expressions are case-insensitive and AND-combined.
+
+Update:
+  single fields  kind status priority scheduled due
+                 use <value>; use - to clear
+  set fields     tag collection link source
+                 use +<value> or -<value>
+  closed is system-managed; clearing kind resets it to note.
+
+Values:
+  id          NTYYYYMMDDTHHmmss
+  date        YYYY-MM-DD
+  kind        note todo meeting decision source research project
+  status      open waiting done dropped
+  priority    S A B C D
+  tag/name    lowercase, no whitespace or commas
+
+Rules:
+  `add` reads CommonMark from stdin or opens $EDITOR; `open` uses $EDITOR.
+  Links target existing active notes. Dates are valid calendar dates.
+  Core workflows are positional; use `nt help`, not `--help`.
+  Use shell quoting for spaces: body:'microvm jailer'.
+  Multiword body values match all terms, not an exact phrase.
+  Successful mutations print one short line; records are one per line.
+  Errors go to stderr. Run `nt help <command>` for details.
+"#;
+
 #[cfg(test)]
 mod tests {
-    use super::topic_text;
+    use super::{ROOT, topic_text};
 
     #[test]
     fn target_commands_have_help() {
@@ -202,9 +288,72 @@ mod tests {
     }
 
     #[test]
+    fn reference_covers_operational_grammar() {
+        let reference = topic_text("reference").unwrap();
+
+        for section in [
+            "Commands:",
+            "Add metadata:",
+            "List:",
+            "Find:",
+            "Update:",
+            "Values:",
+            "Rules:",
+        ] {
+            assert!(reference.contains(section));
+        }
+
+        for syntax in [
+            "nt rm <id...>",
+            "nt list [projection] [filter...]",
+            "body:<term>",
+            "not:<expr>",
+            "+<value> or -<value>",
+            "nt add kind:research tag:qemu collection:research/vm",
+            "NTYYYYMMDDTHHmmss",
+            "YYYY-MM-DD",
+        ] {
+            assert!(reference.contains(syntax));
+        }
+    }
+
+    #[test]
     fn legacy_topics_are_unknown() {
         for topic in ["ids", "tags", "collection", "status", "link"] {
             assert!(topic_text(topic).is_err());
+        }
+    }
+
+    #[test]
+    fn root_help_groups_current_commands_and_shows_argument_shapes() {
+        for heading in [
+            "Getting started:",
+            "Read and edit:",
+            "Plan and organize:",
+            "Maintenance:",
+            "Help:",
+        ] {
+            assert!(ROOT.contains(heading));
+        }
+
+        for usage in [
+            "init <notes-dir>",
+            "add [metadata...]",
+            "list [projection] [filter...]",
+            "find <expr...>",
+            "show <id>",
+            "open <id>",
+            "rm <id...>",
+            "update <id> <field> <value>",
+            "agenda [today|week|overdue|waiting|undated]",
+            "export <path> [id...]",
+            "config show",
+            "config vault [vault-name]",
+            "completion <bash|zsh>",
+            "help [command...]",
+            "help reference",
+        ] {
+            assert!(ROOT.contains(usage));
         }
     }
 }

@@ -470,8 +470,11 @@ fn help_is_a_flagless_command_with_examples() {
     let home = root.join("home");
 
     let root_help = run_nt(&home, &["help"]);
-    assert!(root_help.contains("nt <command> [positional...]"));
-    assert!(root_help.contains("nt <command> [positional...]"));
+    assert!(root_help.contains("nt <command> [args...]"));
+    assert!(root_help.contains("Getting started:"));
+    assert!(root_help.contains("Read and edit:"));
+    assert!(root_help.contains("Plan and organize:"));
+    assert!(root_help.contains("Maintenance:"));
     assert!(root_help.contains("Examples:"));
 
     let find_help = run_nt(&home, &["help", "find"]);
@@ -483,6 +486,12 @@ fn help_is_a_flagless_command_with_examples() {
     assert!(vault_help.contains("nt config vault notes"));
     let rebuild_help = run_nt(&home, &["help", "rebuild"]);
     assert!(rebuild_help.contains("preserving primary JSON metadata"));
+    let reference = run_nt(&home, &["help", "reference"]);
+    assert!(reference.contains("nt CLI reference"));
+    assert!(reference.contains("Add metadata:"));
+    assert!(reference.contains("nt add kind:research tag:qemu collection:research/vm"));
+    assert!(reference.contains("body:<term>"));
+    assert!(reference.contains("NTYYYYMMDDTHHmmss"));
 
     assert_failed(&home, &["--help"], "unexpected argument '--help'");
     assert_failed(&home, &["list", "--help"], "unexpected argument '--help'");

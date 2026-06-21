@@ -44,6 +44,7 @@ nt config vault <vault-name>
 nt completion <bash|zsh>
 nt help
 nt help <command...>
+nt help reference
 ```
 
 Help and version flags are not part of the interface. Use `nt help`; package
@@ -440,7 +441,9 @@ nt help <command...>
 ```
 
 Prints root or command-specific help to stdout. Nested topics such as
-`nt help config vault` are supported; unknown topics are errors.
+`nt help config vault` are supported; unknown topics are errors. `nt help
+reference` prints a compact operational summary of commands, metadata, filters,
+query expressions, update forms, and value formats.
 
 ## Values And Validation
 
