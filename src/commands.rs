@@ -258,11 +258,7 @@ fn matching_notes<'a>(index: &'a Index, query: &Query) -> Result<Vec<&'a NoteMet
     let candidates = query.candidate_ids(index);
     index
         .active_recent_notes()
-        .filter(|note| {
-            !candidates
-                .as_ref()
-                .is_some_and(|ids| !ids.contains(&note.id))
-        })
+        .filter(|note| candidates.as_ref().is_none_or(|ids| ids.contains(&note.id)))
         .filter_map(|note| match query.matches(index, note) {
             Ok(true) => Some(Ok(note)),
             Ok(false) => None,
@@ -467,10 +463,7 @@ fn find(exprs: &[String]) -> Result<()> {
     }
 
     for note in index.active_recent_notes() {
-        if candidates
-            .as_ref()
-            .is_some_and(|ids| !ids.contains(&note.id))
-        {
+        if !candidates.as_ref().is_none_or(|ids| ids.contains(&note.id)) {
             continue;
         }
 
