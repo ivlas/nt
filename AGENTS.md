@@ -43,6 +43,7 @@ Implemented command surface (see `docs/cli-reference.md`):
 
 - `nt init <notes-dir>`
 - `nt add [metadata...]`
+- `nt rebuild`
 - `nt list`
 - `nt list all [filter...]`
 - `nt list <field>[,<field>...] [filter...]`

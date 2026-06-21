@@ -5,6 +5,9 @@ vault, visible JSON metadata, deterministic search, and shell-friendly commands.
 Humans and agents share the same Unix interface — stdin, stdout, `$EDITOR`,
 one-record-per-line output, no hidden memory layer.
 
+**Status: alpha** `nt` is functional but experimental, built around my note-taking workflow and agent-based knowledge management; expect rough edges, bugs, and breaking changes.
+
+
 ## Install
 
 ```sh
@@ -19,6 +22,11 @@ Requires a Rust toolchain and `$EDITOR` for interactive capture/editing.
 nt init notes
 printf '%s\n' '# First Note' '' 'body text' | nt add tag:example
 nt find example          # prints NT20260616T101500-style ids
+```
+
+`nt add` prints a note id like `NT20260616T101500`.
+
+```sh
 nt show <id>
 nt open <id>             # edit in $EDITOR
 nt list                  # id title kind status due tag
@@ -38,6 +46,11 @@ nt rebuild               # after out-of-band file edits or deletes
   `not:`, …) and bare/body terms. No ranking, fuzzy, or semantic search.
 - Mutations print one short line (`saved <id>`, `updated <id> …`). Reads are
   one record per line. ANSI color is TTY-only.
+- Indexed body entries are trusted until `nt rebuild`; out-of-band Markdown
+  edits are not visible to indexed body search until the index is rebuilt.
+- `nt rebuild` preserves existing sources and merges URLs currently found in
+  Markdown bodies. A TUI is intentionally deferred and is not part of the
+  current core.
 
 ## Documentation
 

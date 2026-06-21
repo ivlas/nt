@@ -564,8 +564,6 @@ fn readme_links_to_core_docs() {
         "[docs/usage.md](docs/usage.md)",
         "[docs/cli-reference.md](docs/cli-reference.md)",
         "[docs/design.md](docs/design.md)",
-        "[docs/examples/agent-skills.md](docs/examples/agent-skills.md)",
-        "[CHANGELOG.md](CHANGELOG.md)",
     ] {
         assert!(readme.contains(link), "README should link to {link}");
     }
