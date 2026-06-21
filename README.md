@@ -67,3 +67,7 @@ cargo test
 cargo clippy --all-targets
 cargo run -- help
 ```
+
+## License
+
+MIT — see [LICENSE](./LICENSE)
