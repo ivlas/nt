@@ -4,6 +4,7 @@ use crate::cli::LinkDirection;
 use crate::error::{NtError, Result};
 use crate::fs::relative_to_cwd;
 use crate::index::NoteMeta;
+use crate::note::validate_id;
 use crate::query::Query;
 
 #[derive(Debug)]
@@ -73,6 +74,17 @@ impl ListRequest {
             return Err(NtError::Message(format!(
                 "unexpected argument '{argument}'"
             )));
+        }
+
+        if let [value, direction] = args
+            && matches!(direction.as_str(), "from" | "to")
+        {
+            let id = value.strip_prefix("link:").unwrap_or(value);
+            if validate_id(id).is_ok() {
+                return Err(NtError::Message(format!(
+                    "link direction `{direction}` must follow `links <id>`; use `nt list links {id} {direction}`"
+                )));
+            }
         }
 
         match args {
@@ -434,6 +446,17 @@ mod tests {
         ] {
             let error = ListRequest::parse(&args(&[value])).unwrap_err();
             assert!(error.to_string().contains(expected));
+        }
+    }
+
+    #[test]
+    fn redirects_misplaced_link_directions() {
+        for value in ["NT20260618T210731", "link:NT20260618T210731"] {
+            let error = ListRequest::parse(&args(&[value, "from"])).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "link direction `from` must follow `links <id>`; use `nt list links NT20260618T210731 from`"
+            );
         }
     }
 }

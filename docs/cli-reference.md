@@ -170,6 +170,9 @@ Supported list filters are `id`, `tag`, `day`, `since`, `before`, `kind`,
 `status`, `priority`, `scheduled`, `due`, `closed`, `collection`, `link`, and
 `not` around another supported filter. Matching is case-insensitive and uses
 the same validation, candidate narrowing, and active-recent ordering as `find`.
+`link:<id>` selects notes with an outbound link to that target. It is therefore
+the summary-record counterpart of `list links <id> to`, not `from`; link
+directions are accepted only after `list links <id>`.
 Bare words and `title`, `source`, and `body` expressions are search operations;
 `list` rejects them and directs the user to `nt find`.
 
