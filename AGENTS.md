@@ -50,11 +50,11 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt list ids`
 - `nt list tags`
 - `nt list collections`
-- `nt list links <id> [from|to]`
+- `nt list links [filter...]`
 - `nt find <expr...>`
 - `nt show <id>`
 - `nt open <id>`
-- `nt rm <id>`
+- `nt rm <id...>`
 - `nt update <id> <field> <value>`
 - `nt agenda [today|week|overdue|waiting|undated]`
 - `nt export <path> [id...]`
@@ -204,7 +204,7 @@ Agents should retrieve notes through cheap, visible operations:
 - Use `nt list tags` and `nt list collections` before choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
-- Use `nt list links <id>`, `nt list links <id> from`, and `nt list links <id> to` for
+- Use `nt list links`, `nt list links from:<id>`, and `nt list links to:<id>` for
   explicit note relationships.
 - Compose command output with normal Unix tools when helpful.
 
@@ -220,9 +220,9 @@ Agent-driven writes require approval before mutation:
 
 Rejection must leave notes and metadata unchanged.
 
-Agent skill examples belong in docs, not runtime initialization. See
-`docs/examples/agent-skills.md` for copyable examples that users can adapt to
-their agent system.
+Agent skill examples belong in documentation, not runtime initialization.
+Repository-local contributor skills under `.agents/skills/` must not be copied
+into user vaults by `nt init`.
 
 ## Terminal UX
 
