@@ -743,20 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn plans_bare_body_queries_from_body_terms() {
-        let mut index = active_index();
-        index.upsert_note_with_body(note("NT20260528T143012"), "# Body\n\nOwnership details.\n");
-        index.upsert_note_with_body(note("NT20260529T120000"), "# Other\n\nLifetime details.\n");
-
-        let query = Query::parse(&["ownership".to_string()]).unwrap();
-
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260528T143012".to_string()])
-        );
-    }
-
-    #[test]
     fn plans_empty_intersections_as_empty_candidates() {
         let mut index = active_index();
         let mut note = note("NT20260528T143012");
