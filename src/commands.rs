@@ -1282,8 +1282,25 @@ mod tests {
     fn creation_metadata_rejects_unknown_fields() {
         let err =
             CreationMetadata::parse(&["topic:storage".to_string()], &Index::default()).unwrap_err();
-
         assert_eq!(err.to_string(), "unknown add metadata field `topic`");
+
+        let err = CreationMetadata::parse(&["unknown".to_string()], &Index::default()).unwrap_err();
+        assert!(err.to_string().contains("unknown add metadata"));
+
+        let err = CreationMetadata::parse(&["tag:".to_string()], &Index::default()).unwrap_err();
+        assert_eq!(err.to_string(), "empty add metadata value for `tag`");
+
+        let err = CreationMetadata::parse(
+            &["kind:note".to_string(), "kind:todo".to_string()],
+            &Index::default(),
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "`kind` metadata can be set only once");
+
+        let err =
+            CreationMetadata::parse(&["link:NT99999999T999999".to_string()], &Index::default())
+                .unwrap_err();
+        assert_eq!(err.to_string(), "note not found: NT99999999T999999");
     }
 
     #[test]

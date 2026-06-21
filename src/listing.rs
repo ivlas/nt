@@ -440,7 +440,17 @@ mod tests {
         else {
             panic!("expected note listing");
         };
-        assert_eq!(fields.len(), 6);
+        assert_eq!(
+            fields,
+            vec![
+                ListField::Id,
+                ListField::Title,
+                ListField::Kind,
+                ListField::Status,
+                ListField::Due,
+                ListField::Tag,
+            ]
+        );
     }
 
     #[test]

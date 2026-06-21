@@ -285,7 +285,17 @@ mod tests {
             "completion",
             "help",
         ] {
-            assert!(topic_text(topic).unwrap().contains("Examples:"));
+            let help = topic_text(topic).unwrap();
+            assert!(
+                help.contains("Examples:"),
+                "topic `{topic}` should have examples"
+            );
+            if !topic.is_empty() {
+                assert!(
+                    help.contains(&format!("nt {topic}")),
+                    "topic `{topic}` help should reference the command name"
+                );
+            }
         }
     }
 

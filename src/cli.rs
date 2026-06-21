@@ -108,7 +108,7 @@ pub enum ConfigCommand {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AgendaView, Cli, Command, ConfigCommand, UpdateField};
+    use super::{AgendaView, Cli, Command, ConfigCommand, Shell, UpdateField};
 
     #[test]
     fn parses_target_commands() {
@@ -156,6 +156,118 @@ mod tests {
                 panic!("failed to parse {case:?}: {err}");
             });
         }
+    }
+
+    #[test]
+    fn target_commands_route_to_correct_variants() {
+        use std::path::PathBuf;
+
+        let cli = Cli::parse_from(["nt", "init", "notes"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Init { notes_dir }) if notes_dir == PathBuf::from("notes")
+        ));
+
+        let cli = Cli::parse_from(["nt", "add", "tag:decision", "kind:note", "status:open"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Add { metadata }) if metadata == vec!["tag:decision", "kind:note", "status:open"]
+        ));
+
+        let cli = Cli::parse_from(["nt", "rebuild"]);
+        assert!(matches!(cli.command, Some(Command::Rebuild)));
+
+        let cli = Cli::parse_from(["nt", "list"]);
+        assert!(matches!(cli.command, Some(Command::List { args }) if args.is_empty()));
+
+        let cli = Cli::parse_from(["nt", "list", "tags", "decision"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::List { args }) if args == vec!["tags", "decision"]
+        ));
+
+        let cli = Cli::parse_from(["nt", "list", "links", "from:NT20260528T143012"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::List { args }) if args == vec!["links", "from:NT20260528T143012"]
+        ));
+
+        let cli = Cli::parse_from(["nt", "show", "NT20260528T143012"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Show { id }) if id == "NT20260528T143012"
+        ));
+
+        let cli = Cli::parse_from(["nt", "open", "NT20260528T143012"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Open { id }) if id == "NT20260528T143012"
+        ));
+
+        let cli = Cli::parse_from(["nt", "update", "NT20260528T143012", "status", "open"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update { id, field: UpdateField::Status, value })
+                if id == "NT20260528T143012" && value == "open"
+        ));
+
+        let cli = Cli::parse_from(["nt", "update", "NT20260528T143012", "tag", "+decision"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update { id, field: UpdateField::Tag, value })
+                if id == "NT20260528T143012" && value == "+decision"
+        ));
+
+        let cli = Cli::parse_from(["nt", "agenda"]);
+        assert!(matches!(cli.command, Some(Command::Agenda { view: None })));
+
+        let cli = Cli::parse_from(["nt", "agenda", "week"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Agenda {
+                view: Some(AgendaView::Week)
+            })
+        ));
+
+        let cli = Cli::parse_from(["nt", "export", "archive"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export { path, ids }) if path == PathBuf::from("archive") && ids.is_empty()
+        ));
+
+        let cli = Cli::parse_from([
+            "nt",
+            "export",
+            "archive",
+            "NT20260528T143012",
+            "NT20260527T120000",
+        ]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export { path, ids })
+                if path == PathBuf::from("archive")
+                    && ids == vec!["NT20260528T143012", "NT20260527T120000"]
+        ));
+
+        let cli = Cli::parse_from(["nt", "config", "show"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Config {
+                command: ConfigCommand::Show
+            })
+        ));
+
+        let cli = Cli::parse_from(["nt", "completion", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Completion { shell: Shell::Zsh })
+        ));
+
+        let cli = Cli::parse_from(["nt", "help", "find"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Help { topic }) if topic == vec!["find"]
+        ));
     }
 
     #[test]

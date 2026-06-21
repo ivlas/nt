@@ -242,8 +242,8 @@ mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
     use super::{
-        add_days, sources_from_body, timestamp_from_system_time, title_from_body, validate_date,
-        validate_id,
+        add_days, generate_unique_id, sources_from_body, timestamp_from_system_time, timestamp_now,
+        title_from_body, validate_date, validate_id,
     };
 
     #[test]
@@ -251,6 +251,12 @@ mod tests {
         validate_id("NT20260528T143012").unwrap();
         assert!(validate_id("20260528T143012").is_err());
         assert!(validate_id("NT20260528-143012").is_err());
+        assert!(validate_id("nt20260528T143012").is_err());
+        assert!(validate_id("NT20260528T14301").is_err());
+        assert!(validate_id("NT20260528T1430123").is_err());
+        assert!(validate_id("NT2026AB28T143012").is_err());
+        assert!(validate_id("NT20260528T14AB12").is_err());
+        assert!(validate_id("NT20260528 143012").is_err());
     }
 
     #[test]
@@ -292,5 +298,55 @@ mod tests {
                 "https://example.com/spec".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn generate_unique_id_retries_past_file_collision() {
+        use crate::index::Index;
+        use std::fs;
+
+        let dir = std::env::temp_dir().join(format!("nt-test-id-collision-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let now = timestamp_now();
+        fs::write(dir.join(format!("{}.md", now.id)), "# Collision\n").unwrap();
+
+        let generated = generate_unique_id(&dir, &Index::default()).unwrap();
+        assert_ne!(generated.id, now.id, "should retry past file collision");
+        assert!(validate_id(&generated.id).is_ok());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn generate_unique_id_retries_past_index_collision() {
+        use crate::index::{Index, NoteMeta};
+        use std::fs;
+        use std::path::PathBuf;
+
+        let dir =
+            std::env::temp_dir().join(format!("nt-test-index-collision-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let now = timestamp_now();
+        let mut index = Index::default();
+        index.notes.insert(
+            now.id.clone(),
+            NoteMeta::new_note(
+                now.id.clone(),
+                PathBuf::from(format!("notes/{}.md", now.id)),
+                now.iso.clone(),
+                now.iso.clone(),
+                "Collision".to_string(),
+            ),
+        );
+
+        let generated = generate_unique_id(&dir, &index).unwrap();
+        assert_ne!(generated.id, now.id, "should retry past index collision");
+        assert!(validate_id(&generated.id).is_ok());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
