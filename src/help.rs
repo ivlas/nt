@@ -99,9 +99,11 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
+nt list links
 nt list links <id> [from|to]
 
-Print active-vault metadata rows with optional structured filters. Fields include
+Print active-vault metadata rows with optional structured filters. `list links`
+prints one FROM/TO row per link, including both note titles. Fields include
 id, path, created, updated, title, kind, status, priority, scheduled, due,
 closed, tag, collection, link, and source. Bare list prints id, title, kind,
 status, due, and tag; `all` prints every field.
@@ -114,6 +116,7 @@ Examples:
   nt list title,tag collection:projects/nt
   nt list tags storage
   nt list collections projects/nt
+  nt list links
   nt list links NT20260528T143012 from
 "#;
 

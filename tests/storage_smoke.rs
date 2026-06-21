@@ -1006,6 +1006,12 @@ fn metadata_commands_route_through_visible_index() {
     let related = run_nt(&home, &["list", "links", second_id]);
     assert_eq!(related.trim(), first_id);
 
+    let link_metadata = run_nt(&home, &["list", "links"]);
+    assert_eq!(
+        link_metadata.lines().collect::<Vec<_>>(),
+        vec![format!("{first_id}\tFirst\t{second_id}\tSecond")]
+    );
+
     let found = run_nt(
         &home,
         &[

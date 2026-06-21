@@ -14,6 +14,7 @@ pub enum ListRequest {
     },
     Tags(Option<String>),
     Collections(Option<String>),
+    LinkGraph,
     Links {
         id: String,
         direction: Option<LinkDirection>,
@@ -81,6 +82,9 @@ impl ListRequest {
             [mode] if mode == "ids" => return Self::notes(vec![ListField::Id], &[]),
             [mode] if mode == "titles" => {
                 return Self::notes(vec![ListField::Id, ListField::Title], &[]);
+            }
+            [mode] if mode == "links" => {
+                return Ok(Self::LinkGraph);
             }
             [mode] if mode == "tags" => return Ok(Self::Tags(None)),
             [mode, tag] if mode == "tags" => return Ok(Self::Tags(Some(tag.clone()))),
@@ -245,7 +249,36 @@ pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let widths = fields
+    render_columns(headers, rows)
+}
+
+pub fn render_link_row(from: &NoteMeta, to: &NoteMeta) -> String {
+    [&from.id, &from.title, &to.id, &to.title]
+        .map(String::as_str)
+        .join("\t")
+}
+
+pub fn render_link_table(links: &[(&NoteMeta, &NoteMeta)]) -> Vec<String> {
+    let headers = ["FROM ID", "FROM TITLE", "TO ID", "TO TITLE"]
+        .map(str::to_string)
+        .to_vec();
+    let rows = links
+        .iter()
+        .map(|(from, to)| {
+            vec![
+                from.id.clone(),
+                from.title.clone(),
+                to.id.clone(),
+                to.title.clone(),
+            ]
+        })
+        .collect();
+
+    render_columns(headers, rows)
+}
+
+fn render_columns(headers: Vec<String>, rows: Vec<Vec<String>>) -> Vec<String> {
+    let widths = headers
         .iter()
         .enumerate()
         .map(|(column, _)| {
@@ -382,6 +415,14 @@ mod tests {
             panic!("expected note listing");
         };
         assert_eq!(fields.len(), 15);
+    }
+
+    #[test]
+    fn links_without_an_id_selects_the_link_graph() {
+        assert!(matches!(
+            ListRequest::parse(&args(&["links"])).unwrap(),
+            ListRequest::LinkGraph
+        ));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
-use crate::listing::{ListRequest, render_row, render_table};
+use crate::listing::{ListRequest, render_link_row, render_link_table, render_row, render_table};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 use crate::query::Query;
 use crate::terminal::{Style, paint};
@@ -260,8 +260,32 @@ fn list(args: &[String]) -> Result<()> {
                 &note.collections
             })
         }
+        ListRequest::LinkGraph => list_link_graph(&index),
         ListRequest::Links { id, direction } => links_in_index(&index, &id, direction),
     }
+}
+
+fn list_link_graph(index: &Index) -> Result<()> {
+    let links = index
+        .active_recent_notes()
+        .flat_map(|from| {
+            from.links
+                .iter()
+                .filter_map(move |id| note_ref(index, id).ok().map(|to| (from, to)))
+        })
+        .collect::<Vec<_>>();
+
+    if io::stdout().is_terminal() {
+        for line in render_link_table(&links) {
+            println!("{line}");
+        }
+    } else {
+        for (from, to) in links {
+            println!("{}", render_link_row(from, to));
+        }
+    }
+
+    Ok(())
 }
 
 fn list_metadata<'a>(
