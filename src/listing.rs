@@ -157,13 +157,10 @@ impl ListRequest {
         let mut note_filters = Vec::new();
 
         for filter in filters {
-            let endpoint = if let Some(id) = filter.strip_prefix("from:") {
-                Some(("from", id, &mut from))
-            } else if let Some(id) = filter.strip_prefix("to:") {
-                Some(("to", id, &mut to))
-            } else {
-                None
-            };
+            let endpoint = filter
+                .strip_prefix("from:")
+                .map(|id| ("from", id, &mut from))
+                .or_else(|| filter.strip_prefix("to:").map(|id| ("to", id, &mut to)));
 
             if let Some((name, id, selected)) = endpoint {
                 validate_id(id)?;
