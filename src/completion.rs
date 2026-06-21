@@ -277,6 +277,23 @@ _nt_complete_list_filter() {
     esac
 }
 
+_nt_complete_link_filter() {
+    local token field
+    token="$(_nt_current_token)"
+    field="${token%%:*}"
+
+    if [[ "$token" != *:* ]]; then
+        _nt_complete_list_filter "$token" ""
+        COMPREPLY+=( $(compgen -W "from: to:" -- "$token") )
+        return
+    fi
+
+    case "$field" in
+        from|to) _nt_complete_prefixed_values "$token" "$field" $(nt list id 2>/dev/null) ;;
+        *) _nt_complete_list_filter "$token" "" ;;
+    esac
+}
+
 _nt_complete_add_metadata() {
     _nt_complete_metadata_expr "$(_nt_current_token)" "tag: kind: status: priority: scheduled: due: collection: link: source:"
 }
@@ -332,7 +349,7 @@ _nt() {
             ;;
         list:3)
             case "${COMP_WORDS[2]}" in
-                links) _nt_note_ids ;;
+                links) _nt_complete_link_filter ;;
                 tags) COMPREPLY=( $(compgen -W "$(_nt_tag_values)" -- "$(_nt_current_token)") ) ;;
                 collections) COMPREPLY=( $(compgen -W "$(_nt_collection_values)" -- "$(_nt_current_token)") ) ;;
                 *) _nt_complete_list_arg ;;
@@ -340,7 +357,11 @@ _nt() {
             return 0
             ;;
         list:*)
-            _nt_complete_list_arg
+            if [[ "${COMP_WORDS[2]}" == "links" ]]; then
+                _nt_complete_link_filter
+            else
+                _nt_complete_list_arg
+            fi
             return 0
             ;;
         update:4)
@@ -565,6 +586,38 @@ _nt_add_metadata() {
     esac
 }
 
+_nt_link_filter_arg() {
+    local token="${IPREFIX}${PREFIX}"
+    [[ -n "$token" ]] || token="${words[CURRENT]}"
+    local outer_prefix=""
+    if [[ "$token" == not:* ]]; then
+        outer_prefix="not:"
+        token="${token#not:}"
+    fi
+    local field="${token%%:*}"
+    local -a fields tags
+    fields=(id: tag: day: since: before: kind: status: priority: scheduled: due: closed: collection: link: not:)
+    [[ -z "$outer_prefix" ]] && fields+=(from: to:)
+
+    if [[ "$token" == \#* ]]; then
+        tags=("${(@f)$(_nt_tag_values)}")
+        compadd -Q -- "${(@)tags/#/${outer_prefix}#}"
+    elif [[ "$token" != *:* ]]; then
+        _nt_complete_fields "$outer_prefix" "$fields[@]"
+    else
+        case "$field" in
+            from|to) _nt_complete_prefixed_values "" "$field" "${(@f)$(command nt list id 2>/dev/null)}" ;;
+            tag) _nt_complete_prefixed_values "$outer_prefix" tag "${(@f)$(_nt_tag_values)}" ;;
+            collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(_nt_collection_values)}" ;;
+            kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
+            status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
+            priority) _nt_complete_prefixed_values "$outer_prefix" priority S A B C D ;;
+            id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt list id 2>/dev/null)}" ;;
+            link) _nt_complete_prefixed_values "$outer_prefix" link "${(@f)$(command nt list id 2>/dev/null)}" ;;
+        esac
+    fi
+}
+
 _nt_list_arg() {
     local token="${IPREFIX}${PREFIX}"
     [[ -n "$token" ]] || token="${words[CURRENT]}"
@@ -573,6 +626,11 @@ _nt_list_arg() {
     local field
     local -a fields candidates
     fields=(id path created updated title kind status priority scheduled due closed tag collection link source)
+
+    if [[ "${words[3]}" == "links" ]]; then
+        _nt_link_filter_arg
+        return
+    fi
 
     if (( CURRENT == 3 )) && [[ "$token" != *:* && "$token" != \#* ]]; then
         if [[ "$token" == *,* ]]; then
@@ -684,7 +742,10 @@ mod tests {
         assert!(script.contains("candidates=\"${candidates} +${value} -${value}\""));
         assert!(script.contains("source) _nt_complete_update_set_values sources"));
         assert!(script.contains("list:3"));
-        assert!(script.contains("links) _nt_note_ids"));
+        assert!(script.contains("links) _nt_complete_link_filter"));
+        assert!(script.contains("compgen -W \"from: to:\""));
+        assert!(script.contains("from|to) _nt_complete_prefixed_values"));
+        assert!(!script.contains("compgen -W \"from to\""));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
     }
 
@@ -739,6 +800,9 @@ mod tests {
         assert!(script.contains("compadd -Q -S '' -U -a completions"));
         assert!(script.contains("*::args:_nt_list_arg"));
         assert!(script.contains("_nt_list_arg()"));
+        assert!(script.contains("_nt_link_filter_arg()"));
+        assert!(script.contains("fields+=(from: to:)"));
+        assert!(script.contains("from|to) _nt_complete_prefixed_values"));
         let list_arg = script.split("_nt_list_arg() {").nth(1).unwrap();
         let list_arg = list_arg
             .split("_nt_complete_update_set_values() {")

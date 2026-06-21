@@ -76,12 +76,6 @@ pub enum Shell {
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum LinkDirection {
-    From,
-    To,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum UpdateField {
     Kind,
     Status,
@@ -129,7 +123,7 @@ mod tests {
             &["nt", "list", "tags", "decision"],
             &["nt", "list", "collections"],
             &["nt", "list", "collections", "projects/nt"],
-            &["nt", "list", "links", "NT20260528T143012", "from"],
+            &["nt", "list", "links", "from:NT20260528T143012"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],
             &["nt", "open", "NT20260528T143012"],

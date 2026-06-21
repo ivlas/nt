@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use crate::cli::{AgendaView, Cli, Command, ConfigCommand, LinkDirection, UpdateField};
+use crate::cli::{AgendaView, Cli, Command, ConfigCommand, UpdateField};
 use crate::completion::print_completion;
 use crate::display::{agenda_line, joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
@@ -247,8 +247,9 @@ fn list(args: &[String]) -> Result<()> {
                 &note.collections
             })
         }
-        ListRequest::LinkGraph { query } => list_link_graph(&index, &query),
-        ListRequest::Links { id, direction } => links_in_index(&index, &id, direction),
+        ListRequest::LinkGraph { query, from, to } => {
+            list_link_graph(&index, &query, from.as_deref(), to.as_deref())
+        }
     }
 }
 
@@ -269,12 +270,19 @@ fn matching_notes<'a>(index: &'a Index, query: &Query) -> Result<Vec<&'a NoteMet
         .collect()
 }
 
-fn list_link_graph(index: &Index, query: &Query) -> Result<()> {
+fn list_link_graph(
+    index: &Index,
+    query: &Query,
+    from_id: Option<&str>,
+    to_id: Option<&str>,
+) -> Result<()> {
     let links = matching_notes(index, query)?
         .into_iter()
-        .flat_map(|from| {
+        .filter(|note| from_id.is_none_or(|id| note.id == id))
+        .flat_map(move |from| {
             from.links
                 .iter()
+                .filter(move |id| to_id.is_none_or(|selected| id.as_str() == selected))
                 .filter_map(move |id| note_ref(index, id).ok().map(|to| (from, to)))
         })
         .collect::<Vec<_>>();
@@ -488,17 +496,6 @@ fn rm(id: &str) -> Result<()> {
 
     println!("removed {id}");
     Ok(())
-}
-
-fn links_in_index(index: &Index, id: &str, direction: Option<LinkDirection>) -> Result<()> {
-    validate_id(id)?;
-    ensure_note_exists(index, id)?;
-
-    match direction {
-        Some(LinkDirection::From) => print_out_links(index, id),
-        Some(LinkDirection::To) => print_in_links(index, id),
-        None => print_related_links(index, id),
-    }
 }
 
 #[derive(Debug)]
@@ -791,56 +788,6 @@ fn section_name(section: AgendaSection) -> &'static str {
         AgendaSection::Waiting => "Waiting",
         AgendaSection::Undated => "Undated",
     }
-}
-
-fn print_out_links(index: &Index, id: &str) -> Result<()> {
-    let note = note_ref(index, id)?;
-
-    for link in &note.links {
-        if ensure_note_exists(index, link).is_err() {
-            continue;
-        }
-        println!("{link}");
-    }
-
-    Ok(())
-}
-
-fn print_in_links(index: &Index, id: &str) -> Result<()> {
-    if let Some(ids) = index.backlinks.get(id) {
-        for backlink in ids {
-            if ensure_note_exists(index, backlink).is_err() {
-                continue;
-            }
-            println!("{backlink}");
-        }
-    }
-
-    Ok(())
-}
-
-fn print_related_links(index: &Index, id: &str) -> Result<()> {
-    let note = note_ref(index, id)?;
-    let mut related = BTreeSet::new();
-
-    for link in &note.links {
-        if ensure_note_exists(index, link).is_ok() {
-            related.insert(link);
-        }
-    }
-
-    if let Some(ids) = index.backlinks.get(id) {
-        for backlink in ids {
-            if ensure_note_exists(index, backlink).is_ok() {
-                related.insert(backlink);
-            }
-        }
-    }
-
-    for related_id in related {
-        println!("{related_id}");
-    }
-    Ok(())
 }
 
 fn export(path: &Path, ids: &[String]) -> Result<()> {

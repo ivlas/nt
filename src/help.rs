@@ -100,15 +100,15 @@ nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links [filter...]
-nt list links <id> [from|to]
 
 Print active-vault metadata rows with optional structured filters. `list links`
-prints one FROM/TO row per link, including both note titles; filters apply to
-the FROM note. Fields include
-id, path, created, updated, title, kind, status, priority, scheduled, due,
-closed, tag, collection, link, and source. Bare list prints id, title, kind,
-status, due, and tag; `all` prints every field. `link:<id>` filters notes that
-link to that id; directions only follow `list links <id>`.
+prints one FROM/TO row per link, including both note titles. Use `from:<id>` and
+`to:<id>` to select edge endpoints; other filters apply to the FROM note.
+Fields include id, path, created, updated, title, kind, status, priority,
+scheduled, due, closed, tag, collection, link, and source. Bare list prints id,
+title, kind, status, due, and tag; `all` prints every field. `link:<id>` filters
+notes that link to that id. Positional link directions and directionless
+`list links <id>` are not supported.
 
 Examples:
   nt list
@@ -121,7 +121,8 @@ Examples:
   nt list collections projects/nt
   nt list links
   nt list links day:2026-06-20
-  nt list links NT20260528T143012 from
+  nt list links from:NT20260528T143012
+  nt list links to:NT20260528T143012 status:open
 "#;
 
 const FIND: &str = r#"nt find <expr...>

@@ -31,7 +31,6 @@ nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list links [filter...]
-nt list links <id> [from|to]
 nt find <expr...>
 nt show <id>
 nt open <id>
@@ -125,7 +124,7 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
-nt list links <id> [from|to]
+nt list links [filter...]
 ```
 
 `nt list` prints active notes in newest-created-first order. Bare `nt list`
@@ -170,9 +169,8 @@ Supported list filters are `id`, `tag`, `day`, `since`, `before`, `kind`,
 `status`, `priority`, `scheduled`, `due`, `closed`, `collection`, `link`, and
 `not` around another supported filter. Matching is case-insensitive and uses
 the same validation, candidate narrowing, and active-recent ordering as `find`.
-`link:<id>` selects notes with an outbound link to that target. It is therefore
-the summary-record counterpart of `list links <id> to`, not `from`; link
-directions are accepted only after `list links <id>`.
+`link:<id>` selects notes with an outbound link to that target. It is the note
+metadata counterpart of the edge filter `list links to:<id>`.
 Bare words and `title`, `source`, and `body` expressions are search operations;
 `list` rejects them and directs the user to `nt find`.
 
@@ -186,16 +184,26 @@ Compatibility and metadata operations:
 | `list tags <tag>` | Matching summary records, newest first. |
 | `list collections` | Sorted, deduplicated active collection names. |
 | `list collections <name>` | Matching summary records, newest first. |
-| `list links [filter...]` | One row per outbound link: from id/title, then to id/title. |
-| `list links <id> from` | Existing outbound ids. |
-| `list links <id> to` | Existing backlink ids. |
-| `list links <id>` | Sorted, deduplicated union of both directions. |
+| `list links [filter...]` | Edge rows with ids and titles for both endpoints. |
+| `list links from:<id>` | Edges originating at an exact note id. |
+| `list links to:<id>` | Edges targeting an exact note id. |
 
 Bare `list links` omits notes with no relationships. Interactive output has
 `FROM ID`, `FROM TITLE`, `TO ID`, and `TO TITLE` columns. Redirected output is
 the same four fields separated by tabs, one stored relationship per line. It
-accepts the structured `list` filters described above; filters select the
-`FROM` notes that own the outbound relationships.
+accepts `from:<id>` and `to:<id>` endpoint filters. Other structured `list`
+filters select the `FROM` notes that own the outbound relationships, so endpoint
+and metadata filters compose:
+
+```sh
+nt list links from:NT20260528T143012
+nt list links to:NT20260528T143012 status:open
+nt list links from:NT20260528T143012 to:NT20260527T120000
+```
+
+Positional directions and directionless `list links <id>` are rejected because
+they introduce a second traversal grammar or obscure the relationship represented
+by each result.
 
 ## find
 

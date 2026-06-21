@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use crate::cli::LinkDirection;
 use crate::error::{NtError, Result};
 use crate::fs::relative_to_cwd;
 use crate::index::NoteMeta;
@@ -17,10 +16,8 @@ pub enum ListRequest {
     Collections(Option<String>),
     LinkGraph {
         query: Query,
-    },
-    Links {
-        id: String,
-        direction: Option<LinkDirection>,
+        from: Option<String>,
+        to: Option<String>,
     },
 }
 
@@ -84,7 +81,7 @@ impl ListRequest {
             let id = value.strip_prefix("link:").unwrap_or(value);
             if validate_id(id).is_ok() {
                 return Err(NtError::Message(format!(
-                    "link direction `{direction}` must follow `links <id>`; use `nt list links {id} {direction}`"
+                    "link direction `{direction}` must be an endpoint filter; use `nt list links {direction}:{id}`"
                 )));
             }
         }
@@ -100,9 +97,7 @@ impl ListRequest {
             [mode, filters @ ..]
                 if mode == "links" && filters.first().is_none_or(|value| is_filter(value)) =>
             {
-                return Ok(Self::LinkGraph {
-                    query: Query::parse_list(filters)?,
-                });
+                return Self::link_graph(filters);
             }
             [mode] if mode == "tags" => return Ok(Self::Tags(None)),
             [mode, tag] if mode == "tags" => return Ok(Self::Tags(Some(tag.clone()))),
@@ -111,25 +106,18 @@ impl ListRequest {
                 return Ok(Self::Collections(Some(collection.clone())));
             }
             [mode, id] if mode == "links" => {
-                return Ok(Self::Links {
-                    id: id.clone(),
-                    direction: None,
-                });
+                validate_id(id)?;
+                return Err(NtError::Message(format!(
+                    "directionless link lookup is not supported; use `nt list links from:{id}` or `nt list links to:{id}`"
+                )));
             }
-            [mode, id, direction] if mode == "links" => {
-                let direction = match direction.as_str() {
-                    "from" => LinkDirection::From,
-                    "to" => LinkDirection::To,
-                    _ => {
-                        return Err(NtError::Message(format!(
-                            "invalid link direction `{direction}`; use `from` or `to`"
-                        )));
-                    }
-                };
-                return Ok(Self::Links {
-                    id: id.clone(),
-                    direction: Some(direction),
-                });
+            [mode, id, direction]
+                if mode == "links" && matches!(direction.as_str(), "from" | "to") =>
+            {
+                validate_id(id)?;
+                return Err(NtError::Message(format!(
+                    "positional link directions are not supported; use `nt list links {direction}:{id}`"
+                )));
             }
             [mode, ..]
                 if matches!(
@@ -160,6 +148,39 @@ impl ListRequest {
         Ok(Self::Notes {
             fields,
             query: Query::parse_list(filters)?,
+        })
+    }
+
+    fn link_graph(filters: &[String]) -> Result<Self> {
+        let mut from = None;
+        let mut to = None;
+        let mut note_filters = Vec::new();
+
+        for filter in filters {
+            let endpoint = if let Some(id) = filter.strip_prefix("from:") {
+                Some(("from", id, &mut from))
+            } else if let Some(id) = filter.strip_prefix("to:") {
+                Some(("to", id, &mut to))
+            } else {
+                None
+            };
+
+            if let Some((name, id, selected)) = endpoint {
+                validate_id(id)?;
+                if selected.replace(id.to_string()).is_some() {
+                    return Err(NtError::Message(format!(
+                        "duplicate link endpoint filter `{name}`"
+                    )));
+                }
+            } else {
+                note_filters.push(filter.clone());
+            }
+        }
+
+        Ok(Self::LinkGraph {
+            query: Query::parse_list(&note_filters)?,
+            from,
+            to,
         })
     }
 }
@@ -445,6 +466,37 @@ mod tests {
             ListRequest::parse(&args(&["links", "day:2026-06-20"])).unwrap(),
             ListRequest::LinkGraph { .. }
         ));
+
+        let ListRequest::LinkGraph { from, to, .. } = ListRequest::parse(&args(&[
+            "links",
+            "from:NT20260618T210731",
+            "to:NT20260618T212305",
+        ]))
+        .unwrap() else {
+            panic!("expected link graph");
+        };
+        assert_eq!(from.as_deref(), Some("NT20260618T210731"));
+        assert_eq!(to.as_deref(), Some("NT20260618T212305"));
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_duplicate_link_endpoint_filters() {
+        let error = ListRequest::parse(&args(&["links", "NT20260618T210731"])).unwrap_err();
+        assert!(error.to_string().contains("directionless link lookup"));
+
+        let error = ListRequest::parse(&args(&["links", "NT20260618T210731", "from"])).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "positional link directions are not supported; use `nt list links from:NT20260618T210731`"
+        );
+
+        let error = ListRequest::parse(&args(&[
+            "links",
+            "from:NT20260618T210731",
+            "from:NT20260618T212305",
+        ]))
+        .unwrap_err();
+        assert_eq!(error.to_string(), "duplicate link endpoint filter `from`");
     }
 
     #[test]
@@ -465,7 +517,7 @@ mod tests {
             let error = ListRequest::parse(&args(&[value, "from"])).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "link direction `from` must follow `links <id>`; use `nt list links NT20260618T210731 from`"
+                "link direction `from` must be an endpoint filter; use `nt list links from:NT20260618T210731`"
             );
         }
     }

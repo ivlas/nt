@@ -997,14 +997,22 @@ fn metadata_commands_route_through_visible_index() {
     let status = run_nt(&home, &["find", "status:open"]);
     assert!(status.contains(first_id));
 
-    let links = run_nt(&home, &["list", "links", first_id, "from"]);
-    assert_eq!(links.trim(), second_id);
+    assert_failed(
+        &home,
+        &["list", "links", first_id, "from"],
+        "positional link directions are not supported",
+    );
+    assert_failed(
+        &home,
+        &["list", "links", second_id, "to"],
+        "positional link directions are not supported",
+    );
 
-    let backlinks = run_nt(&home, &["list", "links", second_id, "to"]);
-    assert_eq!(backlinks.trim(), first_id);
-
-    let related = run_nt(&home, &["list", "links", second_id]);
-    assert_eq!(related.trim(), first_id);
+    assert_failed(
+        &home,
+        &["list", "links", second_id],
+        "directionless link lookup",
+    );
 
     let link_metadata = run_nt(&home, &["list", "links"]);
     assert_eq!(
@@ -1014,6 +1022,25 @@ fn metadata_commands_route_through_visible_index() {
 
     let filtered_links = run_nt(&home, &["list", "links", &format!("id:{first_id}")]);
     assert_eq!(filtered_links, link_metadata);
+    let from_links = run_nt(&home, &["list", "links", &format!("from:{first_id}")]);
+    assert_eq!(from_links, link_metadata);
+    let to_links = run_nt(&home, &["list", "links", &format!("to:{second_id}")]);
+    assert_eq!(to_links, link_metadata);
+    let exact_link = run_nt(
+        &home,
+        &[
+            "list",
+            "links",
+            &format!("from:{first_id}"),
+            &format!("to:{second_id}"),
+        ],
+    );
+    assert_eq!(exact_link, link_metadata);
+    let composed_links = run_nt(
+        &home,
+        &["list", "links", &format!("to:{second_id}"), "kind:decision"],
+    );
+    assert_eq!(composed_links, link_metadata);
     let no_outbound_links = run_nt(&home, &["list", "links", &format!("id:{second_id}")]);
     assert!(no_outbound_links.is_empty());
 
@@ -1039,7 +1066,7 @@ fn metadata_commands_route_through_visible_index() {
     run_nt(&home, &["update", second_id, "tag", "-storage"]);
     run_nt(&home, &["update", second_id, "collection", "-projects/nt"]);
 
-    let links = run_nt(&home, &["list", "links", first_id, "from"]);
+    let links = run_nt(&home, &["list", "links", &format!("from:{first_id}")]);
     assert!(links.trim().is_empty());
 
     let collection = run_nt(&home, &["find", "collection:projects/nt"]);
@@ -1416,11 +1443,12 @@ fn add_accepts_creation_metadata() {
     );
     assert!(found.contains(id));
 
-    let backlinks = run_nt(&home, &["list", "links", first_id, "to"]);
-    assert_eq!(backlinks.trim(), id);
+    let backlinks = run_nt(&home, &["list", "links", &format!("to:{first_id}")]);
+    assert!(backlinks.contains(&format!("{id}\tVM decision\t{first_id}\tFirst source")));
 
-    let related = run_nt(&home, &["list", "links", id]);
-    assert_eq!(related.trim(), format!("{first_id}\n{second_id}"));
+    let related = run_nt(&home, &["list", "links", &format!("from:{id}")]);
+    assert!(related.contains(&format!("{id}\tVM decision\t{first_id}\tFirst source")));
+    assert!(related.contains(&format!("{id}\tVM decision\t{second_id}\tSecond source")));
 
     let _ = fs::remove_dir_all(root);
 }
