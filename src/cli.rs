@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -162,7 +162,7 @@ mod tests {
     fn find_uses_trailing_positionals() {
         let cli = Cli::parse_from(["nt", "find", "body:microvm jailer", "-hyphen"]);
         match cli.command {
-            Command::Find { expr } => {
+            Some(Command::Find { expr }) => {
                 assert_eq!(expr, vec!["body:microvm jailer", "-hyphen"]);
             }
             _ => panic!("expected find"),
@@ -176,7 +176,7 @@ mod tests {
         let cli = Cli::parse_from(["nt", "rm", "NT20260528T143012", "NT20260527T120000"]);
         assert!(matches!(
             cli.command,
-            Command::Rm { ids }
+            Some(Command::Rm { ids })
                 if ids == ["NT20260528T143012", "NT20260527T120000"]
         ));
     }
@@ -212,9 +212,9 @@ mod tests {
         assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
         assert!(Cli::try_parse_from(["nt", "help"]).is_ok());
 
-        let Command::Config {
+        let Some(Command::Config {
             command: ConfigCommand::Vault { name },
-        } = Cli::parse_from(["nt", "config", "vault", "notes"]).command
+        }) = Cli::parse_from(["nt", "config", "vault", "notes"]).command
         else {
             panic!("expected config vault");
         };
@@ -226,24 +226,29 @@ mod tests {
         let cli = Cli::parse_from(["nt", "update", "NT20260528T143012", "priority", "S"]);
         assert!(matches!(
             cli.command,
-            Command::Update {
+            Some(Command::Update {
                 field: UpdateField::Priority,
                 ..
-            }
+            })
         ));
         let cli = Cli::parse_from(["nt", "agenda", "today"]);
         assert!(matches!(
             cli.command,
-            Command::Agenda {
+            Some(Command::Agenda {
                 view: Some(AgendaView::Today)
-            }
+            })
         ));
         let cli = Cli::parse_from(["nt", "list", "id,title", "status:open"]);
         assert!(matches!(
             cli.command,
-            Command::List { args }
+            Some(Command::List { args })
                 if args == ["id,title", "status:open"]
         ));
+    }
+
+    #[test]
+    fn empty_invocation_parses_without_a_subcommand() {
+        assert!(Cli::parse_from(["nt"]).command.is_none());
     }
 
     #[test]

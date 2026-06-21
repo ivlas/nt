@@ -18,23 +18,24 @@ use crate::terminal::{Style, paint};
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Init { notes_dir } => init(&notes_dir),
-        Command::Add { metadata } => add(&metadata),
-        Command::Rebuild => rebuild(),
-        Command::List { args } => list(&args),
-        Command::Find { expr } => find(&expr),
-        Command::Show { id } => show(&id),
-        Command::Open { id } => open(&id),
-        Command::Rm { ids } => rm(&ids),
-        Command::Update { id, field, value } => update(&id, field, &value),
-        Command::Agenda { view } => agenda(view),
-        Command::Export { path, ids } => export(&path, &ids),
-        Command::Config { command } => config(command),
-        Command::Completion { shell } => {
+        None => crate::help::print(&[]),
+        Some(Command::Init { notes_dir }) => init(&notes_dir),
+        Some(Command::Add { metadata }) => add(&metadata),
+        Some(Command::Rebuild) => rebuild(),
+        Some(Command::List { args }) => list(&args),
+        Some(Command::Find { expr }) => find(&expr),
+        Some(Command::Show { id }) => show(&id),
+        Some(Command::Open { id }) => open(&id),
+        Some(Command::Rm { ids }) => rm(&ids),
+        Some(Command::Update { id, field, value }) => update(&id, field, &value),
+        Some(Command::Agenda { view }) => agenda(view),
+        Some(Command::Export { path, ids }) => export(&path, &ids),
+        Some(Command::Config { command }) => config(command),
+        Some(Command::Completion { shell }) => {
             print_completion(shell);
             Ok(())
         }
-        Command::Help { topic } => crate::help::print(&topic),
+        Some(Command::Help { topic }) => crate::help::print(&topic),
     }
 }
 

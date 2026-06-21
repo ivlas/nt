@@ -190,6 +190,7 @@ Examples:
 const REFERENCE: &str = r#"nt CLI reference
 
 Commands:
+  nt
   nt init <notes-dir>
   nt add [metadata...]
   nt rebuild
@@ -251,6 +252,7 @@ Values:
   tag/name    lowercase, no whitespace or commas
 
 Rules:
+  `nt` with no arguments prints the same output as `nt help`.
   `add` reads CommonMark from stdin or opens $EDITOR; `open` uses $EDITOR.
   Links target existing active notes. Dates are valid calendar dates.
   Core workflows are positional; use `nt help`, not `--help`.

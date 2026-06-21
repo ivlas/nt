@@ -20,6 +20,7 @@ NTYYYYMMDDTHHmmss.md
 The top-level command surface is:
 
 ```text
+nt
 nt init <notes-dir>
 nt add [metadata...]
 nt rebuild
@@ -48,7 +49,8 @@ nt help reference
 ```
 
 Help and version flags are not part of the interface. Use `nt help`; package
-version information comes from the normal distribution mechanism.
+version information comes from the normal distribution mechanism. Running `nt`
+without arguments is equivalent to `nt help`.
 
 ## init
 

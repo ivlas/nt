@@ -470,6 +470,7 @@ fn help_is_a_flagless_command_with_examples() {
     let home = root.join("home");
 
     let root_help = run_nt(&home, &["help"]);
+    assert_eq!(run_nt(&home, &[]), root_help);
     assert!(root_help.contains("nt <command> [args...]"));
     assert!(root_help.contains("Getting started:"));
     assert!(root_help.contains("Read and edit:"));
