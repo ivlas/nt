@@ -34,7 +34,7 @@ nt list links [filter...]
 nt find <expr...>
 nt show <id>
 nt open <id>
-nt rm <id>
+nt rm <id...>
 nt update <id> <field> <value>
 nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]
@@ -302,11 +302,13 @@ invalid title, or failed editor leaves the canonical note unchanged.
 ## rm
 
 ```text
-nt rm <id>
+nt rm <id...>
 ```
 
-Removes the active note, its indexed terms, and links to it, then prints
-`removed <id>`. If saving the changed index fails, the body file is restored.
+Removes one or more active notes, their indexed terms, and links to them, then
+prints `removed <id>` once per note. All ids are validated before removal, and
+the index is updated and saved once. If removing a body or saving the changed
+index fails, already removed body files are restored.
 
 ## update
 

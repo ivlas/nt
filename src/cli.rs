@@ -41,7 +41,8 @@ pub enum Command {
         id: String,
     },
     Rm {
-        id: String,
+        #[arg(required = true)]
+        ids: Vec<String>,
     },
     Update {
         id: String,
@@ -128,6 +129,7 @@ mod tests {
             &["nt", "show", "NT20260528T143012"],
             &["nt", "open", "NT20260528T143012"],
             &["nt", "rm", "NT20260528T143012"],
+            &["nt", "rm", "NT20260528T143012", "NT20260527T120000"],
             &["nt", "update", "NT20260528T143012", "status", "open"],
             &["nt", "update", "NT20260528T143012", "tag", "+decision"],
             &["nt", "agenda"],
@@ -165,6 +167,18 @@ mod tests {
             }
             _ => panic!("expected find"),
         }
+    }
+
+    #[test]
+    fn rm_requires_one_or_more_ids() {
+        assert!(Cli::try_parse_from(["nt", "rm"]).is_err());
+
+        let cli = Cli::parse_from(["nt", "rm", "NT20260528T143012", "NT20260527T120000"]);
+        assert!(matches!(
+            cli.command,
+            Command::Rm { ids }
+                if ids == ["NT20260528T143012", "NT20260527T120000"]
+        ));
     }
 
     #[test]

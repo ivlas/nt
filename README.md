@@ -116,7 +116,7 @@ nt list links [filter...]
 nt find <expr...>
 nt show <id>
 nt open <id>
-nt rm <id>
+nt rm <id...>
 nt update <id> <field> <value>
 nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]

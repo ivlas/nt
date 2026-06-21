@@ -196,11 +196,14 @@ impl Index {
         self.rebuild_derived();
     }
 
-    pub fn remove_note(&mut self, id: &str) {
-        self.notes.remove(id);
-        self.remove_text_terms(id);
+    pub fn remove_notes<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
+        let ids: BTreeSet<&str> = ids.into_iter().collect();
+        for id in ids.iter().copied() {
+            self.notes.remove(id);
+            self.remove_text_terms(id);
+        }
         for note in self.notes.values_mut() {
-            note.links.retain(|link| link != id);
+            note.links.retain(|link| !ids.contains(link.as_str()));
         }
         self.rebuild_derived();
     }
@@ -647,7 +650,7 @@ mod tests {
         index.upsert_note(first);
         index.upsert_note(second);
 
-        index.remove_note("NT20260529T120000");
+        index.remove_notes(["NT20260529T120000"]);
 
         assert_eq!(index.notes["NT20260528T143012"].links, Vec::<String>::new());
         assert!(index.backlinks.is_empty());
@@ -697,7 +700,7 @@ mod tests {
         assert!(!index.heading_terms.contains_key("old"));
         assert_eq!(index.heading_terms["new"], vec![id.to_string()]);
 
-        index.remove_note(id);
+        index.remove_notes([id]);
 
         assert!(index.body_terms.is_empty());
         assert!(index.heading_terms.is_empty());

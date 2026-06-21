@@ -21,7 +21,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "open" => Ok(
             "nt open <id>\n\nEdit one note with $EDITOR.\n\nExamples:\n  nt open NT20260528T143012\n",
         ),
-        "rm" => Ok("nt rm <id>\n\nRemove one note.\n\nExamples:\n  nt rm NT20260528T143012\n"),
+        "rm" => Ok(RM),
         "update" => Ok(UPDATE),
         "agenda" => Ok(AGENDA),
         "export" => Ok(
@@ -59,7 +59,7 @@ Commands:
   find        find notes by query expressions
   show        show one exact note
   open        edit one note with $EDITOR
-  rm          remove one note
+  rm          remove one or more notes
   update      update one metadata field
   agenda      show actionable todos
   export      export Markdown with front matter
@@ -90,6 +90,15 @@ currently found in Markdown bodies.
 
 Examples:
   nt rebuild
+"#;
+
+const RM: &str = r#"nt rm <id...>
+
+Remove one or more notes and update the index once.
+
+Examples:
+  nt rm NT20260528T143012
+  nt rm NT20260528T143012 NT20260527T120000
 "#;
 
 const LIST: &str = r#"nt list

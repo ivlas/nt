@@ -343,7 +343,7 @@ _nt() {
             _nt_titled_notes
             return 0
             ;;
-        rm:2|update:2|export:[3-9]|export:[1-9][0-9]*)
+        rm:*|update:2|export:[3-9]|export:[1-9][0-9]*)
             _nt_note_ids
             return 0
             ;;
@@ -747,6 +747,7 @@ mod tests {
         assert!(script.contains("from|to) _nt_complete_prefixed_values"));
         assert!(!script.contains("compgen -W \"from to\""));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
+        assert!(script.contains("rm:*|update:2"));
     }
 
     #[test]

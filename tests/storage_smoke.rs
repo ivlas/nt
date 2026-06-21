@@ -1748,6 +1748,80 @@ fn rm_removes_deleted_ids_from_text_indexes() {
 }
 
 #[test]
+fn rm_removes_multiple_notes_and_cleans_links() {
+    let root = temp_dir("rm-multiple");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nshared firstonly.\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nshared secondonly.\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+    let kept = run_nt_with_stdin(
+        &home,
+        &[
+            "add",
+            &format!("link:{first_id}"),
+            &format!("link:{second_id}"),
+        ],
+        "# Kept\n\nshared keptonly.\n",
+    );
+    let kept_id = kept.trim().strip_prefix("saved ").unwrap();
+
+    let removed = run_nt(&home, &["rm", first_id, second_id]);
+
+    assert_eq!(
+        removed,
+        format!("removed {first_id}\nremoved {second_id}\n")
+    );
+    assert!(!notes.join(format!("{first_id}.md")).exists());
+    assert!(!notes.join(format!("{second_id}.md")).exists());
+
+    let index = read_index(&home);
+    assert!(index["notes"].get(first_id).is_none());
+    assert!(index["notes"].get(second_id).is_none());
+    assert_eq!(index["notes"][kept_id]["links"], serde_json::json!([]));
+    assert_eq!(index["body_terms"]["shared"], serde_json::json!([kept_id]));
+    assert!(index["body_terms"].get("firstonly").is_none());
+    assert!(index["body_terms"].get("secondonly").is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rm_validates_every_id_before_removing_notes() {
+    let root = temp_dir("rm-prevalidate");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+
+    let saved = run_nt_with_stdin(&home, &["add"], "# Kept\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let missing = "NT20260101T000000";
+
+    assert_failed(
+        &home,
+        &["rm", id, missing],
+        &format!("note not found: {missing}"),
+    );
+    assert!(notes.join(format!("{id}.md")).exists());
+    assert!(read_index(&home)["notes"].get(id).is_some());
+
+    assert_failed(&home, &["rm", id, "invalid"], "invalid note id: invalid");
+    assert!(notes.join(format!("{id}.md")).exists());
+    assert!(read_index(&home)["notes"].get(id).is_some());
+
+    assert_failed(&home, &["rm", id, id], &format!("duplicate note id: {id}"));
+    assert!(notes.join(format!("{id}.md")).exists());
+    assert!(read_index(&home)["notes"].get(id).is_some());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn find_reports_missing_note_bodies() {
     let root = temp_dir("find-missing-body");
     let home = root.join("home");
