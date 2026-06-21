@@ -116,13 +116,15 @@ idempotent. Single-value fields take a plain value and use `-` to clear; clearin
 Inspect relationships with:
 
 ```sh
-nt list links NT20260620T101500
-nt list links NT20260620T101500 from
-nt list links NT20260620T101500 to
+nt list links from:NT20260620T101500
+nt list links to:NT20260620T101500
 ```
 
-Links are metadata, not special Markdown syntax. `from` means outbound links;
-`to` means backlinks.
+Links are unlabeled directed metadata, not special Markdown syntax.
+`from:<id>` selects outbound links and `to:<id>` selects backlinks. State the
+relationship meaning, such as "Follow-up to" or "Supersedes", in the note's
+ordinary CommonMark body. Use metadata for the connection and prose for its
+meaning; do not overload titles, tags, or collections with link types.
 
 ## Work With Todos
 
