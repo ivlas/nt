@@ -28,25 +28,46 @@ capture -> index -> filter -> inspect -> connect -> revise
 ## Implemented Architecture
 
 The command entry point is `src/main.rs`. `clap` parses the positional grammar
-defined in `src/cli.rs`, then `commands::run` routes one typed command. Command
-handlers own orchestration: load the index, validate input, read or mutate note
-state, persist it, and print a stable result.
+defined in `src/cli/mod.rs`, then `commands::run` routes one typed command.
+Command handlers own orchestration: load the index, validate input, read or
+mutate note state, persist it, and print a stable result.
 
-Module responsibilities are deliberately narrow:
+Module responsibilities are deliberately narrow. The source tree groups
+related concerns into directories, each with a `mod.rs` entry point:
 
 | Module | Responsibility |
 |---|---|
-| `cli.rs` | Public command, subcommand, field, view, and shell enums. |
-| `commands.rs` | Command routing, validation, vault operations, agenda selection, and mutation rollback. |
-| `index.rs` | Serialized metadata, vault state, derived maps, text indexes, and migrations. |
-| `listing.rs` | List request parsing, metadata projections, compatibility forms, and row rendering. |
-| `query.rs` | Query parsing, candidate planning, and final match verification. |
-| `note.rs` | Ids, timestamps, calendar dates, title validation, and URL extraction. |
-| `fs.rs` | Paths and atomic temp-file-and-rename writes. |
+| `cli/mod.rs` | Public command, subcommand, field, view, and shell enums. |
+| `cli/help.rs` | Flagless built-in help text. |
+| `cli/completion.rs` | Bash and Zsh completion script generation, including dynamic values. |
+| `commands/mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
+| `commands/init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
+| `commands/add.rs` | `add`, creation metadata parsing, and editor plumbing. |
+| `commands/show.rs` | `show`, `open`, and `find`. |
+| `commands/rm.rs` | `rm` and removal rollback. |
+| `commands/update.rs` | `update` and the update operation model. |
+| `commands/list.rs` | `list` orchestration and link graph rendering. |
+| `commands/agenda.rs` | `agenda` sections, selection, and ordering. |
+| `commands/export_cmd.rs` | `export` and active-vault guards. |
+| `commands/config.rs` | `config show` and `config vault`. |
+| `index/mod.rs` | Serialized metadata, vault state, persistence, and derived maps. |
+| `index/terms.rs` | Tokenization, body/heading term indexing, and term-match queries. |
+| `listing/mod.rs` | List request parsing, compatibility forms, and filter dispatch. |
+| `listing/field.rs` | `ListField` enum, projection parsing, and per-field rendering. |
+| `listing/render.rs` | Row and table layout for TTY and pipe output. |
+| `query/mod.rs` | `Query` and `QueryExpr` types, public parse/match API. |
+| `query/parse.rs` | Expression parsing, field validators, and unknown-field suggestions. |
+| `query/eval.rs` | Metadata and body match verification. |
+| `query/plan.rs` | Candidate-set algebra and index lookups for query planning. |
+| `query/suggest.rs` | Edit-distance field suggestion utility. |
+| `note/id.rs` | Note id validation, id-to-iso conversion, and collision-safe id allocation. |
+| `note/date.rs` | Timestamps, calendar date validation, and date arithmetic. |
+| `note/body.rs` | Title extraction and URL source extraction from CommonMark bodies. |
+| `fs/paths.rs` | Home and nt-home resolution, index path, and cwd-relative paths. |
+| `fs/atomic.rs` | Atomic temp-file-and-rename writes and exclusive file creation. |
+| `fs/lock.rs` | PID-stamped index mutation lock with dead-holder recovery. |
 | `display.rs` | Stable summary and agenda records. |
 | `export.rs` | Generated front matter for exported Markdown copies. |
-| `completion.rs` | Bash and Zsh completion, including dynamic values. |
-| `help.rs` | Flagless built-in help text. |
 | `terminal.rs` | TTY-aware ANSI color policy. |
 | `error.rs` | Application error types shared across modules. |
 
@@ -60,9 +81,9 @@ restore the note file if saving the index fails.
 An `nt add` demonstrates the normal ownership and persistence flow:
 
 1. `clap` produces `Command::Add { metadata }`.
-2. `commands::add` loads and owns a mutable `Index`.
+2. `commands::add::add` loads and owns a mutable `Index`.
 3. Creation metadata and the CommonMark title are validated before persistence.
-4. `note.rs` allocates an unused UTC id and derives the note path.
+4. `note::id` allocates an unused UTC id and derives the note path.
 5. `fs::atomic_write` writes the Markdown body through a sibling temp file,
    syncs it, renames it, and syncs the parent directory on Unix.
 6. `Index::upsert_note_with_body` refreshes body terms and all derived maps.
