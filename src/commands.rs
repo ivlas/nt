@@ -9,7 +9,9 @@ use crate::completion::print_completion;
 use crate::display::{agenda_line, joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
 use crate::export::export_markdown;
-use crate::fs::{IndexMutationLock, absolute_path, atomic_write, nt_home, relative_to_cwd};
+use crate::fs::{
+    IndexMutationLock, absolute_path, atomic_write, create_new_file, nt_home, relative_to_cwd,
+};
 use crate::index::{Index, NoteMeta};
 use crate::listing::{ListRequest, render_link_row, render_link_table, render_row, render_table};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
@@ -214,7 +216,7 @@ fn add(metadata: &[String]) -> Result<()> {
     metadata.apply(&mut note, &timestamp.iso);
     add_body_sources(&mut note, &body);
 
-    atomic_write(&path, body.as_bytes())?;
+    create_new_file(&path, body.as_bytes())?;
 
     index.upsert_note_with_body(note, &body);
     if let Err(err) = index.save() {

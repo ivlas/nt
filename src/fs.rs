@@ -142,6 +142,19 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     write_result
 }
 
+pub fn create_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| NtError::Message(format!("path has no parent: {}", path.display())))?;
+    fs::create_dir_all(parent)?;
+
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    sync_parent_dir(path)?;
+    Ok(())
+}
+
 fn write_and_rename(tmp_path: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     {
         let mut file = File::create(tmp_path)?;
@@ -185,7 +198,7 @@ fn tmp_name(path: &Path) -> String {
 mod tests {
     use std::fs;
 
-    use super::atomic_write;
+    use super::{atomic_write, create_new_file};
 
     #[test]
     fn atomic_write_replaces_file_contents() {
@@ -196,6 +209,18 @@ mod tests {
         atomic_write(&path, b"second").unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn create_new_file_rejects_existing_paths() {
+        let dir = std::env::temp_dir().join(format!("nt-test-create-new-{}", std::process::id()));
+        let path = dir.join("note.md");
+
+        create_new_file(&path, b"first").unwrap();
+        assert!(create_new_file(&path, b"second").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
 
         let _ = fs::remove_dir_all(dir);
     }
