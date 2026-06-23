@@ -21,23 +21,7 @@ fn completion_script(shell: Shell) -> String {
     match shell {
         Shell::Bash => script.push_str(BASH_NOTE_ID_COMPLETION),
         Shell::Zsh => {
-            script = script.replace(":id:_default", ":id:_nt_note_ids");
-            script = script.replace("*::metadata:_default", "*::metadata:_nt_add_metadata");
-            script = script.replace("*::expr:_default", "*::expr:_nt_query_expr");
-            script = script.replace("*::args:_default", "*::args:_nt_list_arg");
-            script = script.replace(":tag:_default", ":tag:_nt_tags");
-            script = script.replace(":collection:_default", ":collection:_nt_collections");
-            script = script.replace("'::name:_default'", "'::name:_nt_vaults'");
-            script = script.replace(":value:_default", ":value:_nt_update_value");
-            script = script.replace("*::ids:_default", "*::ids:_nt_note_ids");
-            script = script.replace(
-                "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
-                "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
-            );
-            script = script.replace(
-                "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
-                "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
-            );
+            apply_zsh_replacements(&mut script);
             insert_zsh_helpers(&mut script);
         }
     }
@@ -45,14 +29,48 @@ fn completion_script(shell: Shell) -> String {
     script
 }
 
+fn apply_zsh_replacements(script: &mut String) {
+    replace_all_or_panic(script, ":id:_default", ":id:_nt_note_ids");
+    replace_all_or_panic(
+        script,
+        "*::metadata:_default",
+        "*::metadata:_nt_add_metadata",
+    );
+    replace_all_or_panic(script, "*::expr:_default", "*::expr:_nt_query_expr");
+    replace_all_or_panic(script, "*::args:_default", "*::args:_nt_list_arg");
+    replace_all_or_panic(script, "'::name:_default'", "'::name:_nt_vaults'");
+    replace_all_or_panic(script, ":value:_default", ":value:_nt_update_value");
+    replace_all_or_panic(script, "*::ids:_default", "*::ids:_nt_note_ids");
+    replace_all_or_panic(
+        script,
+        "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
+        "(show)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
+    );
+    replace_all_or_panic(
+        script,
+        "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_note_ids'",
+        "(open)\n_arguments \"${_arguments_options[@]}\" : \\\n':id:_nt_titled_notes'",
+    );
+}
+
+fn replace_all_or_panic(script: &mut String, pattern: &str, replacement: &str) {
+    if !script.contains(pattern) {
+        panic!(
+            "clap_complete zsh output missing expected pattern {pattern:?}; regenerate nt completion and review upstream drift"
+        );
+    }
+    *script = script.replace(pattern, replacement);
+}
+
 fn insert_zsh_helpers(script: &mut String) {
     const INVOCATION: &str = "\nif [ \"$funcstack[1]\" = \"_nt\" ]; then";
 
-    if let Some(index) = script.find(INVOCATION) {
-        script.insert_str(index, ZSH_NOTE_ID_COMPLETION);
-    } else {
-        script.push_str(ZSH_NOTE_ID_COMPLETION);
-    }
+    let Some(index) = script.find(INVOCATION) else {
+        panic!(
+            "clap_complete zsh output missing `_nt` dispatch marker; regenerate nt completion and review upstream drift"
+        );
+    };
+    script.insert_str(index, ZSH_NOTE_ID_COMPLETION);
 }
 
 const BASH_NOTE_ID_COMPLETION: &str = include_str!("completion_bash.sh");
@@ -73,8 +91,10 @@ mod tests {
         assert!(script.contains("_nt_note_ids"));
         assert!(script.contains("_nt_complete_query_expr"));
         assert!(script.contains("_nt_complete_add_metadata"));
-        assert!(script.contains("nt list id 2>/dev/null"));
-        assert!(script.contains("nt list tags 2>/dev/null"));
+        assert!(script.contains("command nt list id 2>/dev/null"));
+        assert!(script.contains("command nt list tags 2>/dev/null"));
+        assert!(script.contains("command nt list sources 2>/dev/null"));
+        assert!(script.contains("command nt config vault 2>/dev/null"));
         assert!(
             script
                 .contains("tag: kind: status: priority: scheduled: due: collection: link: source:")
@@ -101,15 +121,21 @@ mod tests {
             script.contains("priority) _nt_complete_prefixed_values \"$token\" priority S A B C D")
         );
         assert!(script.contains("_nt_complete_update_set_values"));
-        assert!(script.contains("candidates=\"${candidates} +${value} -${value}\""));
-        assert!(script.contains("source) _nt_complete_update_set_values sources"));
+        assert!(script.contains("candidates+=(\"+${value}\")"));
+        assert!(script.contains("candidates+=(\"-${value}\")"));
+        assert!(script.contains(
+            "source) mapfile -t sources < <(_nt_source_values); _nt_complete_update_set_values"
+        ));
         assert!(script.contains("list:3"));
         assert!(script.contains("links) _nt_complete_link_filter"));
-        assert!(script.contains("compgen -W \"from: to:\""));
-        assert!(script.contains("from|to) _nt_complete_prefixed_values"));
+        assert!(script.contains("for field in from: to:"));
+        assert!(script.contains("from|to) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_values"));
         assert!(!script.contains("compgen -W \"from to\""));
         assert!(script.contains("export:[3-9]|export:[1-9][0-9]*"));
         assert!(script.contains("rm:*|update:2"));
+        assert!(!script.contains("$(nt "));
+        assert!(!script.contains("< <(nt "));
+        assert!(!script.contains("~/.nt/index.json"));
     }
 
     #[test]
@@ -152,8 +178,11 @@ mod tests {
         ));
         assert!(script.contains("candidates+=(\"+${value}\" \"-${value}\")"));
         assert!(script.contains("source) _nt_complete_update_set_values sources"));
-        assert!(script.contains("nt list id 2>/dev/null"));
-        assert!(script.contains("nt list tags 2>/dev/null"));
+        assert!(script.contains("command nt list id 2>/dev/null"));
+        assert!(script.contains("command nt list tags 2>/dev/null"));
+        assert!(script.contains("command nt list sources 2>/dev/null"));
+        assert!(script.contains("compadd -Q -- \"${(@)tags/#/#}\""));
+        assert!(!script.contains("${(@/#/#)tags}"));
         assert!(script.contains("_nt_complete_fields"));
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
         assert!(script.contains("_nt_sources"));
@@ -177,6 +206,26 @@ mod tests {
         let helper = script.find("_nt_query_expr()").unwrap();
         let invocation = script.find("_nt \"$@\"").unwrap();
         assert!(helper < invocation);
+        assert!(!script.contains(".nt/index.json"));
+    }
+
+    #[test]
+    fn zsh_replacements_consume_every_targeted_default_marker() {
+        let script = completion_script(Shell::Zsh);
+        for pattern in [
+            ":id:_default",
+            "*::metadata:_default",
+            "*::expr:_default",
+            "*::args:_default",
+            "'::name:_default'",
+            ":value:_default",
+            "*::ids:_default",
+        ] {
+            assert!(
+                !script.contains(pattern),
+                "targeted clap_complete marker {pattern:?} should be rewritten by nt completion"
+            );
+        }
     }
 
     #[test]

@@ -58,32 +58,8 @@ _nt_vaults() {
 }
 
 _nt_sources() {
-    local home="${HOME:-${USERPROFILE:-}}"
-    local index="${home}/.nt/index.json"
-    local line value in_sources=0
     local -a sources
-
-    [[ -r "$index" ]] || return
-
-    while IFS= read -r line; do
-        if [[ "$line" == *'"sources": ['* ]]; then
-            in_sources=1
-            continue
-        fi
-
-        if (( in_sources )); then
-            if [[ "$line" == *']'* ]]; then
-                in_sources=0
-                continue
-            fi
-
-            value="${line#*\"}"
-            value="${value%%\"*}"
-            [[ -n "$value" ]] && sources+=("$value")
-        fi
-    done < "$index"
-
-    typeset -U sources
+    sources=("${(@f)$(command nt list sources 2>/dev/null)}")
     print -rl -- "$sources[@]"
 }
 
@@ -153,7 +129,7 @@ _nt_query_expr() {
 
     if [[ "$token" == \#* ]]; then
         tags=("${(@f)$(_nt_tag_values)}")
-        compadd -Q -- "${(@/#/#)tags}"
+        compadd -Q -- "${(@)tags/#/#}"
         return
     fi
 
