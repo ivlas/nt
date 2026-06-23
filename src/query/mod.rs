@@ -1,9 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::collections::BTreeSet;
 
 use crate::error::{NtError, Result};
-use crate::index::{Index, NoteMeta, tokenize_text};
-use crate::note::validate_id;
+use crate::index::{Index, NoteMeta};
+
+mod eval;
+mod parse;
+mod plan;
+mod suggest;
 
 #[derive(Debug)]
 pub struct Query {
@@ -50,6 +53,12 @@ const QUERY_FIELDS: &[&str] = &[
     "source",
     "body",
 ];
+
+#[derive(Debug)]
+struct CandidateSet {
+    ids: BTreeSet<String>,
+    exact: bool,
+}
 
 impl Query {
     pub fn parse(exprs: &[String]) -> Result<Self> {
@@ -99,14 +108,8 @@ impl Query {
             }
         }
 
-        intersect_candidates(candidates)
+        plan::intersect_candidates(candidates)
     }
-}
-
-#[derive(Debug)]
-struct CandidateSet {
-    ids: BTreeSet<String>,
-    exact: bool,
 }
 
 impl QueryExpr {
@@ -123,7 +126,7 @@ impl QueryExpr {
             if tag.is_empty() {
                 return Err(NtError::Message("empty tag query".to_string()));
             }
-            return Ok(Self::Tag(normalize(tag)));
+            return Ok(Self::Tag(parse::normalize(tag)));
         }
 
         if let Some(inner) = expr.strip_prefix("not:") {
@@ -134,74 +137,76 @@ impl QueryExpr {
         }
 
         let Some((field, value)) = expr.split_once(':') else {
-            return Ok(Self::Bare(normalize(expr)));
+            return Ok(Self::Bare(parse::normalize(expr)));
         };
 
         if value.is_empty() {
             return Err(NtError::Message(format!("empty query value for `{field}`")));
         }
 
-        let value = normalize(value);
+        let value = parse::normalize(value);
         match field {
             "id" => {
-                validate_id_prefix(&value)?;
+                parse::validate_id_prefix(&value)?;
                 Ok(Self::Id(value))
             }
             "tag" => Ok(Self::Tag(value)),
             "title" => Ok(Self::Title(value)),
             "day" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Day(value))
             }
             "since" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Since(value))
             }
             "before" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Before(value))
             }
             "kind" => Ok(Self::Kind(value)),
             "status" => Ok(Self::Status(value)),
             "priority" => {
-                validate_priority(&value)?;
+                parse::validate_priority(&value)?;
                 Ok(Self::Priority(value.to_ascii_uppercase()))
             }
             "scheduled" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Scheduled(value))
             }
             "due" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Due(value))
             }
             "closed" => {
-                validate_date_value(field, &value)?;
+                parse::validate_date_value(field, &value)?;
                 Ok(Self::Closed(value))
             }
             "collection" => Ok(Self::Collection(value)),
             "link" => {
-                validate_note_id_value(field, &value)?;
+                parse::validate_note_id_value(field, &value)?;
                 Ok(Self::Link(value))
             }
             "source" => Ok(Self::Source(value)),
             "body" => Ok(Self::Body(value)),
-            _ => Err(NtError::Message(unknown_field_error(field))),
+            _ => Err(NtError::Message(parse::unknown_field_error(field))),
         }
     }
 
     fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
         match self {
             Self::Bare(value) => {
-                if index.metadata_term_matches(&note.id, value) || matches_metadata(note, value) {
+                if index.metadata_term_matches(&note.id, value)
+                    || eval::matches_metadata(note, value)
+                {
                     Ok(true)
                 } else {
-                    matches_body(index, note, value)
+                    eval::matches_body(index, note, value)
                 }
             }
-            Self::Id(value) => Ok(normalize(&note.id).starts_with(value)),
-            Self::Tag(value) => Ok(contains_normalized(&note.tags, value)),
-            Self::Title(value) => Ok(normalize(&note.title).contains(value)),
+            Self::Id(value) => Ok(parse::normalize(&note.id).starts_with(value)),
+            Self::Tag(value) => Ok(eval::contains_normalized(&note.tags, value)),
+            Self::Title(value) => Ok(parse::normalize(&note.title).contains(value)),
             Self::Day(value) => Ok(note.created.get(0..10).is_some_and(|day| day == value)),
             Self::Since(value) => Ok(note
                 .created
@@ -211,359 +216,87 @@ impl QueryExpr {
                 .created
                 .get(0..10)
                 .is_some_and(|day| day < value.as_str())),
-            Self::Kind(value) => Ok(normalize(&note.kind) == *value),
+            Self::Kind(value) => Ok(parse::normalize(&note.kind) == *value),
             Self::Status(value) => Ok(note
                 .status
                 .as_deref()
-                .is_some_and(|status| normalize(status) == *value)),
+                .is_some_and(|status| parse::normalize(status) == *value)),
             Self::Priority(value) => Ok(note.priority.as_deref() == Some(value)),
             Self::Scheduled(value) => Ok(note.scheduled.as_deref() == Some(value)),
             Self::Due(value) => Ok(note.due.as_deref() == Some(value)),
             Self::Closed(value) => {
                 Ok(note.closed.as_deref().and_then(|v| v.get(0..10)) == Some(value))
             }
-            Self::Collection(value) => Ok(contains_normalized(&note.collections, value)),
-            Self::Link(value) => Ok(note.links.iter().any(|link| normalize(link) == *value)),
+            Self::Collection(value) => Ok(eval::contains_normalized(&note.collections, value)),
+            Self::Link(value) => Ok(note
+                .links
+                .iter()
+                .any(|link| parse::normalize(link) == *value)),
             Self::Source(value) => Ok(note
                 .sources
                 .iter()
-                .any(|reference| normalize(reference).contains(value))),
-            Self::Body(value) => matches_body(index, note, value),
+                .any(|reference| parse::normalize(reference).contains(value))),
+            Self::Body(value) => eval::matches_body(index, note, value),
             Self::Not(expr) => Ok(!expr.matches(index, note)?),
         }
     }
 
     fn candidate_ids(&self, index: &Index) -> Option<CandidateSet> {
         match self {
-            Self::Bare(value) => bare_word_candidates(index, value),
-            Self::Id(value) => Some(exact_candidate(
+            Self::Bare(value) => plan::bare_word_candidates(index, value),
+            Self::Id(value) => Some(plan::exact_candidate(
                 index
                     .notes
                     .keys()
-                    .filter(|id| normalize(id).starts_with(value))
+                    .filter(|id| parse::normalize(id).starts_with(value))
                     .cloned()
                     .collect(),
             )),
-            Self::Tag(value) => Some(exact_candidate(ids_for_normalized_key(&index.tags, value))),
+            Self::Tag(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
+                &index.tags,
+                value,
+            ))),
             Self::Title(_) => None,
-            Self::Day(value) => Some(exact_candidate(ids_for_key(&index.days, value))),
-            Self::Since(value) => Some(exact_candidate(ids_for_days(index, |day| day >= value))),
-            Self::Before(value) => Some(exact_candidate(ids_for_days(index, |day| day < value))),
-            Self::Kind(value) => Some(exact_candidate(ids_for_normalized_key(&index.kinds, value))),
-            Self::Status(value) => Some(exact_candidate(ids_for_normalized_key(
+            Self::Day(value) => Some(plan::exact_candidate(plan::ids_for_key(&index.days, value))),
+            Self::Since(value) => Some(plan::exact_candidate(plan::ids_for_days(index, |day| {
+                day >= value
+            }))),
+            Self::Before(value) => Some(plan::exact_candidate(plan::ids_for_days(index, |day| {
+                day < value
+            }))),
+            Self::Kind(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
+                &index.kinds,
+                value,
+            ))),
+            Self::Status(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
                 &index.statuses,
                 value,
             ))),
             Self::Priority(_) | Self::Scheduled(_) | Self::Due(_) | Self::Closed(_) => None,
-            Self::Collection(value) => Some(exact_candidate(ids_for_normalized_key(
+            Self::Collection(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
                 &index.collections,
                 value,
             ))),
-            Self::Link(value) => Some(exact_candidate(ids_for_normalized_key(
+            Self::Link(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
                 &index.backlinks,
                 value,
             ))),
             Self::Source(_) => None,
-            Self::Body(value) => body_candidates(index, value),
+            Self::Body(value) => plan::body_candidates(index, value),
             Self::Not(expr) => {
                 let candidate = expr.candidate_ids(index)?;
                 if !candidate.exact {
                     return None;
                 }
 
-                let mut ids = all_note_ids(index);
+                let mut ids = plan::all_note_ids(index);
                 for id in candidate.ids {
                     ids.remove(&id);
                 }
-                Some(exact_candidate(ids))
+                Some(plan::exact_candidate(ids))
             }
         }
     }
-}
-
-fn normalize(value: &str) -> String {
-    value.to_ascii_lowercase()
-}
-
-fn validate_date_value(field: &str, value: &str) -> Result<()> {
-    crate::note::validate_date(value)
-        .map_err(|_| NtError::Message(format!("invalid `{field}` date `{value}`; use YYYY-MM-DD")))
-}
-
-fn validate_priority(value: &str) -> Result<()> {
-    if matches!(
-        value.to_ascii_uppercase().as_str(),
-        "S" | "A" | "B" | "C" | "D"
-    ) {
-        Ok(())
-    } else {
-        Err(NtError::Message(format!(
-            "invalid priority `{value}`; use S, A, B, C, or D"
-        )))
-    }
-}
-
-fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
-    validate_id(&value.to_ascii_uppercase()).map_err(|_| {
-        NtError::Message(format!(
-            "invalid `{field}` note id `{value}`; use NTYYYYMMDDTHHmmss"
-        ))
-    })
-}
-
-fn validate_id_prefix(value: &str) -> Result<()> {
-    if value.len() > 17 || !value.starts_with("nt") {
-        return Err(invalid_id_prefix(value));
-    }
-
-    for (index, byte) in value.bytes().enumerate() {
-        let valid = match index {
-            0 => byte == b'n',
-            1 | 10 => byte == b't',
-            2..=9 | 11..=16 => byte.is_ascii_digit(),
-            _ => false,
-        };
-        if !valid {
-            return Err(invalid_id_prefix(value));
-        }
-    }
-
-    Ok(())
-}
-
-fn invalid_id_prefix(value: &str) -> NtError {
-    NtError::Message(format!(
-        "invalid `id` prefix `{value}`; use a prefix of NTYYYYMMDDTHHmmss"
-    ))
-}
-
-fn contains_normalized(values: &[String], needle: &str) -> bool {
-    values.iter().any(|value| normalize(value) == needle)
-}
-
-fn exact_candidate(ids: BTreeSet<String>) -> CandidateSet {
-    CandidateSet { ids, exact: true }
-}
-
-fn superset_candidate(ids: BTreeSet<String>) -> CandidateSet {
-    CandidateSet { ids, exact: false }
-}
-
-fn intersect_candidates(mut candidates: Vec<BTreeSet<String>>) -> Option<BTreeSet<String>> {
-    if candidates.is_empty() {
-        return None;
-    }
-
-    candidates.sort_by_key(BTreeSet::len);
-    let mut intersected = candidates.remove(0);
-
-    for candidate in candidates {
-        if intersected.is_empty() {
-            break;
-        }
-        intersected = intersected.intersection(&candidate).cloned().collect();
-    }
-
-    Some(intersected)
-}
-
-fn ids_for_key(index: &BTreeMap<String, Vec<String>>, key: &str) -> BTreeSet<String> {
-    index
-        .get(key)
-        .into_iter()
-        .flat_map(|ids| ids.iter().cloned())
-        .collect()
-}
-
-fn ids_for_normalized_key(index: &BTreeMap<String, Vec<String>>, key: &str) -> BTreeSet<String> {
-    index
-        .iter()
-        .filter(|(indexed_key, _)| normalize(indexed_key) == key)
-        .flat_map(|(_, ids)| ids.iter().cloned())
-        .collect()
-}
-
-fn ids_for_days(index: &Index, matches: impl Fn(&str) -> bool) -> BTreeSet<String> {
-    index
-        .days
-        .iter()
-        .filter(|(day, _)| matches(day))
-        .flat_map(|(_, ids)| ids.iter().cloned())
-        .collect()
-}
-
-fn all_note_ids(index: &Index) -> BTreeSet<String> {
-    index.notes.keys().cloned().collect()
-}
-
-fn active_unindexed_body_ids(index: &Index) -> BTreeSet<String> {
-    let indexed: BTreeSet<&str> = index.body_indexed.iter().map(String::as_str).collect();
-    index
-        .active_recent_notes()
-        .filter(|note| !indexed.contains(note.id.as_str()))
-        .map(|note| note.id.clone())
-        .collect()
-}
-
-fn ids_with_all_terms(
-    term_index: &BTreeMap<String, Vec<String>>,
-    terms: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    let mut candidates = Vec::new();
-    for term in terms {
-        candidates.push(ids_for_key(term_index, term));
-    }
-
-    intersect_candidates(candidates).unwrap_or_default()
-}
-
-fn body_candidates(index: &Index, value: &str) -> Option<CandidateSet> {
-    let terms = tokenize_text(value);
-    if terms.is_empty() {
-        return None;
-    }
-
-    let mut ids = ids_with_all_terms(&index.body_terms, &terms);
-    let unindexed = active_unindexed_body_ids(index);
-    let exact = unindexed.is_empty();
-    ids.extend(unindexed);
-
-    Some(if exact {
-        exact_candidate(ids)
-    } else {
-        superset_candidate(ids)
-    })
-}
-
-fn bare_word_candidates(index: &Index, value: &str) -> Option<CandidateSet> {
-    let terms = tokenize_text(value);
-    if terms.is_empty() {
-        return None;
-    }
-
-    let mut ids = ids_for_key(&index.terms, value);
-    ids.extend(
-        index
-            .notes
-            .values()
-            .filter(|note| matches_metadata(note, value))
-            .map(|note| note.id.clone()),
-    );
-
-    let body = body_candidates(index, value)?;
-    let exact = body.exact;
-    ids.extend(body.ids);
-
-    Some(if exact {
-        exact_candidate(ids)
-    } else {
-        superset_candidate(ids)
-    })
-}
-
-fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
-    note.id.to_ascii_lowercase().contains(needle)
-        || note.title.to_ascii_lowercase().contains(needle)
-        || note.kind.to_ascii_lowercase().contains(needle)
-        || note
-            .status
-            .as_deref()
-            .is_some_and(|status| status.to_ascii_lowercase().contains(needle))
-        || note
-            .priority
-            .as_deref()
-            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
-        || note
-            .scheduled
-            .as_deref()
-            .is_some_and(|value| value.contains(needle))
-        || note
-            .due
-            .as_deref()
-            .is_some_and(|value| value.contains(needle))
-        || note
-            .closed
-            .as_deref()
-            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
-        || note
-            .tags
-            .iter()
-            .any(|tag| tag.to_ascii_lowercase().contains(needle))
-        || note
-            .collections
-            .iter()
-            .any(|collection| collection.to_ascii_lowercase().contains(needle))
-        || note
-            .links
-            .iter()
-            .any(|link| link.to_ascii_lowercase().contains(needle))
-        || note
-            .sources
-            .iter()
-            .any(|reference| reference.to_ascii_lowercase().contains(needle))
-}
-
-fn matches_body(index: &Index, note: &NoteMeta, needle: &str) -> Result<bool> {
-    let terms: Vec<String> = tokenize_text(needle).into_iter().collect();
-    if let Some(matches) = index.body_terms_match(&note.id, &terms) {
-        if matches && !note.path.exists() {
-            read_body(note)?;
-        }
-        return Ok(matches);
-    }
-
-    let body = read_body(note)?;
-
-    Ok(body.to_ascii_lowercase().contains(needle))
-}
-
-fn read_body(note: &NoteMeta) -> Result<String> {
-    fs::read_to_string(&note.path).map_err(|err| {
-        NtError::Message(format!(
-            "note body not readable for {} at {}: {err}",
-            note.id,
-            note.path.display()
-        ))
-    })
-}
-
-fn unknown_field_error(field: &str) -> String {
-    match query_field_suggestion(field) {
-        Some(suggestion) => {
-            format!("unknown query field `{field}`; did you mean `{suggestion}`?")
-        }
-        None => format!("unknown query field `{field}`"),
-    }
-}
-
-fn query_field_suggestion(field: &str) -> Option<&'static str> {
-    QUERY_FIELDS
-        .iter()
-        .copied()
-        .map(|known| (edit_distance(field, known), known))
-        .filter(|(distance, _)| *distance <= 2)
-        .min_by_key(|(distance, known)| (*distance, known.len()))
-        .map(|(_, known)| known)
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let mut previous: Vec<usize> = (0..=right.len()).collect();
-    let mut current = vec![0; right.len() + 1];
-
-    for (left_index, left_byte) in left.bytes().enumerate() {
-        current[0] = left_index + 1;
-
-        for (right_index, right_byte) in right.bytes().enumerate() {
-            let replace = previous[right_index] + usize::from(left_byte != right_byte);
-            let insert = current[right_index] + 1;
-            let delete = previous[right_index + 1] + 1;
-            current[right_index + 1] = replace.min(insert).min(delete);
-        }
-
-        previous.clone_from(&current);
-    }
-
-    previous[right.len()]
 }
 
 #[cfg(test)]
@@ -574,7 +307,7 @@ mod tests {
 
     use crate::index::{Index, NoteMeta, VaultMeta};
 
-    use super::{Query, intersect_candidates};
+    use super::{Query, plan::intersect_candidates};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(

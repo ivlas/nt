@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::cli::completion::print_completion;
 use crate::cli::{Cli, Command};
-use crate::completion::print_completion;
 use crate::error::{NtError, Result};
 use crate::fs::nt_home;
 use crate::index::{Index, NoteMeta};
@@ -19,7 +19,7 @@ mod update;
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        None => crate::help::print(&[]),
+        None => crate::cli::help::print(&[]),
         Some(Command::Init { notes_dir }) => init::init(&notes_dir),
         Some(Command::Add { metadata }) => add::add(&metadata),
         Some(Command::Rebuild) => init::rebuild(),
@@ -36,7 +36,7 @@ pub fn run(cli: Cli) -> Result<()> {
             print_completion(shell);
             Ok(())
         }
-        Some(Command::Help { topic }) => crate::help::print(&topic),
+        Some(Command::Help { topic }) => crate::cli::help::print(&topic),
     }
 }
 

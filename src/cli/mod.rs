@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+pub mod completion;
+pub mod help;
+
 #[derive(Parser)]
 #[command(
     name = "nt",
