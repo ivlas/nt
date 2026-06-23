@@ -106,6 +106,75 @@ fn config_vault_lists_and_switches_active_vault() {
 }
 
 #[test]
+fn index_mutations_reject_existing_lock() {
+    let root = temp_dir("index-mutation-lock");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let other = root.join("other");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let added = run_nt_with_stdin(&home, &["add"], "# Locked note\n\nbody.\n");
+    let id = added.trim().strip_prefix("saved ").unwrap().to_string();
+
+    fs::write(home.join(".nt/index.lock"), "test lock\n").unwrap();
+    let lock_path = home.join(".nt/index.lock").display().to_string();
+
+    assert_failed_with_stdin(
+        &home,
+        &["add"],
+        "# Blocked add\n\nbody.\n",
+        &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
+    );
+    assert_failed(
+        &home,
+        &["update", &id, "status", "open"],
+        &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
+    );
+    assert_failed(
+        &home,
+        &["rebuild"],
+        &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
+    );
+    assert_failed(
+        &home,
+        &["config", "vault", "notes"],
+        &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
+    );
+    assert_failed(
+        &home,
+        &["init", other.to_str().unwrap()],
+        &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
+    );
+
+    let listed = run_nt(&home, &["list", "ids"]);
+    assert_eq!(listed.trim(), id);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn index_mutations_recover_stale_pid_lock() {
+    let root = temp_dir("index-stale-lock");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let added = run_nt_with_stdin(&home, &["add"], "# Stale lock\n\nbody.\n");
+    let id = added.trim().strip_prefix("saved ").unwrap().to_string();
+
+    fs::write(home.join(".nt/index.lock"), "999999\n").unwrap();
+
+    let updated = run_nt(&home, &["update", &id, "status", "open"]);
+    assert_eq!(updated.trim(), format!("updated {id} status open"));
+    assert!(!home.join(".nt/index.lock").exists());
+
+    let index = read_index(&home);
+    assert_eq!(index["notes"][id]["status"].as_str(), Some("open"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_rejects_duplicate_vault_names() {
     let root = temp_dir("init-duplicate-vault");
     let home = root.join("home");
@@ -521,6 +590,24 @@ fn open_uses_editor_and_updates_visible_note() {
 
     fs::write(
         &editor,
+        "#!/bin/sh\ncat > \"$1\" <<'EOF'\n# Stale Edit\n\nbody from editor.\nEOF\ncat > \"$NOTE_PATH\" <<'EOF'\n# Concurrent Edit\n\nbody from another process.\nEOF\n",
+    )
+    .unwrap();
+    let note_path = notes.join(format!("{id}.md"));
+    assert_failed_with_env(
+        &home,
+        &["open", &id],
+        &[
+            ("EDITOR", editor.to_str().unwrap()),
+            ("NOTE_PATH", note_path.to_str().unwrap()),
+        ],
+        "note changed during edit; please retry",
+    );
+    let body = fs::read_to_string(&note_path).unwrap();
+    assert_eq!(body, "# Concurrent Edit\n\nbody from another process.\n");
+
+    fs::write(
+        &editor,
         "#!/bin/sh\ncat > \"$1\" <<'EOF'\n## Invalid section\n\nbody three.\nEOF\n",
     )
     .unwrap();
@@ -532,7 +619,7 @@ fn open_uses_editor_and_updates_visible_note() {
     );
     assert_eq!(
         fs::read_to_string(notes.join(format!("{id}.md"))).unwrap(),
-        "# Edited\n\nbody two with https://example.com/edited.\n"
+        "# Concurrent Edit\n\nbody from another process.\n"
     );
 
     let _ = fs::remove_dir_all(root);

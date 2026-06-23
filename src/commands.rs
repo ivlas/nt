@@ -9,7 +9,7 @@ use crate::completion::print_completion;
 use crate::display::{agenda_line, joined_or_dash, summary_line, summary_line_for_display};
 use crate::error::{NtError, Result};
 use crate::export::export_markdown;
-use crate::fs::{absolute_path, atomic_write, nt_home, relative_to_cwd};
+use crate::fs::{IndexMutationLock, absolute_path, atomic_write, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
 use crate::listing::{ListRequest, render_link_row, render_link_table, render_row, render_table};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
@@ -43,6 +43,7 @@ fn init(notes_dir: &Path) -> Result<()> {
     let notes_dir = absolute_path(notes_dir)?;
     ensure_notes_dir_is_flat(&notes_dir)?;
 
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let timestamp = crate::note::timestamp_now();
     let vault = index.create_vault_for_path(notes_dir.clone(), timestamp.iso)?;
@@ -81,6 +82,7 @@ fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
 }
 
 fn rebuild() -> Result<()> {
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     let mut rebuilt_notes = BTreeMap::new();
@@ -194,11 +196,12 @@ fn ensure_notes_dir_is_flat(notes_dir: &Path) -> Result<()> {
 }
 
 fn add(metadata: &[String]) -> Result<()> {
+    let body = read_note_body_for_add()?;
+    let title = title_from_body(&body)?;
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     let metadata = CreationMetadata::parse(metadata, &index)?;
-    let body = read_note_body_for_add()?;
-    let title = title_from_body(&body)?;
     let timestamp = generate_unique_id(&notes_dir, &index)?;
     let path = note_path(&notes_dir, &timestamp.id)?;
     let mut note = NoteMeta::new_note(
@@ -407,7 +410,7 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
 
 fn open(id: &str) -> Result<()> {
     validate_id(id)?;
-    let mut index = Index::load()?;
+    let index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let body = fs::read_to_string(&note.path)?;
@@ -433,9 +436,19 @@ fn open(id: &str) -> Result<()> {
             return Err(err);
         }
     };
-    atomic_write(&note.path, body.as_bytes())?;
     let _ = fs::remove_file(&open_path);
 
+    let _lock = IndexMutationLock::acquire()?;
+    let mut index = Index::load()?;
+    let note = note_ref(&index, id)?.clone();
+    let current_body = fs::read(&note.path)?;
+    if current_body != original_body {
+        return Err(NtError::Message(
+            "note changed during edit; please retry".to_string(),
+        ));
+    }
+
+    atomic_write(&note.path, body.as_bytes())?;
     let timestamp = crate::note::timestamp_now();
     let note_path = note.path.clone();
     let mut updated = note;
@@ -476,6 +489,7 @@ fn find(exprs: &[String]) -> Result<()> {
 }
 
 fn rm(ids: &[String]) -> Result<()> {
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let mut seen = BTreeSet::new();
     let mut notes = Vec::with_capacity(ids.len());
@@ -642,6 +656,7 @@ fn field_name(field: UpdateField) -> &'static str {
 
 fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     validate_id(id)?;
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     ensure_note_exists(&index, id)?;
     let operation = UpdateOperation::parse(field, value, &index)?;
@@ -904,6 +919,7 @@ fn config_list_vaults() -> Result<()> {
 }
 
 fn config_set_vault(name: &str) -> Result<()> {
+    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let Some(vault) = index.vaults.get(name) else {
         return Err(NtError::Message(format!(
