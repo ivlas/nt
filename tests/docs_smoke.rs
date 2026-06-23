@@ -137,8 +137,8 @@ fn design_tracks_stable_core_and_non_goals() {
 
 #[test]
 fn release_docs_cover_source_install_and_manual_checks() {
-    let readme = fs::read_to_string("README.md").unwrap();
-    assert!(readme.contains("cargo install --path ."));
+    let usage = fs::read_to_string("docs/usage.md").unwrap();
+    assert!(usage.contains("cargo install --path ."));
 
     let design = fs::read_to_string("docs/design.md").unwrap();
     for check in [
@@ -177,7 +177,7 @@ fn docs_do_not_document_version_command_or_flag() {
 #[test]
 fn rebuild_docs_document_persistent_source_semantics() {
     let expected = "preserves existing sources and merges URLs currently found in";
-    for path in ["docs/cli-reference.md", "docs/usage.md", "README.md"] {
+    for path in ["docs/cli-reference.md", "docs/usage.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -193,12 +193,7 @@ fn rebuild_docs_document_persistent_source_semantics() {
 
 #[test]
 fn docs_document_index_trust_boundary_and_deferred_tui() {
-    for path in [
-        "README.md",
-        "docs/usage.md",
-        "docs/cli-reference.md",
-        "docs/design.md",
-    ] {
+    for path in ["docs/usage.md", "docs/cli-reference.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -208,7 +203,7 @@ fn docs_document_index_trust_boundary_and_deferred_tui() {
         );
     }
 
-    for path in ["README.md", "docs/usage.md", "docs/design.md"] {
+    for path in ["docs/usage.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
