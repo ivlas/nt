@@ -50,6 +50,7 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt list ids`
 - `nt list tags`
 - `nt list collections`
+- `nt list sources [source]`
 - `nt list links [filter...]`
 - `nt find <expr...>`
 - `nt show <id>`
@@ -201,7 +202,8 @@ Agents should retrieve notes through cheap, visible operations:
   summary in active-recent order; use `nt list all` for every indexed field.
 - Use projections such as `nt list id,title,status status:open` for stable,
   tab-separated metadata rows and exact structured filtering.
-- Use `nt list tags` and `nt list collections` before choosing metadata.
+- Use `nt list tags`, `nt list collections`, and `nt list sources` before
+  choosing metadata.
 - Use `nt find <expr...>` for indexed/body search.
 - Use `nt show <id>` for exact retrieval.
 - Use `nt list links`, `nt list links from:<id>`, and `nt list links to:<id>` for

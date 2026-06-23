@@ -62,6 +62,7 @@ nt list id,title,status status:open
 nt list title,tag kind:decision
 nt list tags
 nt list collections
+nt list sources
 nt find kind:decision tag:storage
 nt find since:2026-06-01 body:'metadata CommonMark'
 nt show NT20260620T101500
@@ -217,6 +218,7 @@ Agents use the same commands and storage as humans:
 ```sh
 nt list tags
 nt list collections
+nt list sources
 nt list id,title,status status:open
 nt find collection:projects/nt status:open
 nt show NT20260620T101500

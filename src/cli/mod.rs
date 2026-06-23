@@ -127,6 +127,8 @@ mod tests {
             &["nt", "list", "tags", "decision"],
             &["nt", "list", "collections"],
             &["nt", "list", "collections", "projects/nt"],
+            &["nt", "list", "sources"],
+            &["nt", "list", "sources", "https://example.com"],
             &["nt", "list", "links", "from:NT20260528T143012"],
             &["nt", "find", "tag:decision", "qemu"],
             &["nt", "show", "NT20260528T143012"],

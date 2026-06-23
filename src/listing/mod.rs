@@ -16,6 +16,7 @@ pub enum ListRequest {
     },
     Tags(Option<String>),
     Collections(Option<String>),
+    Sources(Option<String>),
     LinkGraph {
         query: Query,
         from: Option<String>,
@@ -61,6 +62,10 @@ impl ListRequest {
             [mode, collection] if mode == "collections" => {
                 return Ok(Self::Collections(Some(collection.clone())));
             }
+            [mode] if mode == "sources" => return Ok(Self::Sources(None)),
+            [mode, source] if mode == "sources" => {
+                return Ok(Self::Sources(Some(source.clone())));
+            }
             [mode, id] if mode == "links" => {
                 validate_id(id)?;
                 return Err(NtError::Message(format!(
@@ -78,7 +83,7 @@ impl ListRequest {
             [mode, ..]
                 if matches!(
                     mode.as_str(),
-                    "ids" | "titles" | "tags" | "collections" | "links"
+                    "ids" | "titles" | "tags" | "collections" | "sources" | "links"
                 ) =>
             {
                 return Err(NtError::Message(format!(
@@ -206,6 +211,18 @@ mod tests {
             panic!("expected note listing");
         };
         assert_eq!(fields.len(), 15);
+    }
+
+    #[test]
+    fn sources_mode_parses_with_optional_filter() {
+        assert!(matches!(
+            ListRequest::parse(&args(&["sources"])).unwrap(),
+            ListRequest::Sources(None)
+        ));
+        assert!(matches!(
+            ListRequest::parse(&args(&["sources", "https://example.com"])).unwrap(),
+            ListRequest::Sources(Some(value)) if value == "https://example.com"
+        ));
     }
 
     #[test]

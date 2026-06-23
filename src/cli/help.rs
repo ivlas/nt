@@ -121,6 +121,7 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
+nt list sources [source]
 nt list links [filter...]
 
 Print active-vault metadata rows with optional structured filters. `list links`
@@ -222,7 +223,8 @@ List:
   projections  all | <field>[,<field>...]
   fields       id path created updated title kind status priority scheduled
                due closed tag collection link source
-  modes        ids | titles | tags [tag] | collections [name] | links
+  modes        ids | titles | tags [tag] | collections [name]
+                | sources [source] | links
   filters      id:<prefix> tag:<tag> day:<date> since:<date> before:<date>
                kind:<kind> status:<status> priority:<priority>
                scheduled:<date> due:<date> closed:<date>

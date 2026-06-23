@@ -7,7 +7,7 @@ use crate::index::{Index, NoteMeta};
 use crate::listing::{ListRequest, render_link_row, render_link_table, render_row, render_table};
 use crate::query::Query;
 
-use super::{note_ref, validate_collection, validate_tag};
+use super::{note_ref, validate_collection, validate_source, validate_tag};
 
 pub(super) fn list(args: &[String]) -> Result<()> {
     let index = Index::load()?;
@@ -32,6 +32,11 @@ pub(super) fn list(args: &[String]) -> Result<()> {
         ListRequest::Collections(collection) => {
             list_metadata(&index, collection.as_deref(), validate_collection, |note| {
                 &note.collections
+            })
+        }
+        ListRequest::Sources(source) => {
+            list_metadata(&index, source.as_deref(), validate_source, |note| {
+                &note.sources
             })
         }
         ListRequest::LinkGraph { query, from, to } => {

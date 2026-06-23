@@ -31,6 +31,7 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
+nt list sources [source]
 nt list links [filter...]
 nt find <expr...>
 nt show <id>
@@ -127,6 +128,7 @@ nt list ids
 nt list titles
 nt list tags [tag]
 nt list collections [collection]
+nt list sources [source]
 nt list links [filter...]
 ```
 
@@ -187,6 +189,8 @@ Compatibility and metadata operations:
 | `list tags <tag>` | Matching summary records, newest first. |
 | `list collections` | Sorted, deduplicated active collection names. |
 | `list collections <name>` | Matching summary records, newest first. |
+| `list sources` | Sorted, deduplicated active source values. |
+| `list sources <source>` | Matching summary records, newest first. |
 | `list links [filter...]` | Edge rows with ids and titles for both endpoints. |
 | `list links from:<id>` | Edges originating at an exact note id. |
 | `list links to:<id>` | Edges targeting an exact note id. |
