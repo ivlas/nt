@@ -69,6 +69,41 @@ _nt_complete_prefixed_values() {
     shift 2
     local prefix="${outer_prefix}${field}:"
     local token="${IPREFIX}${PREFIX}"
+    local value_prefix value completion_prefix
+    local -a candidates completions
+
+    [[ -n "$token" ]] || token="${words[CURRENT]}"
+
+    [[ "$token" == "$prefix"* ]] || return 1
+
+    value_prefix="${token#$prefix}"
+
+    for value in "$@"; do
+        if [[ "$value" == "$value_prefix"* ]]; then
+            candidates+=("$value")
+        fi
+    done
+
+    completion_prefix="$prefix"
+
+    (( ${#candidates} > 0 )) || return
+
+    if compset -P "$completion_prefix"; then
+        compadd -S '' -a candidates
+    elif [[ "$IPREFIX" == "$completion_prefix" ]]; then
+        compadd -S '' -a candidates
+    else
+        completions=("${(@)candidates/#/${completion_prefix}}")
+        compadd -S '' -U -a completions
+    fi
+}
+
+_nt_complete_prefixed_list_values() {
+    local outer_prefix="$1"
+    local field="$2"
+    shift 2
+    local prefix="${outer_prefix}${field}:"
+    local token="${IPREFIX}${PREFIX}"
     local rest list_prefix value_prefix value completion_prefix
     local -a candidates completions
 
@@ -168,13 +203,13 @@ _nt_add_metadata() {
     case "$field" in
         tag)
             tags=("${(@f)$(_nt_tag_values)}")
-            _nt_complete_prefixed_values "" tag "$tags[@]"
+            _nt_complete_prefixed_list_values "" tag "$tags[@]"
             ;;
-        collection) _nt_complete_prefixed_values "" collection "${(@f)$(_nt_collection_values)}" ;;
+        collection) _nt_complete_prefixed_list_values "" collection "${(@f)$(_nt_collection_values)}" ;;
         kind) _nt_complete_prefixed_values "" kind note todo meeting decision source research project ;;
         status) _nt_complete_prefixed_values "" status open waiting done dropped ;;
         priority) _nt_complete_prefixed_values "" priority S A B C D ;;
-        link) _nt_complete_prefixed_values "" link "${(@f)$(command nt list id 2>/dev/null)}" ;;
+        link) _nt_complete_prefixed_list_values "" link "${(@f)$(command nt list id 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "" source "${(@f)$(_nt_sources)}" ;;
     esac
 }

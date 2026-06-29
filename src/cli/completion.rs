@@ -120,12 +120,17 @@ mod tests {
         assert!(script.contains("_nt_quote_completion()"));
         assert!(script.contains("printf -v quoted '%q' \"$1\""));
         assert!(script.contains("COMPREPLY+=(\"$(_nt_quote_completion \"$vault\")\")"));
+        assert!(script.contains("candidates+=(\"$(_nt_quote_completion \"${prefix}${value}\")\")"));
         assert!(script.contains(
             "candidates+=(\"$(_nt_quote_completion \"${prefix}${list_prefix}${value}\")\")"
         ));
+        assert!(script.contains("_nt_complete_prefixed_list_values"));
         assert!(
             script.contains("priority) _nt_complete_prefixed_values \"$token\" priority S A B C D")
         );
+        assert!(script.contains("tag) mapfile -t tags < <(_nt_tag_values); _nt_complete_prefixed_list_values \"$token\" tag"));
+        assert!(script.contains("link) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_list_values \"$token\" link"));
+        assert!(script.contains("source) mapfile -t sources < <(_nt_source_values); _nt_complete_prefixed_values \"$token\" source"));
         assert!(script.contains("_nt_complete_update_set_values"));
         assert!(script.contains("candidates+=(\"$(_nt_quote_completion \"+${value}\")\")"));
         assert!(script.contains("candidates+=(\"$(_nt_quote_completion \"-${value}\")\")"));
@@ -193,6 +198,9 @@ mod tests {
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
         assert!(script.contains("_nt_sources"));
         assert!(script.contains("source) _nt_complete_prefixed_values"));
+        assert!(script.contains("_nt_complete_prefixed_list_values"));
+        assert!(script.contains("tag)\n            tags=(\"${(@f)$(_nt_tag_values)}\")\n            _nt_complete_prefixed_list_values \"\" tag"));
+        assert!(script.contains("link) _nt_complete_prefixed_list_values \"\" link"));
         assert!(script.contains("local token=\"${IPREFIX}${PREFIX}\""));
         assert!(script.contains("[[ \"$IPREFIX\" == \"$completion_prefix\" ]]"));
         assert!(script.contains("compadd -S '' -U -a completions"));
@@ -239,7 +247,7 @@ mod tests {
         let script = completion_script(Shell::Zsh);
         let start = script.find("_nt_complete_prefixed_values()").unwrap();
         let end = script[start..]
-            .find("\n}\n\n_nt_complete_fields()")
+            .find("\n}\n\n_nt_complete_prefixed_list_values()")
             .unwrap()
             + start;
         let helper = &script[start..end];
@@ -250,6 +258,8 @@ mod tests {
         );
         assert!(helper.contains("token=\"${IPREFIX}${PREFIX}\""));
         assert!(helper.contains("token=\"${words[CURRENT]}\""));
+        assert!(helper.contains("completion_prefix=\"$prefix\""));
+        assert!(!helper.contains("list_prefix"));
         assert!(helper.contains("compadd -S '' -a candidates"));
         assert!(!helper.contains("compadd -Q"));
         assert!(helper.contains("completions=(\"${(@)candidates/#/${completion_prefix}}\")"));

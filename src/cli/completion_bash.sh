@@ -75,6 +75,27 @@ _nt_complete_prefixed_values() {
     local field="$2"
     shift 2
     local prefix="${field}:"
+    local value_prefix value
+    local -a candidates=()
+
+    [[ "$token" == "$prefix"* ]] || return 1
+
+    value_prefix="${token#"$prefix"}"
+
+    for value in "$@"; do
+        if [[ "$value" == "$value_prefix"* ]]; then
+            candidates+=("$(_nt_quote_completion "${prefix}${value}")")
+        fi
+    done
+    COMPREPLY=("${candidates[@]}")
+    return 0
+}
+
+_nt_complete_prefixed_list_values() {
+    local token="$1"
+    local field="$2"
+    shift 2
+    local prefix="${field}:"
     local rest list_prefix value_prefix value
     local -a candidates=()
 
@@ -124,7 +145,7 @@ _nt_complete_metadata_expr() {
     local fields="$2"
     local field="${token%%:*}"
     local inner
-    local -a tags ids
+    local -a tags ids sources
 
     if [[ "$token" == not:* ]]; then
         inner="${token#not:}"
@@ -159,6 +180,7 @@ _nt_complete_metadata_expr() {
         priority) _nt_complete_prefixed_values "$token" priority S A B C D ;;
         id) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_values "$token" id "${ids[@]}" ;;
         link) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_values "$token" link "${ids[@]}" ;;
+        source) mapfile -t sources < <(_nt_source_values); _nt_complete_prefixed_values "$token" source "${sources[@]}" ;;
         *) COMPREPLY=() ;;
     esac
 }
@@ -270,7 +292,23 @@ _nt_complete_link_filter() {
 }
 
 _nt_complete_add_metadata() {
-    _nt_complete_metadata_expr "$(_nt_current_token)" "tag: kind: status: priority: scheduled: due: collection: link: source:"
+    local token field
+    local -a tags ids sources
+    token="$(_nt_current_token)"
+    field="${token%%:*}"
+
+    if [[ "$token" != *:* || "$token" == not:* || "$token" == \#* ]]; then
+        _nt_complete_metadata_expr "$token" "tag: kind: status: priority: scheduled: due: collection: link: source:"
+        return
+    fi
+
+    case "$field" in
+        tag) mapfile -t tags < <(_nt_tag_values); _nt_complete_prefixed_list_values "$token" tag "${tags[@]}" ;;
+        collection) mapfile -t tags < <(_nt_collection_values); _nt_complete_prefixed_list_values "$token" collection "${tags[@]}" ;;
+        link) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_list_values "$token" link "${ids[@]}" ;;
+        source) mapfile -t sources < <(_nt_source_values); _nt_complete_prefixed_values "$token" source "${sources[@]}" ;;
+        *) _nt_complete_metadata_expr "$token" "tag: kind: status: priority: scheduled: due: collection: link: source:" ;;
+    esac
 }
 
 _nt_complete_update_set_values() {
