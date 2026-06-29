@@ -95,12 +95,12 @@ _nt_complete_prefixed_values() {
     (( ${#candidates} > 0 )) || return
 
     if compset -P "$completion_prefix"; then
-        compadd -Q -S '' -a candidates
+        compadd -S '' -a candidates
     elif [[ "$IPREFIX" == "$completion_prefix" ]]; then
-        compadd -Q -S '' -a candidates
+        compadd -S '' -a candidates
     else
         completions=("${(@)candidates/#/${completion_prefix}}")
-        compadd -Q -S '' -U -a completions
+        compadd -S '' -U -a completions
     fi
 }
 
@@ -129,7 +129,7 @@ _nt_query_expr() {
 
     if [[ "$token" == \#* ]]; then
         tags=("${(@f)$(_nt_tag_values)}")
-        compadd -Q -- "${(@)tags/#/#}"
+        compadd -- "${(@)tags/#/#}"
         return
     fi
 
@@ -194,7 +194,7 @@ _nt_link_filter_arg() {
 
     if [[ "$token" == \#* ]]; then
         tags=("${(@f)$(_nt_tag_values)}")
-        compadd -Q -- "${(@)tags/#/${outer_prefix}#}"
+        compadd -- "${(@)tags/#/${outer_prefix}#}"
     elif [[ "$token" != *:* ]]; then
         _nt_complete_fields "$outer_prefix" "$fields[@]"
     else
@@ -249,7 +249,7 @@ _nt_list_arg() {
 
     if [[ "$token" == \#* ]]; then
         tags=("${(@f)$(_nt_tag_values)}")
-        compadd -Q -- "${(@)tags/#/${outer_prefix}#}"
+        compadd -- "${(@)tags/#/${outer_prefix}#}"
     elif [[ "$token" != *:* ]]; then
         _nt_complete_fields "$outer_prefix" "$filter_fields[@]"
     else

@@ -117,12 +117,18 @@ mod tests {
         assert!(script.contains("(( count >= 10 )) && break"));
         assert!(script.contains("update:4"));
         assert!(script.contains("S A B C D -"));
+        assert!(script.contains("_nt_quote_completion()"));
+        assert!(script.contains("printf -v quoted '%q' \"$1\""));
+        assert!(script.contains("COMPREPLY+=(\"$(_nt_quote_completion \"$vault\")\")"));
+        assert!(script.contains(
+            "candidates+=(\"$(_nt_quote_completion \"${prefix}${list_prefix}${value}\")\")"
+        ));
         assert!(
             script.contains("priority) _nt_complete_prefixed_values \"$token\" priority S A B C D")
         );
         assert!(script.contains("_nt_complete_update_set_values"));
-        assert!(script.contains("candidates+=(\"+${value}\")"));
-        assert!(script.contains("candidates+=(\"-${value}\")"));
+        assert!(script.contains("candidates+=(\"$(_nt_quote_completion \"+${value}\")\")"));
+        assert!(script.contains("candidates+=(\"$(_nt_quote_completion \"-${value}\")\")"));
         assert!(script.contains(
             "source) mapfile -t sources < <(_nt_source_values); _nt_complete_update_set_values"
         ));
@@ -181,7 +187,7 @@ mod tests {
         assert!(script.contains("command nt list id 2>/dev/null"));
         assert!(script.contains("command nt list tags 2>/dev/null"));
         assert!(script.contains("command nt list sources 2>/dev/null"));
-        assert!(script.contains("compadd -Q -- \"${(@)tags/#/#}\""));
+        assert!(script.contains("compadd -- \"${(@)tags/#/#}\""));
         assert!(!script.contains("${(@/#/#)tags}"));
         assert!(script.contains("_nt_complete_fields"));
         assert!(script.contains("compadd -Q -S '' -- \"$fields[@]\""));
@@ -189,7 +195,7 @@ mod tests {
         assert!(script.contains("source) _nt_complete_prefixed_values"));
         assert!(script.contains("local token=\"${IPREFIX}${PREFIX}\""));
         assert!(script.contains("[[ \"$IPREFIX\" == \"$completion_prefix\" ]]"));
-        assert!(script.contains("compadd -Q -S '' -U -a completions"));
+        assert!(script.contains("compadd -S '' -U -a completions"));
         assert!(script.contains("*::args:_nt_list_arg"));
         assert!(script.contains("_nt_list_arg()"));
         assert!(script.contains("_nt_link_filter_arg()"));
@@ -244,7 +250,8 @@ mod tests {
         );
         assert!(helper.contains("token=\"${IPREFIX}${PREFIX}\""));
         assert!(helper.contains("token=\"${words[CURRENT]}\""));
-        assert!(helper.contains("compadd -Q -S '' -a candidates"));
+        assert!(helper.contains("compadd -S '' -a candidates"));
+        assert!(!helper.contains("compadd -Q"));
         assert!(helper.contains("completions=(\"${(@)candidates/#/${completion_prefix}}\")"));
     }
 }

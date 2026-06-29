@@ -8,6 +8,12 @@ _nt_current_token() {
     printf '%s' "$token"
 }
 
+_nt_quote_completion() {
+    local quoted
+    printf -v quoted '%q' "$1"
+    printf '%s' "$quoted"
+}
+
 _nt_note_ids() {
     local token
     token="$(_nt_current_token)"
@@ -60,7 +66,7 @@ _nt_vaults() {
     COMPREPLY=()
     local vault
     for vault in "${vaults[@]}"; do
-        [[ "$vault" == "$token"* ]] && COMPREPLY+=("$vault")
+        [[ "$vault" == "$token"* ]] && COMPREPLY+=("$(_nt_quote_completion "$vault")")
     done
 }
 
@@ -84,7 +90,7 @@ _nt_complete_prefixed_values() {
 
     for value in "$@"; do
         if [[ "$value" == "$value_prefix"* ]]; then
-            candidates+=("${prefix}${list_prefix}${value}")
+            candidates+=("$(_nt_quote_completion "${prefix}${list_prefix}${value}")")
         fi
     done
     COMPREPLY=("${candidates[@]}")
@@ -109,7 +115,7 @@ _nt_complete_raw_values() {
     local token="$(_nt_current_token)" value
     COMPREPLY=()
     for value in "${values[@]}"; do
-        [[ "$value" == "$token"* ]] && COMPREPLY+=("$value")
+        [[ "$value" == "$token"* ]] && COMPREPLY+=("$(_nt_quote_completion "$value")")
     done
 }
 
@@ -135,7 +141,7 @@ _nt_complete_metadata_expr() {
         done
         COMPREPLY=()
         for tag in "${candidates[@]}"; do
-            [[ "$tag" == "$token"* ]] && COMPREPLY+=("$tag")
+            [[ "$tag" == "$token"* ]] && COMPREPLY+=("$(_nt_quote_completion "$tag")")
         done
         return 0
     fi
@@ -219,7 +225,7 @@ _nt_complete_list_filter() {
         mapfile -t tags < <(_nt_tag_values)
         COMPREPLY=()
         for tag in "${tags[@]}"; do
-            [[ "${outer_prefix}#${tag}" == "$(_nt_current_token)"* ]] && COMPREPLY+=("${outer_prefix}#${tag}")
+            [[ "${outer_prefix}#${tag}" == "$(_nt_current_token)"* ]] && COMPREPLY+=("$(_nt_quote_completion "${outer_prefix}#${tag}")")
         done
         return
     fi
@@ -272,8 +278,8 @@ _nt_complete_update_set_values() {
     local -a all=("$@") candidates=()
     token="$(_nt_current_token)"
     for value in "${all[@]}"; do
-        [[ "+${value}" == "$token"* ]] && candidates+=("+${value}")
-        [[ "-${value}" == "$token"* ]] && candidates+=("-${value}")
+        [[ "+${value}" == "$token"* ]] && candidates+=("$(_nt_quote_completion "+${value}")")
+        [[ "-${value}" == "$token"* ]] && candidates+=("$(_nt_quote_completion "-${value}")")
     done
     COMPREPLY=("${candidates[@]}")
 }
