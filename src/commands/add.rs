@@ -45,7 +45,13 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
 
     index.upsert_note_with_body(note, &body);
     if let Err(err) = index.save() {
-        let _ = fs::remove_file(&path);
+        if let Err(rollback_err) = fs::remove_file(&path) {
+            return Err(NtError::rollback_failed(
+                "saving index",
+                err,
+                rollback_err.into(),
+            ));
+        }
         return Err(err);
     }
 

@@ -137,7 +137,9 @@ pub(super) fn open(id: &str) -> Result<()> {
 
     index.upsert_note_with_body(updated, &body);
     if let Err(err) = index.save() {
-        let _ = atomic_write(&note_path, &original_body);
+        if let Err(rollback_err) = atomic_write(&note_path, &original_body) {
+            return Err(NtError::rollback_failed("saving index", err, rollback_err));
+        }
         return Err(err);
     }
 

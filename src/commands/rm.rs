@@ -27,14 +27,23 @@ pub(super) fn rm(ids: &[String]) -> Result<()> {
 
     for (position, (note, _)) in notes.iter().enumerate() {
         if let Err(err) = fs::remove_file(&note.path) {
-            restore_removed_notes(&notes[..position]);
-            return Err(err.into());
+            let err = err.into();
+            if let Err(rollback_err) = restore_removed_notes(&notes[..position]) {
+                return Err(NtError::rollback_failed(
+                    "removing note files",
+                    err,
+                    rollback_err,
+                ));
+            }
+            return Err(err);
         }
     }
 
     index.remove_notes(ids.iter().map(String::as_str));
     if let Err(err) = index.save() {
-        restore_removed_notes(&notes);
+        if let Err(rollback_err) = restore_removed_notes(&notes) {
+            return Err(NtError::rollback_failed("saving index", err, rollback_err));
+        }
         return Err(err);
     }
 
@@ -44,8 +53,9 @@ pub(super) fn rm(ids: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn restore_removed_notes(notes: &[(crate::index::NoteMeta, Vec<u8>)]) {
+fn restore_removed_notes(notes: &[(crate::index::NoteMeta, Vec<u8>)]) -> Result<()> {
     for (note, body) in notes {
-        let _ = atomic_write(&note.path, body);
+        atomic_write(&note.path, body)?;
     }
+    Ok(())
 }
