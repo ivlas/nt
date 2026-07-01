@@ -1,3 +1,4 @@
+use crate::display::joined_or_dash;
 use crate::error::{NtError, Result};
 use crate::fs::relative_to_cwd;
 use crate::index::NoteMeta;
@@ -101,10 +102,10 @@ impl ListField {
             Self::Scheduled => optional(&note.scheduled),
             Self::Due => optional(&note.due),
             Self::Closed => optional(&note.closed),
-            Self::Tag => values(&note.tags),
-            Self::Collection => values(&note.collections),
-            Self::Link => values(&note.links),
-            Self::Source => values(&note.sources),
+            Self::Tag => joined_or_dash(&note.tags),
+            Self::Collection => joined_or_dash(&note.collections),
+            Self::Link => joined_or_dash(&note.links),
+            Self::Source => joined_or_dash(&note.sources),
         }
     }
 
@@ -131,12 +132,4 @@ impl ListField {
 
 fn optional(value: &Option<String>) -> String {
     value.clone().unwrap_or_else(|| "-".to_string())
-}
-
-fn values(values: &[String]) -> String {
-    if values.is_empty() {
-        "-".to_string()
-    } else {
-        values.join(",")
-    }
 }

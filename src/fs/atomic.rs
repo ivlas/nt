@@ -8,38 +8,29 @@ use crate::error::{NtError, Result};
 const TMP_CREATE_ATTEMPTS: usize = 16;
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    atomic_write_with_nonce(path, bytes, tmp_nonce())
+    with_temp_retry(path, bytes, tmp_nonce(), write_and_rename)
 }
 
+#[cfg(test)]
 fn atomic_write_with_nonce(path: &Path, bytes: &[u8], nonce: u128) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| NtError::Message(format!("path has no parent: {}", path.display())))?;
-    fs::create_dir_all(parent)?;
-
-    for attempt in 0..TMP_CREATE_ATTEMPTS {
-        let tmp_path = parent.join(tmp_name(path, nonce, attempt));
-        match write_and_rename(&tmp_path, path, bytes) {
-            Ok(()) => return Ok(()),
-            Err(TempWriteError::TempExists) => continue,
-            Err(TempWriteError::Other(err)) => {
-                let _ = fs::remove_file(&tmp_path);
-                return Err(err);
-            }
-        }
-    }
-
-    Err(NtError::Message(format!(
-        "could not create temporary file for {} after {TMP_CREATE_ATTEMPTS} attempts",
-        path.display()
-    )))
+    with_temp_retry(path, bytes, nonce, write_and_rename)
 }
 
 pub fn create_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    create_new_file_with_nonce(path, bytes, tmp_nonce())
+    with_temp_retry(path, bytes, tmp_nonce(), write_and_rename_new)
 }
 
+#[cfg(test)]
 fn create_new_file_with_nonce(path: &Path, bytes: &[u8], nonce: u128) -> Result<()> {
+    with_temp_retry(path, bytes, nonce, write_and_rename_new)
+}
+
+fn with_temp_retry(
+    path: &Path,
+    bytes: &[u8],
+    nonce: u128,
+    rename_fn: fn(&Path, &Path, &[u8]) -> std::result::Result<(), TempWriteError>,
+) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| NtError::Message(format!("path has no parent: {}", path.display())))?;
@@ -47,7 +38,7 @@ fn create_new_file_with_nonce(path: &Path, bytes: &[u8], nonce: u128) -> Result<
 
     for attempt in 0..TMP_CREATE_ATTEMPTS {
         let tmp_path = parent.join(tmp_name(path, nonce, attempt));
-        match write_and_rename_new(&tmp_path, path, bytes) {
+        match rename_fn(&tmp_path, path, bytes) {
             Ok(()) => return Ok(()),
             Err(TempWriteError::TempExists) => continue,
             Err(TempWriteError::Other(err)) => {

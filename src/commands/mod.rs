@@ -106,38 +106,29 @@ fn is_terminal_status(status: &str) -> bool {
     matches!(status, "done" | "dropped")
 }
 
-fn validate_collection(collection: &str) -> Result<()> {
-    if collection.trim().is_empty() {
-        return Err(NtError::Message("empty collection name".to_string()));
+fn validate_lowercase_name(value: &str, kind: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(NtError::Message(format!("empty {kind} name")));
     }
 
-    if collection
+    if value
         .chars()
         .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
     {
         return Err(NtError::Message(format!(
-            "invalid collection `{collection}`; use lowercase names without spaces or commas"
+            "invalid {kind} `{value}`; use lowercase names without spaces or commas"
         )));
     }
 
     Ok(())
 }
 
+fn validate_collection(collection: &str) -> Result<()> {
+    validate_lowercase_name(collection, "collection")
+}
+
 fn validate_tag(tag: &str) -> Result<()> {
-    if tag.trim().is_empty() {
-        return Err(NtError::Message("empty tag".to_string()));
-    }
-
-    if tag
-        .chars()
-        .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
-    {
-        return Err(NtError::Message(format!(
-            "invalid tag `{tag}`; use lowercase names without spaces or commas"
-        )));
-    }
-
-    Ok(())
+    validate_lowercase_name(tag, "tag")
 }
 
 fn validate_source(source: &str) -> Result<()> {
