@@ -351,7 +351,8 @@ nt update <id> <field> <value>
 ```
 
 Changes exactly one primary metadata field and prints
-`updated <id> <field> <value>`.
+`updated <id> <field> <value>`. Every successful metadata update refreshes the
+note's `updated` timestamp.
 
 Single-value fields:
 

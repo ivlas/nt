@@ -889,6 +889,11 @@ fn collection_and_status_commands_validate_and_update_index_only() {
     let second = run_nt_with_stdin(&home, &["note"], "# Second\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
+    let old_updated = "2000-01-01T00:00:00Z";
+    let mut index = read_index(&home);
+    index["notes"][first_id]["updated"] = serde_json::Value::String(old_updated.to_string());
+    write_index(&home, &index);
+
     assert_failed(
         &home,
         &["update", "bad-id", "collection", "+projects/nt"],
@@ -924,6 +929,11 @@ fn collection_and_status_commands_validate_and_update_index_only() {
     assert_eq!(
         collected.trim(),
         format!("updated {first_id} collection +projects/nt")
+    );
+    let index = read_index(&home);
+    assert_ne!(
+        index["notes"][first_id]["updated"].as_str(),
+        Some(old_updated)
     );
     let collected_again = run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
     assert_eq!(
