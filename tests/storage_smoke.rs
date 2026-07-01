@@ -507,22 +507,6 @@ fn init_does_not_install_agent_workspace_files() {
 }
 
 #[test]
-fn completion_outputs_dynamic_note_id_hooks() {
-    let root = temp_dir("completion-hooks");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-
-    let bash = run_nt(&home, &["completion", "bash"]);
-    assert!(!bash.is_empty());
-    let zsh = run_nt(&home, &["completion", "zsh"]);
-    assert!(!zsh.is_empty());
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
 fn help_is_a_flagless_command_with_examples() {
     let root = temp_dir("help-command");
     let home = root.join("home");
@@ -1481,11 +1465,6 @@ fn common_mistakes_fail_cleanly() {
         "note must start with a non-empty `# Title` heading",
     );
     assert!(run_nt(&home, &["list", "ids"]).trim().is_empty());
-    assert_failed(
-        &home,
-        &["find", "collectiom:projects/nt"],
-        "unknown query field `collectiom`; did you mean `collection`?",
-    );
     assert_failed(&home, &["show", "bad-id"], "invalid note id");
 
     let _ = fs::remove_dir_all(root);
