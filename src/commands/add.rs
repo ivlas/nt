@@ -134,10 +134,16 @@ impl CreationMetadata {
     }
 
     fn apply(self, kind: CreationKind, note: &mut NoteMeta, now: &str) {
+        let status = if kind == CreationKind::Todo && self.status.is_none() {
+            Some("open".to_string())
+        } else {
+            self.status
+        };
+
         if kind == CreationKind::Todo {
             note.kind = "todo".to_string();
         }
-        apply_status_transition(note, self.status, now);
+        apply_status_transition(note, status, now);
         note.priority = self.priority;
         note.scheduled = self.scheduled;
         note.due = self.due;
@@ -365,5 +371,17 @@ mod tests {
         assert_eq!(note.priority.as_deref(), Some("A"));
         assert_eq!(note.scheduled.as_deref(), Some("2026-06-25"));
         assert_eq!(note.due.as_deref(), Some("2026-06-30"));
+    }
+
+    #[test]
+    fn todo_metadata_defaults_status_to_open() {
+        let metadata = CreationMetadata::parse(CreationKind::Todo, &[], &Index::default()).unwrap();
+        let mut note = note("NT20260528T143012");
+
+        metadata.apply(CreationKind::Todo, &mut note, "2026-05-28T14:30:12Z");
+
+        assert_eq!(note.kind, "todo");
+        assert_eq!(note.status.as_deref(), Some("open"));
+        assert_eq!(note.closed, None);
     }
 }

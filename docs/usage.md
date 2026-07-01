@@ -40,7 +40,7 @@ saved NT20260620T101500
 Use `nt todo` for actionable notes:
 
 ```sh
-cat <<'EOF' | nt todo status:open priority:A due:2026-06-30 tag:release link:NT20260620T101500
+cat <<'EOF' | nt todo priority:A due:2026-06-30 tag:release link:NT20260620T101500
 # Prepare the release
 
 Run all release checks.
@@ -49,7 +49,9 @@ EOF
 
 Repeat `tag:`, `collection:`, `link:`, and `source:` for multiple values. Tags,
 collections, and links also accept comma-separated values. URLs in the body are
-automatically added to the note's source metadata.
+automatically added to the note's source metadata. New todos default to
+`status:open`; pass `status:<status>` to create a waiting, done, or dropped
+todo directly.
 
 ## Find And Read
 

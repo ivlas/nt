@@ -84,7 +84,7 @@ Help:
 
 Examples:
   nt init notes
-  nt todo status:open
+  nt todo priority:A
   nt find tag:decision qemu
   nt show NT20260528T143012
 "#;
@@ -100,11 +100,12 @@ Examples:
 
 const TODO: &str = r#"nt todo [metadata...]
 
-Read CommonMark from stdin or $EDITOR and create a kind:todo note. Metadata
-fields are status, priority, scheduled, due, tag, collection, link, and source.
+Read CommonMark from stdin or $EDITOR and create a kind:todo note. New todos
+default to status:open. Metadata fields are status, priority, scheduled, due,
+tag, collection, link, and source.
 
 Examples:
-  nt todo status:open priority:A due:2026-06-30
+  nt todo priority:A due:2026-06-30
 "#;
 
 const REBUILD: &str = r#"nt rebuild
@@ -233,9 +234,10 @@ Todo metadata:
   status:<status> priority:<priority> scheduled:<date> due:<date>
   tag:<tag>[,<tag>...] collection:<name>[,<name>...]
   link:<id>[,<id>...] source:<value>
+  New todos default to status:open.
   Example:
     printf '%s\n' '# Release' '' 'Ship the build.' |
-      nt todo status:open priority:A due:2026-06-30
+      nt todo priority:A due:2026-06-30
 
 List:
   projections  all | <field>[,<field>...]
@@ -345,7 +347,7 @@ mod tests {
             "not:<expr>",
             "+<value> or -<value>",
             "nt note tag:qemu collection:research/vm",
-            "nt todo status:open priority:A due:2026-06-30",
+            "nt todo priority:A due:2026-06-30",
             "NTYYYYMMDDTHHmmss",
             "YYYY-MM-DD",
         ] {

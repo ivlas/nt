@@ -1162,11 +1162,14 @@ fn add_accepts_creation_metadata() {
 
     let shown = run_nt(&home, &["show", id]);
     assert!(shown.contains("kind todo"));
-    assert!(shown.contains("status -"));
+    assert!(shown.contains("status open"));
     assert!(shown.contains("tags firecracker,qemu,research"));
     assert!(shown.contains("collections projects/nt"));
     assert!(shown.contains(&format!("links {first_id},{second_id}")));
     assert!(shown.contains("sources https://example.com/vm,https://manual.example/spec"));
+
+    let agenda = run_nt(&home, &["agenda"]);
+    assert_eq!(note_ids(&agenda), vec![id]);
 
     let _ = fs::remove_dir_all(root);
 }

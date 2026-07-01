@@ -105,7 +105,8 @@ nt todo [metadata...]
 
 Reads CommonMark from stdin, or opens `$EDITOR` when stdin is a terminal, and
 creates a `kind:todo` note. The first non-empty line must be a non-empty
-`# Title` heading. Success prints `saved <id>`.
+`# Title` heading. New todos default to `status:open` unless `status:<status>`
+is supplied. Success prints `saved <id>`.
 
 Todo metadata:
 
@@ -126,7 +127,7 @@ order. URLs found in the body are merged into sources.
 
 ```sh
 printf '%s\n' '# Release' '' 'Run checks.' \
-  | nt todo status:open priority:A due:2026-06-30 tag:release
+  | nt todo priority:A due:2026-06-30 tag:release
 ```
 
 ## rebuild
