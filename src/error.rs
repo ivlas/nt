@@ -43,3 +43,22 @@ impl NtError {
 }
 
 pub type Result<T> = std::result::Result<T, NtError>;
+
+#[cfg(test)]
+mod tests {
+    use super::NtError;
+
+    #[test]
+    fn rollback_failed_message_includes_both_errors() {
+        let err = NtError::rollback_failed(
+            "saving index",
+            NtError::Message("index write failed".to_string()),
+            NtError::Message("note cleanup failed".to_string()),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("saving index failed and rollback failed"));
+        assert!(message.contains("original error: index write failed"));
+        assert!(message.contains("rollback error: note cleanup failed"));
+    }
+}
