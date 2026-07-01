@@ -11,7 +11,8 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "init" => Ok(
             "nt init <notes-dir>\n\nCreate and select a flat note vault.\n\nExamples:\n  nt init notes\n",
         ),
-        "add" => Ok(ADD),
+        "note" => Ok(NOTE),
+        "todo" => Ok(TODO),
         "rebuild" => Ok(REBUILD),
         "list" => Ok(LIST),
         "find" => Ok(FIND),
@@ -56,7 +57,8 @@ Usage:
 
 Getting started:
   init <notes-dir>                    create and select a vault
-  add [metadata...]                   add a CommonMark note
+  note [metadata...]                  add a CommonMark note
+  todo [metadata...]                  add an actionable CommonMark todo
   list [projection] [filter...]       list notes and metadata
   find <expr...>                      find notes by query expressions
 
@@ -82,18 +84,27 @@ Help:
 
 Examples:
   nt init notes
-  nt add kind:todo status:open
+  nt todo status:open
   nt find tag:decision qemu
   nt show NT20260528T143012
 "#;
 
-const ADD: &str = r#"nt add [metadata...]
+const NOTE: &str = r#"nt note [metadata...]
 
-Read CommonMark from stdin or $EDITOR. Metadata fields are tag, kind, status,
-priority, scheduled, due, collection, link, and source.
+Read CommonMark from stdin or $EDITOR. Metadata fields are tag, collection,
+link, and source.
 
 Examples:
-  nt add kind:todo status:open priority:A due:2026-06-30
+  nt note tag:storage collection:projects/nt
+"#;
+
+const TODO: &str = r#"nt todo [metadata...]
+
+Read CommonMark from stdin or $EDITOR and create a kind:todo note. Metadata
+fields are status, priority, scheduled, due, tag, collection, link, and source.
+
+Examples:
+  nt todo status:open priority:A due:2026-06-30
 "#;
 
 const REBUILD: &str = r#"nt rebuild
@@ -193,7 +204,8 @@ const REFERENCE: &str = r#"nt CLI reference
 Commands:
   nt
   nt init <notes-dir>
-  nt add [metadata...]
+  nt note [metadata...]
+  nt todo [metadata...]
   nt rebuild
   nt list [projection] [filter...]
   nt find <expr...>
@@ -209,15 +221,21 @@ Commands:
   nt help [command...]
   nt help reference
 
-Add metadata:
-  kind:<kind> status:<status> priority:<priority>
-  scheduled:<date> due:<date>
+Note metadata:
   tag:<tag>[,<tag>...] collection:<name>[,<name>...]
   link:<id>[,<id>...] source:<value>
   Set metadata is repeatable; commas in source values are literal.
   Example:
     printf '%s\n' '# Research' '' 'Compare runtimes.' |
-      nt add kind:research tag:qemu collection:research/vm
+      nt note tag:qemu collection:research/vm
+
+Todo metadata:
+  status:<status> priority:<priority> scheduled:<date> due:<date>
+  tag:<tag>[,<tag>...] collection:<name>[,<name>...]
+  link:<id>[,<id>...] source:<value>
+  Example:
+    printf '%s\n' '# Release' '' 'Ship the build.' |
+      nt todo status:open priority:A due:2026-06-30
 
 List:
   projections  all | <field>[,<field>...]
@@ -243,19 +261,20 @@ Update:
                  use <value>; use - to clear
   set fields     tag collection link source
                  use +<value> or -<value>
+  todo fields    status priority scheduled due require kind:todo when setting
   closed is system-managed; clearing kind resets it to note.
 
 Values:
   id          NTYYYYMMDDTHHmmss
   date        YYYY-MM-DD
-  kind        note todo meeting decision source research project
+  kind        note todo
   status      open waiting done dropped
   priority    S A B C D
   tag/name    lowercase, no whitespace or commas
 
 Rules:
   `nt` with no arguments prints the same output as `nt help`.
-  `add` reads CommonMark from stdin or opens $EDITOR; `open` uses $EDITOR.
+  `note` and `todo` read CommonMark from stdin or open $EDITOR; `open` uses $EDITOR.
   Links target existing active notes. Dates are valid calendar dates.
   Core workflows are positional; use `nt help`, not `--help`.
   Use shell quoting for spaces: body:'microvm jailer'.
@@ -273,7 +292,8 @@ mod tests {
         for topic in [
             "",
             "init",
-            "add",
+            "note",
+            "todo",
             "rebuild",
             "list",
             "find",
@@ -307,7 +327,8 @@ mod tests {
 
         for section in [
             "Commands:",
-            "Add metadata:",
+            "Note metadata:",
+            "Todo metadata:",
             "List:",
             "Find:",
             "Update:",
@@ -323,7 +344,8 @@ mod tests {
             "body:<term>",
             "not:<expr>",
             "+<value> or -<value>",
-            "nt add kind:research tag:qemu collection:research/vm",
+            "nt note tag:qemu collection:research/vm",
+            "nt todo status:open priority:A due:2026-06-30",
             "NTYYYYMMDDTHHmmss",
             "YYYY-MM-DD",
         ] {
@@ -352,7 +374,8 @@ mod tests {
 
         for usage in [
             "init <notes-dir>",
-            "add [metadata...]",
+            "note [metadata...]",
+            "todo [metadata...]",
             "list [projection] [filter...]",
             "find <expr...>",
             "show <id>",

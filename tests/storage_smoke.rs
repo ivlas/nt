@@ -47,20 +47,18 @@ fn config_vault_lists_and_switches_active_vault() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
     let first = run_nt_with_stdin(
         &home,
-        &["add", "tag:first-vault"],
+        &["todo", "tag:first-vault", "status:open"],
         "# First vault\n\nbody one.\n",
     );
     let first_id = first.trim().strip_prefix("saved ").unwrap().to_string();
-    run_nt(&home, &["update", &first_id, "status", "open"]);
 
     run_nt(&home, &["init", research.to_str().unwrap()]);
     let second = run_nt_with_stdin(
         &home,
-        &["add", "tag:second-vault"],
+        &["todo", "tag:second-vault", "status:open"],
         "# Second vault\n\nbody two.\n",
     );
     let second_id = second.trim().strip_prefix("saved ").unwrap().to_string();
-    run_nt(&home, &["update", &second_id, "status", "open"]);
 
     let vaults = run_nt(&home, &["config", "vault"]);
     assert!(vaults.contains(&format!("- notes {}", notes.display())));
@@ -113,7 +111,7 @@ fn index_mutations_reject_existing_lock() {
     let other = root.join("other");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
-    let added = run_nt_with_stdin(&home, &["add"], "# Locked note\n\nbody.\n");
+    let added = run_nt_with_stdin(&home, &["note"], "# Locked note\n\nbody.\n");
     let id = added.trim().strip_prefix("saved ").unwrap().to_string();
 
     fs::write(home.join(".nt/index.lock"), "test lock\n").unwrap();
@@ -121,7 +119,7 @@ fn index_mutations_reject_existing_lock() {
 
     assert_failed_with_stdin(
         &home,
-        &["add"],
+        &["note"],
         "# Blocked add\n\nbody.\n",
         &format!("index is locked: {lock_path}; remove it if no nt mutation is running"),
     );
@@ -159,9 +157,12 @@ fn index_mutations_recover_stale_pid_lock() {
     let notes = root.join("notes");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
-    let added = run_nt_with_stdin(&home, &["add"], "# Stale lock\n\nbody.\n");
+    let added = run_nt_with_stdin(&home, &["note"], "# Stale lock\n\nbody.\n");
     let id = added.trim().strip_prefix("saved ").unwrap().to_string();
 
+    fs::write(home.join(".nt/index.lock"), "999999\n").unwrap();
+
+    run_nt(&home, &["update", &id, "kind", "todo"]);
     fs::write(home.join(".nt/index.lock"), "999999\n").unwrap();
 
     let updated = run_nt(&home, &["update", &id, "status", "open"]);
@@ -296,7 +297,7 @@ fn new_user_release_readiness_smoke_flow() {
 
     let saved = run_nt_with_stdin(
         &home,
-        &["add", "tag:rust", "kind:note", "status:open"],
+        &["note", "tag:rust"],
         "# Rust Ownership\n\nBorrow checker notes.\n",
     );
     let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
@@ -316,7 +317,7 @@ fn new_user_release_readiness_smoke_flow() {
     let shown = run_nt(&home, &["show", &id]);
     assert!(shown.contains(&format!("{id}  Rust Ownership")));
     assert!(shown.contains("kind note"));
-    assert!(shown.contains("status open"));
+    assert!(shown.contains("status -"));
     assert!(shown.contains("tags rust"));
     assert!(shown.contains("# Rust Ownership\n\nBorrow checker notes."));
 
@@ -347,7 +348,7 @@ fn new_user_release_readiness_smoke_flow() {
     let rebuilt = run_nt(&home, &["rebuild"]);
     assert_eq!(rebuilt.trim(), "rebuilt 1");
     let index = read_index(&home);
-    assert_eq!(index["notes"][id.as_str()]["status"].as_str(), Some("open"));
+    assert!(index["notes"][id.as_str()]["status"].is_null());
     assert_eq!(
         index["notes"][id.as_str()]["tags"].as_array().unwrap(),
         &vec![serde_json::Value::String("rust".to_string())]
@@ -360,7 +361,7 @@ fn new_user_release_readiness_smoke_flow() {
     assert_eq!(run_nt(&home, &["list", "ids"]).trim(), id);
     assert_eq!(run_nt(&home, &["list", "tags"]).trim(), "rust");
     let status = run_nt(&home, &["find", "status:open"]);
-    assert_eq!(summary_ids(&status), vec![id.as_str()]);
+    assert!(status.trim().is_empty());
     let config = run_nt(&home, &["config", "show"]);
     assert!(config.contains("vault notes"));
     assert!(config.contains(&vault.display().to_string()));
@@ -393,7 +394,7 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
 
     run_nt(&home, &["update", first_id, "tag", "+storage"]);
     run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
-    run_nt(&home, &["update", first_id, "kind", "decision"]);
+    run_nt(&home, &["update", first_id, "kind", "todo"]);
     run_nt(&home, &["update", first_id, "status", "open"]);
     run_nt(
         &home,
@@ -427,7 +428,7 @@ fn rebuild_reconstructs_active_vault_index_from_markdown() {
 
     let shown = run_nt(&home, &["show", first_id]);
     assert!(shown.contains(&format!("{first_id}  Refreshed")));
-    assert!(shown.contains("kind decision"));
+    assert!(shown.contains("kind todo"));
     assert!(shown.contains("status open"));
     assert!(shown.contains("tags storage"));
     assert!(shown.contains("collections projects/nt"));
@@ -545,7 +546,7 @@ fn open_uses_editor_and_updates_visible_note() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let saved = run_nt_with_stdin(&home, &["add"], "# Original\n\nbody one.\n");
+    let saved = run_nt_with_stdin(&home, &["note"], "# Original\n\nbody one.\n");
     let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
 
     fs::write(
@@ -633,7 +634,7 @@ fn piped_list_and_show_output_stay_plain() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let saved = run_nt_with_stdin(&home, &["add", "tag:plain"], "# Plain\n\nbody.\n");
+    let saved = run_nt_with_stdin(&home, &["note", "tag:plain"], "# Plain\n\nbody.\n");
     let id = saved.trim().strip_prefix("saved ").unwrap();
 
     let listed = run_nt(&home, &["list"]);
@@ -659,11 +660,11 @@ fn list_projects_fields_and_applies_structured_filters() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
     let first = run_nt_with_stdin(
         &home,
-        &["add", "tag:design", "status:open", "kind:decision"],
+        &["todo", "tag:design", "status:open"],
         "# First decision\n\nbody.\n",
     );
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add", "tag:draft"], "# Second note\n\nbody.\n");
+    let second = run_nt_with_stdin(&home, &["note", "tag:draft"], "# Second note\n\nbody.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
     let ids = run_nt(&home, &["list", "id"]);
@@ -707,16 +708,16 @@ fn metadata_commands_route_through_visible_index() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nbody two.\n");
+    let second = run_nt_with_stdin(&home, &["note"], "# Second\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
     run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
     run_nt(&home, &["update", first_id, "tag", "+storage"]);
     run_nt(&home, &["update", second_id, "collection", "+projects/nt"]);
     run_nt(&home, &["update", second_id, "tag", "+storage"]);
-    run_nt(&home, &["update", first_id, "kind", "decision"]);
+    run_nt(&home, &["update", first_id, "kind", "todo"]);
     run_nt(&home, &["update", first_id, "status", "open"]);
     run_nt(
         &home,
@@ -780,7 +781,7 @@ fn metadata_commands_route_through_visible_index() {
     assert_eq!(exact_link, link_metadata);
     let composed_links = run_nt(
         &home,
-        &["list", "links", &format!("to:{second_id}"), "kind:decision"],
+        &["list", "links", &format!("to:{second_id}"), "tag:storage"],
     );
     assert_eq!(composed_links, link_metadata);
     let no_outbound_links = run_nt(&home, &["list", "links", &format!("id:{second_id}")]);
@@ -791,7 +792,7 @@ fn metadata_commands_route_through_visible_index() {
         &[
             "find",
             "tag:storage",
-            "kind:decision",
+            "tag:storage",
             "status:open",
             "collection:projects/nt",
             &format!("link:{second_id}"),
@@ -830,16 +831,14 @@ fn export_writes_front_matter_copies_from_index() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
     let link = format!("link:{first_id}");
     let second = run_nt_with_stdin(
         &home,
         &[
-            "add",
+            "todo",
             "tag:storage",
-            "kind:decision",
-            "status:open",
             "collection:projects/nt",
             "source:https://example.com/spec",
             &link,
@@ -885,9 +884,9 @@ fn collection_and_status_commands_validate_and_update_index_only() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nbody one.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nbody two.\n");
+    let second = run_nt_with_stdin(&home, &["note"], "# Second\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
 
     assert_failed(
@@ -1006,7 +1005,7 @@ fn failed_updates_leave_index_bytes_unchanged() {
     let notes = root.join("notes");
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
-    let saved = run_nt_with_stdin(&home, &["add"], "# Stable\n\nbody.\n");
+    let saved = run_nt_with_stdin(&home, &["note"], "# Stable\n\nbody.\n");
     let id = saved.trim().strip_prefix("saved ").unwrap();
     let index_path = home.join(".nt/index.json");
     let original = fs::read(&index_path).unwrap();
@@ -1061,8 +1060,7 @@ fn agenda_metadata_round_trips_through_commands_export_and_rebuild() {
     let saved = run_nt_with_stdin(
         &home,
         &[
-            "add",
-            "kind:todo",
+            "todo",
             "status:open",
             "priority:A",
             "scheduled:2099-06-25",
@@ -1132,20 +1130,18 @@ fn add_accepts_creation_metadata() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First source\n\nbody one.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First source\n\nbody one.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add"], "# Second source\n\nbody two.\n");
+    let second = run_nt_with_stdin(&home, &["note"], "# Second source\n\nbody two.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
     let links = format!("link:{first_id},{second_id}");
 
     let saved = run_nt_with_stdin(
         &home,
         &[
-            "add",
+            "todo",
             "tag:qemu,firecracker",
             "tag:research",
-            "kind:decision",
-            "status:open",
             "collection:projects/nt",
             "source:https://manual.example/spec",
             &links,
@@ -1155,8 +1151,8 @@ fn add_accepts_creation_metadata() {
     let id = saved.trim().strip_prefix("saved ").unwrap();
 
     let shown = run_nt(&home, &["show", id]);
-    assert!(shown.contains("kind decision"));
-    assert!(shown.contains("status open"));
+    assert!(shown.contains("kind todo"));
+    assert!(shown.contains("status -"));
     assert!(shown.contains("tags firecracker,qemu,research"));
     assert!(shown.contains("collections projects/nt"));
     assert!(shown.contains(&format!("links {first_id},{second_id}")));
@@ -1176,10 +1172,8 @@ fn find_supports_documented_query_forms() {
     let saved = run_nt_with_stdin(
         &home,
         &[
-            "add",
+            "todo",
             "tag:qemu",
-            "kind:decision",
-            "status:open",
             "collection:projects/nt",
             "source:https://firecracker.example/spec",
         ],
@@ -1191,7 +1185,7 @@ fn find_supports_documented_query_forms() {
 
     let draft = run_nt_with_stdin(
         &home,
-        &["add", "tag:qemu", "tag:draft"],
+        &["note", "tag:qemu", "tag:draft"],
         "# Draft\n\nQEMU draft note.\n",
     );
     let draft_id = draft.trim().strip_prefix("saved ").unwrap();
@@ -1207,8 +1201,7 @@ fn find_supports_documented_query_forms() {
         &[
             "find",
             "title:decision",
-            "kind:decision",
-            "status:open",
+            "kind:todo",
             "collection:projects/nt",
             "source:firecracker",
             &format!("day:{day}"),
@@ -1247,7 +1240,7 @@ fn find_uses_visible_body_term_indexes() {
 
     let saved = run_nt_with_stdin(
         &home,
-        &["add"],
+        &["note"],
         "# Runtime Heading\n\nAlpha-only body term with beta details.\n",
     );
     let id = saved.trim().strip_prefix("saved ").unwrap();
@@ -1287,7 +1280,7 @@ fn find_skips_body_file_reads_when_indexed_candidates_are_empty() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let saved = run_nt_with_stdin(&home, &["add"], "# Indexed\n\noldterm only.\n");
+    let saved = run_nt_with_stdin(&home, &["note"], "# Indexed\n\noldterm only.\n");
     let id = saved.trim().strip_prefix("saved ").unwrap();
     fs::remove_file(notes.join(format!("{id}.md"))).unwrap();
 
@@ -1308,7 +1301,7 @@ fn find_reads_body_files_for_missing_body_index_entries() {
 
     let saved = run_nt_with_stdin(
         &home,
-        &["add"],
+        &["note"],
         "# Unindexed\n\nfallbackonlyterm lives only in the Markdown body.\n",
     );
     let id = saved.trim().strip_prefix("saved ").unwrap();
@@ -1339,11 +1332,11 @@ fn find_preserves_active_recent_order_with_index_candidates() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nsharedorder term.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First\n\nsharedorder term.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nsharedorder term.\n");
+    let second = run_nt_with_stdin(&home, &["note"], "# Second\n\nsharedorder term.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
-    let third = run_nt_with_stdin(&home, &["add"], "# Third\n\nsharedorder term.\n");
+    let third = run_nt_with_stdin(&home, &["note"], "# Third\n\nsharedorder term.\n");
     let third_id = third.trim().strip_prefix("saved ").unwrap();
 
     let found = run_nt(&home, &["find", "body:sharedorder"]);
@@ -1361,14 +1354,14 @@ fn rm_removes_multiple_notes_and_cleans_links() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let first = run_nt_with_stdin(&home, &["add"], "# First\n\nshared firstonly.\n");
+    let first = run_nt_with_stdin(&home, &["note"], "# First\n\nshared firstonly.\n");
     let first_id = first.trim().strip_prefix("saved ").unwrap();
-    let second = run_nt_with_stdin(&home, &["add"], "# Second\n\nshared secondonly.\n");
+    let second = run_nt_with_stdin(&home, &["note"], "# Second\n\nshared secondonly.\n");
     let second_id = second.trim().strip_prefix("saved ").unwrap();
     let kept = run_nt_with_stdin(
         &home,
         &[
-            "add",
+            "note",
             &format!("link:{first_id}"),
             &format!("link:{second_id}"),
         ],
@@ -1404,7 +1397,7 @@ fn rm_validates_every_id_before_removing_notes() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let saved = run_nt_with_stdin(&home, &["add"], "# Kept\n");
+    let saved = run_nt_with_stdin(&home, &["note"], "# Kept\n");
     let id = saved.trim().strip_prefix("saved ").unwrap();
     let missing = "NT20260101T000000";
 
@@ -1435,7 +1428,7 @@ fn find_reports_missing_note_bodies() {
 
     run_nt(&home, &["init", notes.to_str().unwrap()]);
 
-    let saved = run_nt_with_stdin(&home, &["add"], "# Missing\n\nbodyonlyterm.\n");
+    let saved = run_nt_with_stdin(&home, &["note"], "# Missing\n\nbodyonlyterm.\n");
     let id = saved.trim().strip_prefix("saved ").unwrap();
     fs::remove_file(notes.join(format!("{id}.md"))).unwrap();
 
@@ -1470,7 +1463,7 @@ fn common_mistakes_fail_cleanly() {
     run_nt(&home, &["init", notes.to_str().unwrap()]);
     assert_failed_with_stdin(
         &home,
-        &["add"],
+        &["note"],
         "## Section is not a title\n",
         "note must start with a non-empty `# Title` heading",
     );

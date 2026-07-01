@@ -95,7 +95,16 @@ impl UpdateOperation {
 
     fn apply(self, note: &mut NoteMeta, now: &str) {
         match self {
-            Self::Kind(value) => note.kind = value.unwrap_or_else(|| "note".to_string()),
+            Self::Kind(value) => {
+                note.kind = value.unwrap_or_else(|| "note".to_string());
+                if note.kind == "note" {
+                    note.status = None;
+                    note.priority = None;
+                    note.scheduled = None;
+                    note.due = None;
+                    note.closed = None;
+                }
+            }
             Self::Status(value) => apply_status_transition(note, value, now),
             Self::Priority(value) => note.priority = value,
             Self::Scheduled(value) => note.scheduled = value,
@@ -115,6 +124,29 @@ impl UpdateOperation {
                 }
             }
         }
+    }
+
+    fn validate_for_note(&self, note: &NoteMeta) -> Result<()> {
+        let field = match self {
+            Self::Status(Some(_)) => Some("status"),
+            Self::Priority(Some(_)) => Some("priority"),
+            Self::Scheduled(Some(_)) => Some("scheduled"),
+            Self::Due(Some(_)) => Some("due"),
+            Self::Status(None) | Self::Priority(None) | Self::Scheduled(None) | Self::Due(None) => {
+                None
+            }
+            Self::Kind(_) | Self::Set { .. } => None,
+        };
+
+        if let Some(field) = field
+            && note.kind != "todo"
+        {
+            return Err(NtError::Message(format!(
+                "`{field}` metadata is only valid for todo notes"
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -139,7 +171,9 @@ pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     super::ensure_note_exists(&index, id)?;
     let operation = UpdateOperation::parse(field, value, &index)?;
     let now = crate::note::timestamp_now().iso;
-    operation.apply(note_mut(&mut index, id)?, &now);
+    let note = note_mut(&mut index, id)?;
+    operation.validate_for_note(note)?;
+    operation.apply(note, &now);
     index.rebuild_derived();
     index.save()?;
     println!("updated {id} {} {value}", field_name(field));

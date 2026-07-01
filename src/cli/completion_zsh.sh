@@ -179,7 +179,7 @@ _nt_query_expr() {
             _nt_complete_prefixed_values "$outer_prefix" tag "$tags[@]"
             ;;
         collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(_nt_collection_values)}" ;;
-        kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
+        kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo ;;
         status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
         priority) _nt_complete_prefixed_values "$outer_prefix" priority S A B C D ;;
         id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt list id 2>/dev/null)}" ;;
@@ -193,7 +193,8 @@ _nt_add_metadata() {
     [[ -n "$token" ]] || token="${words[CURRENT]}"
     local field="${token%%:*}"
     local -a fields tags
-    fields=(tag: kind: status: priority: scheduled: due: collection: link: source:)
+    fields=(tag: collection: link: source:)
+    [[ "${words[1]}" == "todo" ]] && fields=(status: priority: scheduled: due: tag: collection: link: source:)
 
     if [[ "$token" != *:* ]]; then
         _nt_complete_fields "" "$fields[@]"
@@ -206,9 +207,8 @@ _nt_add_metadata() {
             _nt_complete_prefixed_list_values "" tag "$tags[@]"
             ;;
         collection) _nt_complete_prefixed_list_values "" collection "${(@f)$(_nt_collection_values)}" ;;
-        kind) _nt_complete_prefixed_values "" kind note todo meeting decision source research project ;;
-        status) _nt_complete_prefixed_values "" status open waiting done dropped ;;
-        priority) _nt_complete_prefixed_values "" priority S A B C D ;;
+        status) [[ "${words[1]}" == "todo" ]] && _nt_complete_prefixed_values "" status open waiting done dropped ;;
+        priority) [[ "${words[1]}" == "todo" ]] && _nt_complete_prefixed_values "" priority S A B C D ;;
         link) _nt_complete_prefixed_list_values "" link "${(@f)$(command nt list id 2>/dev/null)}" ;;
         source) _nt_complete_prefixed_values "" source "${(@f)$(_nt_sources)}" ;;
     esac
@@ -237,7 +237,7 @@ _nt_link_filter_arg() {
             from|to) _nt_complete_prefixed_values "" "$field" "${(@f)$(command nt list id 2>/dev/null)}" ;;
             tag) _nt_complete_prefixed_values "$outer_prefix" tag "${(@f)$(_nt_tag_values)}" ;;
             collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(_nt_collection_values)}" ;;
-            kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
+            kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo ;;
             status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
             priority) _nt_complete_prefixed_values "$outer_prefix" priority S A B C D ;;
             id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt list id 2>/dev/null)}" ;;
@@ -291,7 +291,7 @@ _nt_list_arg() {
         case "$filter_field" in
             tag) _nt_complete_prefixed_values "$outer_prefix" tag "${(@f)$(_nt_tag_values)}" ;;
             collection) _nt_complete_prefixed_values "$outer_prefix" collection "${(@f)$(_nt_collection_values)}" ;;
-            kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo meeting decision source research project ;;
+            kind) _nt_complete_prefixed_values "$outer_prefix" kind note todo ;;
             status) _nt_complete_prefixed_values "$outer_prefix" status open waiting done dropped ;;
             priority) _nt_complete_prefixed_values "$outer_prefix" priority S A B C D ;;
             id) _nt_complete_prefixed_values "$outer_prefix" id "${(@f)$(command nt list id 2>/dev/null)}" ;;
@@ -313,7 +313,7 @@ _nt_complete_update_set_values() {
 
 _nt_update_value() {
     case "$words[4]" in
-        kind) _values kinds note todo meeting decision source research project - ;;
+        kind) _values kinds note todo - ;;
         status) _values statuses open waiting done dropped - ;;
         priority) _values priorities S A B C D - ;;
         scheduled|due) _values dates - ;;

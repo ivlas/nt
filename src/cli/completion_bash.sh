@@ -175,7 +175,7 @@ _nt_complete_metadata_expr() {
     case "$field" in
         tag) mapfile -t tags < <(_nt_tag_values); _nt_complete_prefixed_values "$token" tag "${tags[@]}" ;;
         collection) mapfile -t tags < <(_nt_collection_values); _nt_complete_prefixed_values "$token" collection "${tags[@]}" ;;
-        kind) _nt_complete_prefixed_values "$token" kind note todo meeting decision source research project ;;
+        kind) _nt_complete_prefixed_values "$token" kind note todo ;;
         status) _nt_complete_prefixed_values "$token" status open waiting done dropped ;;
         priority) _nt_complete_prefixed_values "$token" priority S A B C D ;;
         id) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_values "$token" id "${ids[@]}" ;;
@@ -263,7 +263,7 @@ _nt_complete_list_filter() {
     case "$field" in
         tag) mapfile -t tags < <(_nt_tag_values); _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}tag" "${tags[@]}" ;;
         collection) mapfile -t tags < <(_nt_collection_values); _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}collection" "${tags[@]}" ;;
-        kind) _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}kind" note todo meeting decision source research project ;;
+        kind) _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}kind" note todo ;;
         status) _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}status" open waiting done dropped ;;
         priority) _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}priority" S A B C D ;;
         id) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_values "$(_nt_current_token)" "${outer_prefix}id" "${ids[@]}" ;;
@@ -297,8 +297,13 @@ _nt_complete_add_metadata() {
     token="$(_nt_current_token)"
     field="${token%%:*}"
 
+    local fields="tag: collection: link: source:"
+    if [[ "${COMP_WORDS[1]}" == "todo" ]]; then
+        fields="status: priority: scheduled: due: tag: collection: link: source:"
+    fi
+
     if [[ "$token" != *:* || "$token" == not:* || "$token" == \#* ]]; then
-        _nt_complete_metadata_expr "$token" "tag: kind: status: priority: scheduled: due: collection: link: source:"
+        _nt_complete_metadata_expr "$token" "$fields"
         return
     fi
 
@@ -307,7 +312,9 @@ _nt_complete_add_metadata() {
         collection) mapfile -t tags < <(_nt_collection_values); _nt_complete_prefixed_list_values "$token" collection "${tags[@]}" ;;
         link) mapfile -t ids < <(command nt list id 2>/dev/null); _nt_complete_prefixed_list_values "$token" link "${ids[@]}" ;;
         source) mapfile -t sources < <(_nt_source_values); _nt_complete_prefixed_values "$token" source "${sources[@]}" ;;
-        *) _nt_complete_metadata_expr "$token" "tag: kind: status: priority: scheduled: due: collection: link: source:" ;;
+        status) [[ "${COMP_WORDS[1]}" == "todo" ]] && _nt_complete_prefixed_values "$token" status open waiting done dropped ;;
+        priority) [[ "${COMP_WORDS[1]}" == "todo" ]] && _nt_complete_prefixed_values "$token" priority S A B C D ;;
+        *) _nt_complete_metadata_expr "$token" "$fields" ;;
     esac
 }
 
@@ -327,7 +334,7 @@ _nt_update_value() {
     local -a tags ids sources
     token="$(_nt_current_token)"
     case "${COMP_WORDS[3]}" in
-        kind) COMPREPLY=(); for value in note todo meeting decision source research project -; do [[ "$value" == "$token"* ]] && COMPREPLY+=("$value"); done ;;
+        kind) COMPREPLY=(); for value in note todo -; do [[ "$value" == "$token"* ]] && COMPREPLY+=("$value"); done ;;
         status) COMPREPLY=(); for value in open waiting done dropped -; do [[ "$value" == "$token"* ]] && COMPREPLY+=("$value"); done ;;
         priority) COMPREPLY=(); for value in S A B C D -; do [[ "$value" == "$token"* ]] && COMPREPLY+=("$value"); done ;;
         scheduled|due) COMPREPLY=(); [[ "-" == "$token"* ]] && COMPREPLY+=("-") ;;
@@ -352,7 +359,7 @@ _nt() {
             _nt_complete_query_expr
             return 0
             ;;
-        add:*)
+        note:*|todo:*)
             _nt_complete_add_metadata
             return 0
             ;;

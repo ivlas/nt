@@ -21,7 +21,8 @@ pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         None => crate::cli::help::print(&[]),
         Some(Command::Init { notes_dir }) => init::init(&notes_dir),
-        Some(Command::Add { metadata }) => add::add(&metadata),
+        Some(Command::Note { metadata }) => add::note(&metadata),
+        Some(Command::Todo { metadata }) => add::todo(&metadata),
         Some(Command::Rebuild) => init::rebuild(),
         Some(Command::List { args }) => list::list(&args),
         Some(Command::Find { expr }) => show::find(&expr),
@@ -147,10 +148,7 @@ fn validate_source(source: &str) -> Result<()> {
 }
 
 fn validate_kind(kind: &str) -> Result<()> {
-    if matches!(
-        kind,
-        "note" | "todo" | "meeting" | "decision" | "source" | "research" | "project"
-    ) {
+    if matches!(kind, "note" | "todo") {
         Ok(())
     } else {
         Err(NtError::Message(format!("invalid kind: {kind}")))

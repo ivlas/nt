@@ -6,7 +6,7 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
     let readme = fs::read_to_string("README.md").unwrap();
     let quickstart = markdown_section(&readme, "## Quick Start");
 
-    assert!(quickstart.contains("`nt add` prints a note id like `NT20260616T101500`."));
+    assert!(quickstart.contains("`nt note` prints a note id like `NT20260616T101500`."));
     assert!(quickstart.contains("nt show <id>"));
     assert!(quickstart.contains("nt open <id>"));
 
@@ -18,11 +18,11 @@ fn readme_quickstart_uses_supported_commands_and_explains_placeholder_id() {
     }
 
     let quickstart_commands = quickstart
-        .split("`nt add` prints a note id")
+        .split("`nt note` prints a note id")
         .next()
         .unwrap();
     let commands = nt_commands_in_shell_blocks(quickstart_commands);
-    assert_eq!(commands, vec!["init", "add", "find"]);
+    assert_eq!(commands, vec!["init", "note", "find"]);
 }
 
 #[test]
@@ -381,7 +381,8 @@ fn clean_shell_token(token: &str) -> String {
 
 const ROOT_COMMANDS: &[&str] = &[
     "init",
-    "add",
+    "note",
+    "todo",
     "rebuild",
     "list",
     "find",

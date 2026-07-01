@@ -42,7 +42,8 @@ launcher, or Hermes replacement.
 Implemented command surface (see `docs/cli-reference.md`):
 
 - `nt init <notes-dir>`
-- `nt add [metadata...]`
+- `nt note [metadata...]`
+- `nt todo [metadata...]`
 - `nt rebuild`
 - `nt list`
 - `nt list all [filter...]`
@@ -81,7 +82,7 @@ Agents should follow that file when constructing commands.
 nt find qemu firecracker
 nt find tag:decision qemu
 nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
-nt find kind:meeting
+nt find tag:meeting
 nt find status:open
 nt find collection:meetings
 nt find link:NT20260528T143012
@@ -169,12 +170,11 @@ CommonMark note bodies.
 
 Use distinct fields instead of overloading tags:
 
-- `kind`: the structural form of a note, such as `note`, `todo`, `meeting`,
-  `decision`, `source`, `research`, or `project`.
-- `status`: agenda state, such as `open`, `waiting`, `done`, or `dropped`.
-- `priority`: optional urgency ordered `S`, `A`, `B`, `C`, `D`.
-- `scheduled`: optional calendar date when a todo should appear.
-- `due`: optional calendar date for a todo, formatted as `YYYY-MM-DD`.
+- `kind`: the system shape of a note, either `note` or `todo`.
+- `status`: todo agenda state, such as `open`, `waiting`, `done`, or `dropped`.
+- `priority`: optional todo urgency ordered `S`, `A`, `B`, `C`, `D`.
+- `scheduled`: optional todo calendar date when it should appear.
+- `due`: optional todo calendar date, formatted as `YYYY-MM-DD`.
 - `closed`: system-managed UTC timestamp for the terminal status transition.
 - `collection`: where a note belongs, such as `todos`, `meetings`,
   `projects/nt`, or `research/qemu`.
@@ -214,7 +214,8 @@ When answering from notes, cite supporting note ids.
 
 Agent-driven writes require approval before mutation:
 
-- New notes: produce a CommonMark draft and ask before saving with `nt add`.
+- New notes: produce a CommonMark draft and ask before saving with `nt note` or
+  `nt todo`.
 - Note edits: produce a proposed replacement or patch, then open `$EDITOR`
   before saving.
 - Metadata updates: show planned `nt update <id> <field> <value>` commands

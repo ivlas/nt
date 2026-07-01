@@ -356,14 +356,14 @@ mod tests {
     fn matches_metadata_fields_with_and_semantics() {
         let mut index = Index::default();
         let mut note = note("NT20260528T143012");
-        note.kind = "decision".to_string();
+        note.kind = "todo".to_string();
         note.status = Some("open".to_string());
         note.collections = vec!["projects/nt".to_string()];
         note.sources = vec!["https://example.com/spec".to_string()];
         index.upsert_note(note.clone());
 
         let query = Query::parse(&[
-            "kind:decision".to_string(),
+            "kind:todo".to_string(),
             "status:open".to_string(),
             "collection:projects/nt".to_string(),
             "source:example.com".to_string(),

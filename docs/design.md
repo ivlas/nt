@@ -42,7 +42,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 | `cli/completion.rs` | Bash and Zsh completion script generation, including dynamic values. |
 | `commands/mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
 | `commands/init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
-| `commands/add.rs` | `add`, creation metadata parsing, and editor plumbing. |
+| `commands/add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `commands/show.rs` | `show`, `open`, and `find`. |
 | `commands/rm.rs` | `rm` and removal rollback. |
 | `commands/update.rs` | `update` and the update operation model. |
@@ -78,10 +78,10 @@ restore the note file if saving the index fails.
 
 ### Command Flow
 
-An `nt add` demonstrates the normal ownership and persistence flow:
+An `nt note` demonstrates the normal ownership and persistence flow:
 
-1. `clap` produces `Command::Add { metadata }`.
-2. `commands::add::add` loads and owns a mutable `Index`.
+1. `clap` produces `Command::Note { metadata }`.
+2. `commands::add::note` loads and owns a mutable `Index`.
 3. Creation metadata and the CommonMark title are validated before persistence.
 4. `note::id` allocates an unused UTC id and derives the note path.
 5. `fs::atomic_write` writes the Markdown body through a sibling temp file,
@@ -155,11 +155,10 @@ command. Both retain active-recent order and use the same candidate planner.
 
 Fields have distinct meanings instead of overloading tags:
 
-- `kind`: structural form; one of `note`, `todo`, `meeting`, `decision`,
-  `source`, `research`, or `project`
-- `status`: optional action state; `open`, `waiting`, `done`, or `dropped`
-- `priority`: optional urgency ordered `S`, `A`, `B`, `C`, `D`
-- `scheduled` and `due`: optional validated local calendar dates
+- `kind`: system shape; one of `note` or `todo`
+- `status`: optional todo action state; `open`, `waiting`, `done`, or `dropped`
+- `priority`: optional todo urgency ordered `S`, `A`, `B`, `C`, `D`
+- `scheduled` and `due`: optional todo calendar dates
 - `closed`: system-managed UTC timestamp for a terminal status transition
 - `collection`: workspace-like membership; `/` is a naming convention only
 - `tag`: sparse reusable topic or entity
@@ -203,7 +202,7 @@ is not part of the current core.
 
 Agents use the same interface. `nt` does not launch agents, install skills,
 generate agent workspaces, or keep hidden memory. Agent-driven writes should be
-drafted and approved before `nt add`, `$EDITOR`, or `nt update` mutates state.
+drafted and approved before `nt note`, `$EDITOR`, or `nt update` mutates state.
 
 ## Decision Status
 

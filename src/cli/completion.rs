@@ -87,7 +87,7 @@ mod tests {
     fn bash_completion_contains_commands_and_dynamic_note_ids() {
         let script = completion_script(Shell::Bash);
 
-        assert!(script.contains("init add rebuild list find show open"));
+        assert!(script.contains("init note todo rebuild list find show open"));
         assert!(script.contains("_nt_note_ids"));
         assert!(script.contains("_nt_complete_query_expr"));
         assert!(script.contains("_nt_complete_add_metadata"));
@@ -95,10 +95,10 @@ mod tests {
         assert!(script.contains("command nt list tags 2>/dev/null"));
         assert!(script.contains("command nt list sources 2>/dev/null"));
         assert!(script.contains("command nt config vault 2>/dev/null"));
-        assert!(
-            script
-                .contains("tag: kind: status: priority: scheduled: due: collection: link: source:")
-        );
+        assert!(script.contains("fields=\"tag: collection: link: source:\""));
+        assert!(script.contains(
+            "fields=\"status: priority: scheduled: due: tag: collection: link: source:\""
+        ));
         assert!(script.contains(
             "id: tag: title: day: since: before: kind: status: priority: scheduled: due: closed: collection: link: source: body: not:"
         ));
@@ -185,7 +185,7 @@ mod tests {
         assert!(!script.contains("lines#*$'\\t'"));
         assert!(script.contains("S A B C D -"));
         assert!(script.contains(
-            "priority) _nt_complete_prefixed_values \"$outer_prefix\" priority S A B C D"
+            "priority) [[ \"${words[1]}\" == \"todo\" ]] && _nt_complete_prefixed_values \"\" priority S A B C D"
         ));
         assert!(script.contains("candidates+=(\"+${value}\" \"-${value}\")"));
         assert!(script.contains("source) _nt_complete_update_set_values sources"));

@@ -12,11 +12,11 @@ one-record-per-line output, no hidden memory layer.
 
 ```sh
 nt init notes
-printf '%s\n' '# First Note' '' 'body text' | nt add tag:example
+printf '%s\n' '# First Note' '' 'body text' | nt note tag:example
 nt find example          # prints NT20260616T101500-style ids
 ```
 
-`nt add` prints a note id like `NT20260616T101500`.
+`nt note` prints a note id like `NT20260616T101500`.
 
 ```sh
 nt show <id>

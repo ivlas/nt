@@ -10,7 +10,7 @@ handlers.
 |---|---|
 | `mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
 | `init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
-| `add.rs` | `add`, creation metadata parsing, and editor plumbing. |
+| `add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `show.rs` | `show`, `open`, and `find`. |
 | `rm.rs` | `rm` and removal rollback. |
 | `update.rs` | `update` and the update operation model. |

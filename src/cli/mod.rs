@@ -24,7 +24,11 @@ pub enum Command {
     Init {
         notes_dir: PathBuf,
     },
-    Add {
+    Note {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        metadata: Vec<String>,
+    },
+    Todo {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         metadata: Vec<String>,
     },
@@ -117,8 +121,9 @@ mod tests {
     fn parses_target_commands() {
         let cases: &[&[&str]] = &[
             &["nt", "init", "notes"],
-            &["nt", "add"],
-            &["nt", "add", "tag:decision", "kind:note", "status:open"],
+            &["nt", "note"],
+            &["nt", "note", "tag:decision", "collection:projects/nt"],
+            &["nt", "todo", "status:open", "priority:A"],
             &["nt", "rebuild"],
             &["nt", "list"],
             &["nt", "list", "ids"],
@@ -173,10 +178,16 @@ mod tests {
             Some(Command::Init { notes_dir }) if notes_dir == PathBuf::from("notes")
         ));
 
-        let cli = Cli::parse_from(["nt", "add", "tag:decision", "kind:note", "status:open"]);
+        let cli = Cli::parse_from(["nt", "note", "tag:decision", "collection:projects/nt"]);
         assert!(matches!(
             cli.command,
-            Some(Command::Add { metadata }) if metadata == vec!["tag:decision", "kind:note", "status:open"]
+            Some(Command::Note { metadata }) if metadata == vec!["tag:decision", "collection:projects/nt"]
+        ));
+
+        let cli = Cli::parse_from(["nt", "todo", "status:open", "priority:A"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Todo { metadata }) if metadata == vec!["status:open", "priority:A"]
         ));
 
         let cli = Cli::parse_from(["nt", "rebuild"]);
@@ -310,7 +321,8 @@ mod tests {
             commands,
             vec![
                 "init",
-                "add",
+                "note",
+                "todo",
                 "rebuild",
                 "list",
                 "find",

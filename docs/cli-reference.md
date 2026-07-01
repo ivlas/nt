@@ -22,7 +22,8 @@ The top-level command surface is:
 ```text
 nt
 nt init <notes-dir>
-nt add [metadata...]
+nt note [metadata...]
+nt todo [metadata...]
 nt rebuild
 nt list
 nt list all [filter...]
@@ -69,37 +70,63 @@ initialized <vault-name> <path>
 An existing directory must contain only regular files named
 `NTYYYYMMDDTHHmmss.md`. A vault name must be unique in the index.
 
-## add
+## note
 
 ```text
-nt add [metadata...]
+nt note [metadata...]
 ```
 
 Reads CommonMark from stdin, or opens `$EDITOR` when stdin is a terminal. The
 first non-empty line must be a non-empty `# Title` heading. Success prints
 `saved <id>`.
 
-Creation metadata:
+Note metadata:
 
 | Expression | Meaning |
 |---|---|
 | `tag:<tag>[,<tag>...]` | Add one or more tags. Repeatable. |
-| `kind:<kind>` | Set one kind. |
-| `status:<status>` | Set one status. |
-| `priority:<S|A|B|C|D>` | Set one priority. |
-| `scheduled:<YYYY-MM-DD>` | Set one scheduled date. |
-| `due:<YYYY-MM-DD>` | Set one due date. |
 | `collection:<name>[,<name>...]` | Add one or more collections. Repeatable. |
 | `link:<id>[,<id>...]` | Add outbound links to existing active notes. Repeatable. |
 | `source:<value>` | Add one source string. Repeatable. Commas are literal. |
 
-Single-value fields may appear only once. `closed` is system-managed and cannot
-be supplied. Repeated values are deduplicated and stored in sorted order. URLs
-found in the body are merged into sources.
+Repeated values are deduplicated and stored in sorted order. URLs found in the
+body are merged into sources.
 
 ```sh
 printf '%s\n' '# Research' '' 'Compare runtimes.' \
-  | nt add kind:research tag:qemu,firecracker collection:research/vm
+  | nt note tag:qemu,firecracker collection:research/vm
+```
+
+## todo
+
+```text
+nt todo [metadata...]
+```
+
+Reads CommonMark from stdin, or opens `$EDITOR` when stdin is a terminal, and
+creates a `kind:todo` note. The first non-empty line must be a non-empty
+`# Title` heading. Success prints `saved <id>`.
+
+Todo metadata:
+
+| Expression | Meaning |
+|---|---|
+| `status:<status>` | Set one status. |
+| `priority:<S|A|B|C|D>` | Set one priority. |
+| `scheduled:<YYYY-MM-DD>` | Set one scheduled date. |
+| `due:<YYYY-MM-DD>` | Set one due date. |
+| `tag:<tag>[,<tag>...]` | Add one or more tags. Repeatable. |
+| `collection:<name>[,<name>...]` | Add one or more collections. Repeatable. |
+| `link:<id>[,<id>...]` | Add outbound links to existing active notes. Repeatable. |
+| `source:<value>` | Add one source string. Repeatable. Commas are literal. |
+
+Single-value todo fields may appear only once. `closed` is system-managed and
+cannot be supplied. Repeated set values are deduplicated and stored in sorted
+order. URLs found in the body are merged into sources.
+
+```sh
+printf '%s\n' '# Release' '' 'Run checks.' \
+  | nt todo status:open priority:A due:2026-06-30 tag:release
 ```
 
 ## rebuild
@@ -166,7 +193,7 @@ After an optional projection, `list` accepts `AND`-combined structured filters:
 
 ```sh
 nt list id,title,status status:open
-nt list title,tag kind:decision since:2026-06-01 not:tag:draft
+nt list title,tag tag:decision since:2026-06-01 not:tag:draft
 nt list status:waiting
 ```
 
@@ -336,6 +363,10 @@ Single-value fields:
 | `scheduled` | Valid `YYYY-MM-DD` | `-` removes the date. |
 | `due` | Valid `YYYY-MM-DD` | `-` removes the date. |
 
+Setting `status`, `priority`, `scheduled`, or `due` requires the target note to
+be `kind:todo`. Clearing those fields with `-` is allowed for cleanup. Changing
+`kind` to `note` clears `status`, `priority`, `scheduled`, `due`, and `closed`.
+
 Set-like fields require an operator:
 
 | Field | Accepted value |
@@ -456,7 +487,7 @@ query expressions, update forms, and value formats.
 Kinds:
 
 ```text
-note todo meeting decision source research project
+note todo
 ```
 
 Statuses:

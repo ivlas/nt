@@ -20,10 +20,10 @@ Initializing an existing valid directory imports its notes into the index.
 
 ## Capture Notes
 
-Pipe CommonMark to `nt add`:
+Pipe CommonMark to `nt note`:
 
 ```sh
-cat <<'EOF' | nt add tag:storage kind:decision collection:projects/nt
+cat <<'EOF' | nt note tag:storage,decision collection:projects/nt
 # Keep metadata outside Markdown
 
 The note body stays portable CommonMark.
@@ -31,16 +31,16 @@ EOF
 ```
 
 The first non-empty line must be a non-empty `# Title` heading. When stdin is a
-terminal, `nt add` opens `$EDITOR` instead. A successful add prints the new id:
+terminal, `nt note` opens `$EDITOR` instead. A successful save prints the new id:
 
 ```text
 saved NT20260620T101500
 ```
 
-Creation metadata can describe todos and relationships immediately:
+Use `nt todo` for actionable notes:
 
 ```sh
-cat <<'EOF' | nt add kind:todo status:open priority:A due:2026-06-30 tag:release link:NT20260620T101500
+cat <<'EOF' | nt todo status:open priority:A due:2026-06-30 tag:release link:NT20260620T101500
 # Prepare the release
 
 Run all release checks.
@@ -59,11 +59,11 @@ Start with cheap visible projections, then narrow the result:
 nt list
 nt list all status:done
 nt list id,title,status status:open
-nt list title,tag kind:decision
+nt list title,tag tag:decision
 nt list tags
 nt list collections
 nt list sources
-nt find kind:decision tag:storage
+nt find tag:decision tag:storage
 nt find since:2026-06-01 body:'metadata CommonMark'
 nt show NT20260620T101500
 ```
@@ -102,8 +102,6 @@ deferred and is not part of the current core.
 Change one metadata field at a time:
 
 ```sh
-nt update NT20260620T101500 kind project
-nt update NT20260620T101500 status open
 nt update NT20260620T101500 tag +storage
 nt update NT20260620T101500 collection +projects/nt
 nt update NT20260620T101500 link +NT20260619T090000
@@ -112,7 +110,8 @@ nt update NT20260620T101500 source +https://example.com/spec
 
 Set-like fields require `+value` or `-value`, making repeated updates
 idempotent. Single-value fields take a plain value and use `-` to clear; clearing
-`kind` resets it to `note`.
+`kind` resets it to `note`. Todo-only fields such as `status`, `priority`,
+`scheduled`, and `due` can be set only on todo notes.
 
 Inspect relationships with:
 
@@ -129,10 +128,9 @@ meaning; do not overload titles, tags, or collections with link types.
 
 ## Work With Todos
 
-Todos use `kind:todo` and an actionable `status`:
+Todos use `nt todo` at creation time and an actionable `status`:
 
 ```sh
-nt update NT20260620T101500 kind todo
 nt update NT20260620T101500 status open
 nt update NT20260620T101500 priority S
 nt update NT20260620T101500 scheduled 2026-06-25
