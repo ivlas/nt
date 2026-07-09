@@ -1,11 +1,13 @@
 # nt
 
-> **Status: alpha** `nt` is functional but experimental, built around my note-taking workflow and agent-based knowledge management; expect rough edges, bugs, and breaking changes.
+> **Status: alpha** `nt` is functional but experimental, built around a user-owned note-taking workflow; expect rough edges, bugs, and breaking changes.
 
 `nt` is a small CLI-native note organizer: canonical CommonMark notes in a flat
 vault, visible JSON metadata, deterministic search, and shell-friendly commands.
-Humans and agents share the same Unix interface — stdin, stdout, `$EDITOR`,
-one-record-per-line output, no hidden memory layer.
+The user owns the notes and directs every mutation. An agent may use the same
+Unix interface — stdin, stdout, `$EDITOR`, and one-record-per-line output — only
+when the user asks it to do so; there is no hidden memory layer or autonomous
+note-taking behavior.
 
 
 ## Quick Start

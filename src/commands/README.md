@@ -12,7 +12,7 @@ handlers.
 | `init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
 | `add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `show.rs` | `show`, `open`, and `find`. |
-| `rm.rs` | `rm` and removal rollback. |
+| `rm.rs` | `rm` and index removal. |
 | `update.rs` | `update` and the update operation model. |
 | `list.rs` | `list` orchestration and link graph rendering. |
 | `agenda.rs` | `agenda` sections, selection, and ordering. |

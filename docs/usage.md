@@ -1,9 +1,23 @@
 # Using nt
 
 `nt` keeps canonical CommonMark notes in a flat vault and visible metadata in
-`$HOME/.nt/index.json`. This guide covers the normal human and agent workflows.
+`$HOME/.nt/index.json`. This guide covers the user-owned workflow and how an
+agent can assist on the user's direction.
 See [cli-reference.md](cli-reference.md) for exact syntax, values, and output
 contracts, and [design.md](design.md) for architecture and design decisions.
+
+## User-Directed Use
+
+`nt` is the user's note organizer. The user can use the CLI directly or ask
+an agent to run a specific command, but an agent does not decide to capture,
+change, or remove notes on its own. Most agent work should be read-only
+retrieval: list, find, and show commands that help the user inspect their
+notes.
+
+Mutating commands assume one user-directed writer at a time; do not run them
+concurrently. If a write fails after changing a note file, inspect the visible
+files and run `nt rebuild` to reconcile the active vault with the index. Reapply
+any explicit metadata that did not reach the index.
 
 ## Install And Initialize
 
@@ -167,10 +181,12 @@ nt rebuild
 and refreshes the index. `rm` removes the body, metadata, body terms, and inbound
 links.
 
-Run `nt rebuild` after editing, adding, or deleting vault files outside `nt`.
-It preserves primary JSON metadata, preserves existing sources and merges URLs
-currently found in Markdown bodies, removes stale active-vault entries, cleans
-dangling links, and refreshes titles, file timestamps, and text indexes.
+Run `nt rebuild` after editing, adding, or deleting vault files outside `nt`,
+or after a failed mutation changed a vault file. It preserves primary JSON
+metadata, preserves existing sources and merges URLs currently found in Markdown
+bodies, removes stale active-vault entries, cleans dangling links, and refreshes
+titles, file timestamps, and text indexes. Rebuild cannot recover explicit
+metadata from a failed command if that metadata was never saved to the index.
 
 ## Export And Vaults
 
@@ -211,9 +227,9 @@ nt help find
 nt help config vault
 ```
 
-## Agent Workflow
+## User-Directed Agent Use
 
-Agents use the same commands and storage as humans:
+Agents use the same commands and storage as users, only when the user asks:
 
 ```sh
 nt list tags
@@ -226,4 +242,5 @@ nt show NT20260620T101500
 
 When answering from notes, cite note ids. Before mutations, draft the note or
 show the exact `nt update` commands and obtain approval. There is no hidden
-agent memory, agent-only command, launcher, or retrieval path.
+agent memory, agent-owned note workflow, agent-only command, launcher, or
+retrieval path.

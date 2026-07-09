@@ -111,7 +111,8 @@ Examples:
 const REBUILD: &str = r#"nt rebuild
 
 Rebuild from Markdown while preserving primary JSON metadata and merging URLs
-currently found in Markdown bodies.
+currently found in Markdown bodies. Use after out-of-band file changes or a
+failed mutation changed a note file.
 
 Examples:
   nt rebuild

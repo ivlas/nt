@@ -17,6 +17,18 @@ NTYYYYMMDDTHHmmss
 NTYYYYMMDDTHHmmss.md
 ```
 
+## User-Directed Operation
+
+`nt` is a local organizer for its user. The user can run commands
+directly or direct an agent to run a specific command. Agents have no autonomous
+note-taking or mutation workflow; their normal role is read-only inspection with
+`list`, `find`, and `show`.
+
+Mutation commands assume one user-directed writer at a time and must not run
+concurrently. If a mutation fails after changing a note file, inspect the plain
+files and run `nt rebuild` to reconcile the active vault and index. Reapply any
+explicit metadata that was not saved to the index.
+
 The top-level command surface is:
 
 ```text
@@ -342,8 +354,8 @@ nt rm <id...>
 
 Removes one or more active notes, their indexed terms, and links to them, then
 prints `removed <id>` once per note. All ids are validated before removal, and
-the index is updated and saved once. If removing a body or saving the changed
-index fails, already removed body files are restored.
+the index is updated and saved once. If a later file or index write fails, use
+`nt rebuild` to reconcile the visible vault and index.
 
 ## update
 

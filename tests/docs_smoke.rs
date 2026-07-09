@@ -41,6 +41,25 @@ fn usage_shell_workflows_use_only_core_commands() {
 }
 
 #[test]
+fn docs_describe_user_directed_agent_use_and_single_writer_mutations() {
+    for path in ["docs/usage.md", "docs/cli-reference.md", "docs/design.md"] {
+        let text = fs::read_to_string(path).unwrap();
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        assert!(
+            normalized.contains("user") && normalized.contains("direct"),
+            "{path} should describe user-directed use"
+        );
+        assert!(
+            normalized.contains("one user-directed writer at a time")
+                || normalized.contains("one user-directed writer")
+                || normalized.contains("single-writer CLI"),
+            "{path} should document the single-writer mutation model"
+        );
+    }
+}
+
+#[test]
 fn readme_links_to_core_docs() {
     let readme = fs::read_to_string("README.md").unwrap();
 

@@ -1,9 +1,9 @@
 # nt Design
 
-`nt` is a small CLI-native note organizer for humans and agents. Its product
-goal is short, deterministic `time-to-knowledge`: capture a portable note,
-narrow candidates with visible filters, retrieve an exact id, and edit the
-source directly.
+`nt` is a small CLI-native note organizer for its user. Its product goal
+is short, deterministic `time-to-knowledge`: capture a portable note, narrow
+candidates with visible filters, retrieve an exact id, and edit the source
+directly.
 
 This document records the implemented architecture, accepted constraints, and
 deferred decisions. The exact public contract is in
@@ -12,7 +12,9 @@ deferred decisions. The exact public contract is in
 ## Boundaries
 
 `nt` is built from plain CommonMark, visible JSON, and Unix process interfaces.
-Humans and agents use the same stdin, stdout, `$EDITOR`, files, and commands.
+The user owns the notes and decides every mutation. They can use the same
+stdin, stdout, `$EDITOR`, files, and commands directly or direct an agent to do
+so. An agent has no autonomous note-taking or mutation path.
 
 It is not an agent framework, RAG system, vector database, daemon, server,
 browser or runtime orchestrator, workflow engine, Codex launcher, or Hermes
@@ -44,7 +46,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 | `commands/init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
 | `commands/add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `commands/show.rs` | `show`, `open`, and `find`. |
-| `commands/rm.rs` | `rm` and removal rollback. |
+| `commands/rm.rs` | `rm` and index removal. |
 | `commands/update.rs` | `update` and the update operation model. |
 | `commands/list.rs` | `list` orchestration and link graph rendering. |
 | `commands/agenda.rs` | `agenda` sections, selection, and ordering. |
@@ -64,8 +66,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 | `note/date.rs` | Timestamps, calendar date validation, and date arithmetic. |
 | `note/body.rs` | Title extraction and URL source extraction from CommonMark bodies. |
 | `fs/paths.rs` | Home and nt-home resolution, index path, and cwd-relative paths. |
-| `fs/atomic.rs` | Atomic temp-file-and-rename writes and exclusive file creation. |
-| `fs/lock.rs` | PID-stamped index mutation lock with dead-holder recovery. |
+| `fs/atomic.rs` | Atomic temp-file-and-rename writes. |
 | `display.rs` | Stable summary and agenda records. |
 | `export.rs` | Generated front matter for exported Markdown copies. |
 | `terminal.rs` | TTY-aware ANSI color policy. |
@@ -73,8 +74,9 @@ related concerns into directories, each with a `mod.rs` entry point:
 
 Errors propagate as `Result<T, NtError>` to `main`, which prints one red error
 line to stderr when color is enabled and exits with status 1. Commands validate
-before mutation where possible. `open` and `rm` retain enough prior state to
-restore the note file if saving the index fails.
+before mutation where possible. A mutation that fails after changing a file
+leaves that visible state in place; `nt rebuild` is the explicit reconciliation
+tool.
 
 ### Command Flow
 
@@ -85,9 +87,10 @@ An `nt note` demonstrates the normal ownership and persistence flow:
 3. Creation metadata and the CommonMark title are validated before persistence.
 4. `note::id` allocates an unused UTC id and derives the note path.
 5. `fs::atomic_write` writes the Markdown body through a sibling temp file,
-   syncs it, renames it, and syncs the parent directory on Unix.
+   syncs it, then renames it into place.
 6. `Index::upsert_note_with_body` refreshes body terms and all derived maps.
-7. The JSON index is atomically saved. If this fails, the new note is removed.
+7. The JSON index is atomically saved. If this fails, the new note remains a
+   visible file for the user to inspect and reconcile with `nt rebuild`.
 8. The command prints `saved <id>`.
 
 Reads follow the same explicit route without mutation. For example, `find`
@@ -118,9 +121,11 @@ CommonMark remains visible primary JSON data and is changed through explicit
 commands. Loading an index rebuilds derived metadata maps; `nt rebuild` is the
 operation that re-reads active Markdown bodies and refreshes body indexes.
 
-Both note and index writes use temp-file-and-rename. Multi-file mutations cannot
-be one filesystem transaction, so command handlers use compensating rollback
-for the note file when the following index save fails.
+Both note and index writes use temp-file-and-rename. Multi-file mutations are
+not filesystem transactions: a failed later write can leave visible note and
+index state to reconcile with `nt rebuild`. This is an intentional trade for a
+small, user-directed, single-writer CLI rather than a hidden coordination
+layer.
 
 Multiple vaults share one index. Commands operate only on the active vault;
 vault names are directory basenames and note ids are globally keyed in the
@@ -166,8 +171,8 @@ Fields have distinct meanings instead of overloading tags:
 - `source`: external reference supplied explicitly or extracted from a body URL
 
 Set-like changes require an explicit add or remove operation. This keeps
-updates idempotent and makes an agent's intended mutation reviewable. Links do
-not require wiki syntax; active note bodies remain portable CommonMark.
+updates idempotent and makes a user-directed mutation reviewable. Links do not
+require wiki syntax; active note bodies remain portable CommonMark.
 
 Agenda behavior is also fixed: only open or waiting `todo` notes are actionable,
 each appears in exactly one default section, and ordering is date, then priority,
@@ -186,6 +191,11 @@ mutations print one short lowercase status line. Summary records keep the id
 visually dominant, and paths are relative to the current directory when
 possible.
 
+Mutation commands assume one user-directed writer at a time; concurrent
+mutations are outside the supported workflow. Read-only commands remain safe to
+run freely. The user can perform writes directly or ask an agent to perform a
+specific, approved write, but an agent never decides to mutate the vault alone.
+
 List projections use a comma-separated field argument. Interactive output has
 a header and aligned columns; redirected output is headerless and tab-separated.
 Bare `nt list` expands to the fixed summary `id`, `title`, `kind`, `status`,
@@ -200,9 +210,10 @@ ANSI color is limited to TTY output and disabled for pipes, `NO_COLOR`, or
 `fzf`, `awk`, `xargs`, and similar tools. A TUI is intentionally deferred and
 is not part of the current core.
 
-Agents use the same interface. `nt` does not launch agents, install skills,
-generate agent workspaces, or keep hidden memory. Agent-driven writes should be
-drafted and approved before `nt note`, `$EDITOR`, or `nt update` mutates state.
+Agents use the same interface only on the user's direction. `nt` does not
+launch agents, install skills, generate agent workspaces, keep hidden memory, or
+provide an agent-owned note workflow. Agent-driven writes should be drafted and
+approved before `nt note`, `$EDITOR`, or `nt update` mutates state.
 
 ## Decision Status
 
