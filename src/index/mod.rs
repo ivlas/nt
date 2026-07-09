@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NtError, Result};
 use crate::fs::{atomic_write, index_path};
+use crate::note::validate_id;
 
 mod terms;
 
@@ -176,7 +177,7 @@ impl Index {
 
     pub fn note_is_in_active_vault(&self, note: &NoteMeta) -> bool {
         self.active_vault_path()
-            .is_some_and(|path| note.path.starts_with(path))
+            .is_some_and(|path| note_is_in_vault_path(note, path))
     }
 
     pub fn active_recent_notes(&self) -> impl Iterator<Item = &NoteMeta> {
@@ -216,16 +217,32 @@ impl Index {
         &mut self,
         notes: BTreeMap<String, NoteMeta>,
         bodies: &BTreeMap<String, String>,
-    ) {
-        let active_vault = self.active_vault_path().map(Path::to_path_buf);
+    ) -> Result<()> {
+        let active_vault = self
+            .active_vault_path()
+            .map(Path::to_path_buf)
+            .ok_or(NtError::MissingVault)?;
+
+        for (id, note) in &notes {
+            if id != &note.id || !note_is_in_vault_path(note, &active_vault) {
+                return Err(NtError::Message(format!(
+                    "invalid rebuilt note path for `{id}`"
+                )));
+            }
+            if let Some(existing) = self.notes.get(id)
+                && existing.path != note.path
+            {
+                return Err(NtError::Message(format!(
+                    "note id `{id}` already exists in index at {}",
+                    existing.path.display()
+                )));
+            }
+        }
+
         let active_ids: Vec<String> = self
             .notes
             .values()
-            .filter(|note| {
-                active_vault
-                    .as_deref()
-                    .is_some_and(|path| note.path.starts_with(path))
-            })
+            .filter(|note| note_is_in_vault_path(note, &active_vault))
             .map(|note| note.id.clone())
             .collect();
 
@@ -233,11 +250,8 @@ impl Index {
             self.remove_text_terms(&id);
         }
 
-        self.notes.retain(|_, note| {
-            active_vault
-                .as_deref()
-                .is_none_or(|path| !note.path.starts_with(path))
-        });
+        self.notes
+            .retain(|_, note| !note_is_in_vault_path(note, &active_vault));
 
         for (id, body) in bodies {
             self.refresh_text_terms(id, body);
@@ -251,6 +265,7 @@ impl Index {
         }
 
         self.rebuild_derived();
+        Ok(())
     }
 
     pub fn rebuild_derived(&mut self) {
@@ -317,6 +332,10 @@ impl Index {
             }
         }
     }
+}
+
+fn note_is_in_vault_path(note: &NoteMeta, vault_path: &Path) -> bool {
+    validate_id(&note.id).is_ok() && note.path == vault_path.join(format!("{}.md", note.id))
 }
 
 impl Index {

@@ -34,14 +34,7 @@ pub(super) fn init(notes_dir: &Path) -> Result<()> {
 fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
     for path in valid_note_paths(notes_dir)? {
         let id = id_from_note_path(&path)?;
-        if let Some(existing) = index.notes.get(&id)
-            && existing.path != path
-        {
-            return Err(NtError::Message(format!(
-                "note id `{id}` already exists in index at {}",
-                existing.path.display()
-            )));
-        }
+        ensure_note_id_matches_path(index, &id, &path)?;
 
         let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
         index.upsert_note_with_body(note, &body);
@@ -59,16 +52,30 @@ pub(super) fn rebuild() -> Result<()> {
 
     for path in valid_note_paths(&notes_dir)? {
         let id = id_from_note_path(&path)?;
+        ensure_note_id_matches_path(&index, &id, &path)?;
         let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
         rebuilt_bodies.insert(id.clone(), body);
         rebuilt_notes.insert(id, note);
     }
 
     let count = rebuilt_notes.len();
-    index.replace_active_vault_notes_with_bodies(rebuilt_notes, &rebuilt_bodies);
+    index.replace_active_vault_notes_with_bodies(rebuilt_notes, &rebuilt_bodies)?;
     index.save()?;
 
     println!("rebuilt {count}");
+    Ok(())
+}
+
+fn ensure_note_id_matches_path(index: &Index, id: &str, path: &Path) -> Result<()> {
+    if let Some(existing) = index.notes.get(id)
+        && existing.path != path
+    {
+        return Err(NtError::Message(format!(
+            "note id `{id}` already exists in index at {}",
+            existing.path.display()
+        )));
+    }
+
     Ok(())
 }
 

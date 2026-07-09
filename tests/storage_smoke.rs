@@ -194,6 +194,63 @@ fn rebuild_rejects_invalid_entries_without_pruning_index() {
 }
 
 #[test]
+fn indexed_note_paths_must_match_the_active_vault_and_id() {
+    let root = temp_dir("invalid-indexed-note-path");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let outside = root.join("outside.md");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let saved = run_nt_with_stdin(&home, &["note"], "# Kept\n\nbody.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
+    fs::write(&outside, "do not remove\n").unwrap();
+
+    let mut index = read_index(&home);
+    index["notes"][&id]["path"] = serde_json::Value::String(
+        notes
+            .join("..")
+            .join("outside.md")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    write_index(&home, &index);
+
+    assert_failed(&home, &["rm", &id], &format!("note not found: {id}"));
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "do not remove\n");
+    assert!(notes.join(format!("{id}.md")).exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rebuild_rejects_note_ids_owned_by_another_vault() {
+    let root = temp_dir("rebuild-cross-vault-id-collision");
+    let home = root.join("home");
+    let notes = root.join("notes");
+    let research = root.join("research");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let saved = run_nt_with_stdin(&home, &["note"], "# Original\n\nbody.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
+    run_nt(&home, &["init", research.to_str().unwrap()]);
+    fs::write(research.join(format!("{id}.md")), "# Duplicate\n\nbody.\n").unwrap();
+    let index_path = home.join(".nt/index.json");
+    let original_index = fs::read(&index_path).unwrap();
+
+    assert_failed(
+        &home,
+        &["rebuild"],
+        &format!("note id `{id}` already exists in index at"),
+    );
+
+    assert_eq!(fs::read(&index_path).unwrap(), original_index);
+    run_nt(&home, &["config", "vault", "notes"]);
+    assert!(run_nt(&home, &["show", &id]).contains("Original"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_imports_existing_flat_notes() {
     let root = temp_dir("init-import-existing-notes");
     let home = root.join("home");
