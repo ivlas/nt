@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NtError, Result};
-use crate::fs::{IndexMutationLock, absolute_path, nt_home, relative_to_cwd};
+use crate::fs::{absolute_path, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
 use crate::note::{title_from_body, validate_id};
 
@@ -13,7 +13,6 @@ pub(super) fn init(notes_dir: &Path) -> Result<()> {
     let notes_dir = absolute_path(notes_dir)?;
     ensure_notes_dir_is_flat(&notes_dir)?;
 
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let timestamp = crate::note::timestamp_now();
     let vault = index.create_vault_for_path(notes_dir.clone(), timestamp.iso)?;
@@ -52,7 +51,6 @@ fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
 }
 
 pub(super) fn rebuild() -> Result<()> {
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     ensure_notes_dir_is_flat(&notes_dir)?;

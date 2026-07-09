@@ -1,36 +1,9 @@
-use std::path::{Path, PathBuf};
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum NtError {
     #[error("{0}")]
     Message(String),
-    #[error(
-        "{operation} failed and rollback failed; manual repair needed: original error: {original}; rollback error: {rollback}"
-    )]
-    RollbackFailed {
-        operation: &'static str,
-        original: Box<NtError>,
-        rollback: Box<NtError>,
-    },
-    #[error(
-        "write committed for {}, but parent directory sync failed; durability is uncertain: {source}",
-        path.display()
-    )]
-    WriteCommittedButNotDurable {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error(
-        "{operation} encountered a committed write with uncertain durability, then failed: committed write: {committed}; subsequent error: {subsequent}"
-    )]
-    PartialCommit {
-        operation: &'static str,
-        committed: Box<NtError>,
-        subsequent: Box<NtError>,
-    },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
@@ -51,66 +24,4 @@ pub enum NtError {
     EditorFailed(String),
 }
 
-impl NtError {
-    pub fn rollback_failed(operation: &'static str, original: NtError, rollback: NtError) -> Self {
-        Self::RollbackFailed {
-            operation,
-            original: Box::new(original),
-            rollback: Box::new(rollback),
-        }
-    }
-
-    pub fn write_committed_but_not_durable(path: &Path, source: std::io::Error) -> Self {
-        Self::WriteCommittedButNotDurable {
-            path: path.to_path_buf(),
-            source,
-        }
-    }
-
-    pub fn partial_commit(
-        operation: &'static str,
-        committed: NtError,
-        subsequent: NtError,
-    ) -> Self {
-        Self::PartialCommit {
-            operation,
-            committed: Box::new(committed),
-            subsequent: Box::new(subsequent),
-        }
-    }
-
-    pub fn is_write_committed_but_not_durable(&self) -> bool {
-        matches!(self, Self::WriteCommittedButNotDurable { .. })
-    }
-}
-
 pub type Result<T> = std::result::Result<T, NtError>;
-
-#[cfg(test)]
-mod tests {
-    use super::NtError;
-
-    #[test]
-    fn rollback_failed_message_includes_both_errors() {
-        let err = NtError::rollback_failed(
-            "saving index",
-            NtError::Message("index write failed".to_string()),
-            NtError::Message("note cleanup failed".to_string()),
-        );
-
-        let message = err.to_string();
-        assert!(message.contains("saving index failed and rollback failed"));
-        assert!(message.contains("original error: index write failed"));
-        assert!(message.contains("rollback error: note cleanup failed"));
-    }
-
-    #[test]
-    fn recognizes_committed_write_error() {
-        let err = NtError::write_committed_but_not_durable(
-            std::path::Path::new("index.json"),
-            std::io::Error::other("sync failed"),
-        );
-
-        assert!(err.is_write_committed_but_not_durable());
-    }
-}

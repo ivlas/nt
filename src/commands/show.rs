@@ -4,7 +4,7 @@ use std::process::Command as ProcessCommand;
 
 use crate::display::{joined_or_dash, summary_line};
 use crate::error::{NtError, Result};
-use crate::fs::{IndexMutationLock, atomic_write, relative_to_cwd};
+use crate::fs::{atomic_write, relative_to_cwd};
 use crate::index::Index;
 use crate::note::{title_from_body, validate_id};
 use crate::query::Query;
@@ -117,7 +117,6 @@ pub(super) fn open(id: &str) -> Result<()> {
     };
     let _ = fs::remove_file(&open_path);
 
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
     let current_body = fs::read(&note.path)?;
@@ -127,39 +126,15 @@ pub(super) fn open(id: &str) -> Result<()> {
         ));
     }
 
-    let note_write_error = match atomic_write(&note.path, body.as_bytes()) {
-        Ok(()) => None,
-        Err(err) if err.is_write_committed_but_not_durable() => Some(err),
-        Err(err) => return Err(err),
-    };
+    atomic_write(&note.path, body.as_bytes())?;
     let timestamp = crate::note::timestamp_now();
-    let note_path = note.path.clone();
     let mut updated = note;
     updated.updated = timestamp.iso;
     updated.title = title;
     add_body_sources(&mut updated, &body);
 
     index.upsert_note_with_body(updated, &body);
-    if let Err(err) = index.save() {
-        if err.is_write_committed_but_not_durable() {
-            return Err(err);
-        }
-        if let Some(note_write_error) = note_write_error {
-            return Err(NtError::partial_commit(
-                "saving index after editing note",
-                note_write_error,
-                err,
-            ));
-        }
-        if let Err(rollback_err) = atomic_write(&note_path, &original_body) {
-            return Err(NtError::rollback_failed("saving index", err, rollback_err));
-        }
-        return Err(err);
-    }
-
-    if let Some(note_write_error) = note_write_error {
-        return Err(note_write_error);
-    }
+    index.save()?;
 
     println!("saved {id}");
     Ok(())

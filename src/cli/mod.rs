@@ -170,12 +170,10 @@ mod tests {
 
     #[test]
     fn target_commands_route_to_correct_variants() {
-        use std::path::PathBuf;
-
         let cli = Cli::parse_from(["nt", "init", "notes"]);
         assert!(matches!(
             cli.command,
-            Some(Command::Init { notes_dir }) if notes_dir == PathBuf::from("notes")
+            Some(Command::Init { notes_dir }) if notes_dir == std::path::Path::new("notes")
         ));
 
         let cli = Cli::parse_from(["nt", "note", "tag:decision", "collection:projects/nt"]);
@@ -248,7 +246,7 @@ mod tests {
         let cli = Cli::parse_from(["nt", "export", "archive"]);
         assert!(matches!(
             cli.command,
-            Some(Command::Export { path, ids }) if path == PathBuf::from("archive") && ids.is_empty()
+            Some(Command::Export { path, ids }) if path == std::path::Path::new("archive") && ids.is_empty()
         ));
 
         let cli = Cli::parse_from([
@@ -261,7 +259,7 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(Command::Export { path, ids })
-                if path == PathBuf::from("archive")
+                if path == std::path::Path::new("archive")
                     && ids == vec!["NT20260528T143012", "NT20260527T120000"]
         ));
 

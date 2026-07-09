@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 use crate::error::{NtError, Result};
-use crate::fs::{IndexMutationLock, atomic_write, create_new_file};
+use crate::fs::atomic_write;
 use crate::index::{Index, NoteMeta};
 use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
 
@@ -25,7 +25,6 @@ pub(super) fn todo(metadata: &[String]) -> Result<()> {
 fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     let body = read_note_body_for_create()?;
     let title = title_from_body(&body)?;
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
     let metadata = CreationMetadata::parse(kind, metadata, &index)?;
@@ -41,37 +40,9 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     metadata.apply(kind, &mut note, &timestamp.iso);
     add_body_sources(&mut note, &body);
 
-    let note_write_error = match create_new_file(&path, body.as_bytes()) {
-        Ok(()) => None,
-        Err(err) if err.is_write_committed_but_not_durable() => Some(err),
-        Err(err) => return Err(err),
-    };
-
+    atomic_write(&path, body.as_bytes())?;
     index.upsert_note_with_body(note, &body);
-    if let Err(err) = index.save() {
-        if err.is_write_committed_but_not_durable() {
-            return Err(err);
-        }
-        if let Some(note_write_error) = note_write_error {
-            return Err(NtError::partial_commit(
-                "saving index after creating note",
-                note_write_error,
-                err,
-            ));
-        }
-        if let Err(rollback_err) = fs::remove_file(&path) {
-            return Err(NtError::rollback_failed(
-                "saving index",
-                err,
-                rollback_err.into(),
-            ));
-        }
-        return Err(err);
-    }
-
-    if let Some(note_write_error) = note_write_error {
-        return Err(note_write_error);
-    }
+    index.save()?;
 
     println!("saved {}", timestamp.id);
     Ok(())

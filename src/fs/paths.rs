@@ -23,10 +23,6 @@ pub fn index_path() -> Result<PathBuf> {
     Ok(nt_home()?.join("index.json"))
 }
 
-pub(super) fn index_lock_path() -> Result<PathBuf> {
-    Ok(nt_home()?.join("index.lock"))
-}
-
 pub fn absolute_path(path: &Path) -> Result<PathBuf> {
     if path.is_absolute() {
         return Ok(path.to_path_buf());

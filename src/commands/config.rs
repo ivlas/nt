@@ -1,6 +1,6 @@
 use crate::cli::ConfigCommand;
 use crate::error::{NtError, Result};
-use crate::fs::{IndexMutationLock, relative_to_cwd};
+use crate::fs::relative_to_cwd;
 use crate::index::Index;
 
 pub(super) fn config(command: ConfigCommand) -> Result<()> {
@@ -42,7 +42,6 @@ fn config_list_vaults() -> Result<()> {
 }
 
 fn config_set_vault(name: &str) -> Result<()> {
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let Some(vault) = index.vaults.get(name) else {
         return Err(NtError::Message(format!(

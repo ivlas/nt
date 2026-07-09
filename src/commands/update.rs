@@ -1,6 +1,5 @@
 use crate::cli::UpdateField;
 use crate::error::{NtError, Result};
-use crate::fs::IndexMutationLock;
 use crate::index::{Index, NoteMeta};
 
 use super::{
@@ -166,7 +165,6 @@ fn field_name(field: UpdateField) -> &'static str {
 
 pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     crate::note::validate_id(id)?;
-    let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     super::ensure_note_exists(&index, id)?;
     let operation = UpdateOperation::parse(field, value, &index)?;
