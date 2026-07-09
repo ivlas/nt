@@ -55,6 +55,7 @@ pub(super) fn rebuild() -> Result<()> {
     let _lock = IndexMutationLock::acquire()?;
     let mut index = Index::load()?;
     let notes_dir = active_vault_path(&index)?.to_path_buf();
+    ensure_notes_dir_is_flat(&notes_dir)?;
     let mut rebuilt_notes = BTreeMap::new();
     let mut rebuilt_bodies = BTreeMap::new();
 

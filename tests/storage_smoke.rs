@@ -240,6 +240,32 @@ fn init_rejects_non_flat_or_non_note_entries() {
 }
 
 #[test]
+fn rebuild_rejects_invalid_entries_without_pruning_index() {
+    let root = temp_dir("rebuild-invalid-notes-dir");
+    let home = root.join("home");
+    let notes = root.join("notes");
+
+    run_nt(&home, &["init", notes.to_str().unwrap()]);
+    let saved = run_nt_with_stdin(&home, &["note"], "# Kept\n\nbody.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
+    let index_path = home.join(".nt/index.json");
+    let original_index = fs::read(&index_path).unwrap();
+    fs::write(notes.join("draft.md"), "# Draft\n").unwrap();
+
+    assert_failed(
+        &home,
+        &["rebuild"],
+        "notes directory must contain only NTYYYYMMDDTHHmmss.md files",
+    );
+
+    assert_eq!(fs::read(&index_path).unwrap(), original_index);
+    assert!(notes.join(format!("{id}.md")).exists());
+    assert_eq!(run_nt(&home, &["list", "ids"]).trim(), id);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_imports_existing_flat_notes() {
     let root = temp_dir("init-import-existing-notes");
     let home = root.join("home");
