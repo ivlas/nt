@@ -127,7 +127,11 @@ pub(super) fn open(id: &str) -> Result<()> {
         ));
     }
 
-    atomic_write(&note.path, body.as_bytes())?;
+    let note_write_error = match atomic_write(&note.path, body.as_bytes()) {
+        Ok(()) => None,
+        Err(err) if err.is_write_committed_but_not_durable() => Some(err),
+        Err(err) => return Err(err),
+    };
     let timestamp = crate::note::timestamp_now();
     let note_path = note.path.clone();
     let mut updated = note;
@@ -137,10 +141,24 @@ pub(super) fn open(id: &str) -> Result<()> {
 
     index.upsert_note_with_body(updated, &body);
     if let Err(err) = index.save() {
+        if err.is_write_committed_but_not_durable() {
+            return Err(err);
+        }
+        if let Some(note_write_error) = note_write_error {
+            return Err(NtError::partial_commit(
+                "saving index after editing note",
+                note_write_error,
+                err,
+            ));
+        }
         if let Err(rollback_err) = atomic_write(&note_path, &original_body) {
             return Err(NtError::rollback_failed("saving index", err, rollback_err));
         }
         return Err(err);
+    }
+
+    if let Some(note_write_error) = note_write_error {
+        return Err(note_write_error);
     }
 
     println!("saved {id}");

@@ -59,9 +59,18 @@ fn write_and_rename(
     path: &Path,
     bytes: &[u8],
 ) -> std::result::Result<(), TempWriteError> {
+    write_and_rename_with_sync(tmp_path, path, bytes, sync_parent_dir)
+}
+
+fn write_and_rename_with_sync(
+    tmp_path: &Path,
+    path: &Path,
+    bytes: &[u8],
+    sync: fn(&Path) -> std::io::Result<()>,
+) -> std::result::Result<(), TempWriteError> {
     write_temp_file(tmp_path, bytes)?;
     fs::rename(tmp_path, path).map_err(NtError::from)?;
-    sync_parent_dir(path)?;
+    sync(path).map_err(|source| NtError::write_committed_but_not_durable(path, source))?;
     Ok(())
 }
 
@@ -69,6 +78,15 @@ fn write_and_rename_new(
     tmp_path: &Path,
     path: &Path,
     bytes: &[u8],
+) -> std::result::Result<(), TempWriteError> {
+    write_and_rename_new_with_sync(tmp_path, path, bytes, sync_parent_dir)
+}
+
+fn write_and_rename_new_with_sync(
+    tmp_path: &Path,
+    path: &Path,
+    bytes: &[u8],
+    sync: fn(&Path) -> std::io::Result<()>,
 ) -> std::result::Result<(), TempWriteError> {
     write_temp_file(tmp_path, bytes)?;
 
@@ -84,7 +102,7 @@ fn write_and_rename_new(
     }
 
     fs::rename(tmp_path, path).map_err(NtError::from)?;
-    sync_parent_dir(path)?;
+    sync(path).map_err(|source| NtError::write_committed_but_not_durable(path, source))?;
     Ok(())
 }
 
@@ -118,17 +136,31 @@ impl From<NtError> for TempWriteError {
 }
 
 #[cfg(unix)]
-fn sync_parent_dir(path: &Path) -> Result<()> {
+fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| NtError::Message(format!("path has no parent: {}", path.display())))?;
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "path has no parent"))?;
     File::open(parent)?.sync_all()?;
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn sync_parent_dir(_path: &Path) -> Result<()> {
+fn sync_parent_dir(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+fn atomic_write_with_sync_failure(path: &Path, bytes: &[u8]) -> Result<()> {
+    with_temp_retry(path, bytes, tmp_nonce(), write_and_rename_with_sync_failure)
+}
+
+#[cfg(test)]
+fn write_and_rename_with_sync_failure(
+    tmp_path: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> std::result::Result<(), TempWriteError> {
+    write_and_rename_with_sync(tmp_path, path, bytes, |_| Err(Error::other("sync failed")))
 }
 
 fn tmp_name(path: &Path, nonce: u128, attempt: usize) -> String {
@@ -159,8 +191,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        atomic_write, atomic_write_with_nonce, create_new_file, create_new_file_with_nonce,
-        tmp_name,
+        atomic_write, atomic_write_with_nonce, atomic_write_with_sync_failure, create_new_file,
+        create_new_file_with_nonce, tmp_name,
     };
 
     #[test]
@@ -222,6 +254,22 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&tmp_path).unwrap(), "keep");
         assert_eq!(fs::read_to_string(&path).unwrap(), "replace");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reports_uncertain_durability_after_rename() {
+        let dir = std::env::temp_dir().join(format!(
+            "nt-test-atomic-sync-failure-{}",
+            std::process::id()
+        ));
+        let path = dir.join("note.md");
+
+        let err = atomic_write_with_sync_failure(&path, b"committed").unwrap_err();
+
+        assert!(err.is_write_committed_but_not_durable());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "committed");
 
         let _ = fs::remove_dir_all(dir);
     }

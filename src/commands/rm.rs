@@ -41,6 +41,9 @@ pub(super) fn rm(ids: &[String]) -> Result<()> {
 
     index.remove_notes(ids.iter().map(String::as_str));
     if let Err(err) = index.save() {
+        if err.is_write_committed_but_not_durable() {
+            return Err(err);
+        }
         if let Err(rollback_err) = restore_removed_notes(&notes) {
             return Err(NtError::rollback_failed("saving index", err, rollback_err));
         }

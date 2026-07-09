@@ -41,10 +41,24 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     metadata.apply(kind, &mut note, &timestamp.iso);
     add_body_sources(&mut note, &body);
 
-    create_new_file(&path, body.as_bytes())?;
+    let note_write_error = match create_new_file(&path, body.as_bytes()) {
+        Ok(()) => None,
+        Err(err) if err.is_write_committed_but_not_durable() => Some(err),
+        Err(err) => return Err(err),
+    };
 
     index.upsert_note_with_body(note, &body);
     if let Err(err) = index.save() {
+        if err.is_write_committed_but_not_durable() {
+            return Err(err);
+        }
+        if let Some(note_write_error) = note_write_error {
+            return Err(NtError::partial_commit(
+                "saving index after creating note",
+                note_write_error,
+                err,
+            ));
+        }
         if let Err(rollback_err) = fs::remove_file(&path) {
             return Err(NtError::rollback_failed(
                 "saving index",
@@ -53,6 +67,10 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
             ));
         }
         return Err(err);
+    }
+
+    if let Some(note_write_error) = note_write_error {
+        return Err(note_write_error);
     }
 
     println!("saved {}", timestamp.id);
