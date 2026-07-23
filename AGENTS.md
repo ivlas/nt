@@ -44,7 +44,6 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt init <notes-dir>`
 - `nt note [metadata...]`
 - `nt todo [metadata...]`
-- `nt rebuild`
 - `nt list`
 - `nt list all [filter...]`
 - `nt list <field>[,<field>...] [filter...]`
@@ -131,7 +130,10 @@ Initial query fields:
 - The id is the filename stem.
 - Store metadata under `$HOME/.nt/index.json`.
 - Use a metadata map keyed by note id for direct lookup.
-- Keep derived maps for fast lookup.
+- Store only primary metadata in the index; never persist derived maps.
+- Compute ordering, filtering, and body matching at query time.
+- Body search reads the Markdown files on demand; there is no text index,
+  no cache, and no rebuild command.
 - Do not store note bodies in the index.
 
 Primary note metadata should stay small:
@@ -151,20 +153,6 @@ Primary note metadata should stay small:
 - `collections`
 - `links`
 - `sources`
-
-Derived maps may include:
-
-- `recent`
-- `kinds`
-- `statuses`
-- `tags`
-- `collections`
-- `days`
-- `backlinks`
-- `terms`
-
-Derived maps must be rebuildable from primary metadata and, where useful, from
-CommonMark note bodies.
 
 ## Metadata Model
 

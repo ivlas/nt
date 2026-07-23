@@ -25,9 +25,10 @@ note-taking or mutation workflow; their normal role is read-only inspection with
 `list`, `find`, and `show`.
 
 Mutation commands assume one user-directed writer at a time and must not run
-concurrently. If a mutation fails after changing a note file, inspect the plain
-files and run `nt rebuild` to reconcile the active vault and index. Reapply any
-explicit metadata that was not saved to the index.
+concurrently. Body search reads Markdown bodies at query time, so out-of-band
+note edits are visible to search immediately and need no reconciliation. If a
+mutation fails after changing a note file, inspect the plain files and reapply
+any explicit metadata that was not saved to the index with `nt update`.
 
 The top-level command surface is:
 
@@ -36,7 +37,6 @@ nt
 nt init <notes-dir>
 nt note [metadata...]
 nt todo [metadata...]
-nt rebuild
 nt list
 nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
@@ -142,22 +142,6 @@ printf '%s\n' '# Release' '' 'Run checks.' \
   | nt todo priority:A due:2026-06-30 tag:release
 ```
 
-## rebuild
-
-```text
-nt rebuild
-```
-
-Re-reads valid notes in the active vault and prints `rebuilt <count>`. It:
-
-- derives `created` from the id and `updated` from the file timestamp
-- validates and refreshes the title
-- preserves existing primary metadata
-- preserves existing sources and merges URLs currently found in Markdown bodies
-- imports new valid files and removes stale active-vault entries
-- removes links whose target no longer exists in the shared index
-- rebuilds derived metadata, body, and heading indexes
-
 ## list
 
 ```text
@@ -179,7 +163,7 @@ prints this fixed summary:
 id, title, kind, status, due, tag
 ```
 
-`nt list all` prints every indexed metadata field in this fixed order:
+`nt list all` prints every metadata field in this fixed order:
 
 ```text
 id, path, created, updated, title, kind, status, priority, scheduled, due,
@@ -213,7 +197,7 @@ nt list status:waiting
 Supported list filters are `id`, `tag`, `day`, `since`, `before`, `kind`,
 `status`, `priority`, `scheduled`, `due`, `closed`, `collection`, `link`, and
 `not` around another supported filter. Matching is case-insensitive and uses
-the same validation, candidate narrowing, and active-recent ordering as `find`.
+the same validation and newest-first ordering as `find`.
 `link:<id>` selects notes with an outbound link to that target. It is the note
 metadata counterpart of the edge filter `list links to:<id>`.
 Bare words and `title`, `source`, and `body` expressions are search operations;
@@ -268,7 +252,7 @@ Expression forms:
 
 | Expression | Match |
 |---|---|
-| `<word>` | Metadata contains the value or body contains its indexed term. |
+| `<word>` | Metadata contains the value or the body contains it. |
 | `#<tag>` | Exact tag; shorthand for `tag:<tag>`. |
 | `id:<prefix>` | Id begins with a valid prefix of `NTYYYYMMDDTHHmmss`. |
 | `tag:<tag>` | Exact tag. |
@@ -285,7 +269,7 @@ Expression forms:
 | `collection:<name>` | Exact collection. |
 | `link:<id>` | Has an outbound link to the exact id. |
 | `source:<term>` | A source contains the value. |
-| `body:<term>` | Body contains all tokenized terms. |
+| `body:<term>` | Body contains all terms. |
 | `not:<expr>` | Negate one expression. |
 
 Examples:
@@ -299,11 +283,10 @@ nt find body:'microvm jailer'
 ```
 
 Shell quoting makes `body:microvm jailer` one argument in the last example.
-Quoted multiword `body:` values match all indexed terms, not an exact phrase.
-Indexed body entries are trusted until `nt rebuild`; notes missing from the
-body trust set fall back to direct file reads. Unknown fields are errors, not
-bare-word searches. There is no public `heading:<term>` field even though the
-index contains rebuildable `heading_terms` for possible future use.
+Quoted multiword `body:` values match all terms, not an exact phrase. Body
+search reads Markdown bodies at query time, so out-of-band edits are visible
+immediately. Unknown fields are errors, not bare-word searches. There is no
+public `heading:<term>` field.
 
 There is no ranking, fuzzy or semantic search, regex, parentheses, or `OR`.
 
@@ -342,9 +325,9 @@ nt open <id>
 ```
 
 Copies the body to a temporary file, runs `$EDITOR` or `vi`, validates the
-result, atomically replaces the canonical body, refreshes the title and text
-indexes, merges body URLs into sources, and prints `saved <id>`. An empty body,
-invalid title, or failed editor leaves the canonical note unchanged.
+result, atomically replaces the canonical body, updates the stored title and
+timestamp, merges body URLs into sources, and prints `saved <id>`. An empty
+body, invalid title, or failed editor leaves the canonical note unchanged.
 
 ## rm
 
@@ -352,10 +335,9 @@ invalid title, or failed editor leaves the canonical note unchanged.
 nt rm <id...>
 ```
 
-Removes one or more active notes, their indexed terms, and links to them, then
+Removes one or more active notes, their metadata, and links to them, then
 prints `removed <id>` once per note. All ids are validated before removal, and
-the index is updated and saved once. If a later file or index write fails, use
-`nt rebuild` to reconcile the visible vault and index.
+the index is updated and saved once.
 
 ## update
 

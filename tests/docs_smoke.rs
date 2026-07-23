@@ -194,31 +194,14 @@ fn docs_do_not_document_version_command_or_flag() {
 }
 
 #[test]
-fn rebuild_docs_document_persistent_source_semantics() {
-    let expected = "preserves existing sources and merges URLs currently found in";
-    for path in ["docs/cli-reference.md", "docs/usage.md"] {
-        let text = fs::read_to_string(path).unwrap();
-        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(
-            normalized.contains(expected),
-            "{path} should document rebuild source semantics"
-        );
-        assert!(
-            !text.contains("refreshes current body URL sources"),
-            "{path} should not claim rebuild refreshes body URL sources"
-        );
-    }
-}
-
-#[test]
-fn docs_document_index_trust_boundary_and_deferred_tui() {
+fn docs_document_on_demand_body_search_and_deferred_tui() {
+    let expected = "Body search reads Markdown bodies at query time";
     for path in ["docs/usage.md", "docs/cli-reference.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            normalized.contains("Indexed body entries are trusted until `nt rebuild`")
-                || normalized.contains("indexed body entries are trusted until `nt rebuild`"),
-            "{path} should document indexed body entries are trusted until rebuild"
+            normalized.contains(expected),
+            "{path} should document on-demand body search"
         );
     }
 
@@ -235,7 +218,7 @@ fn docs_document_index_trust_boundary_and_deferred_tui() {
 
 #[test]
 fn find_docs_document_body_terms_not_phrase_search() {
-    let expected = "Quoted multiword `body:` values match all indexed terms, not an exact phrase.";
+    let expected = "Quoted multiword `body:` values match all terms, not an exact phrase.";
     for path in ["docs/cli-reference.md", "docs/usage.md", "docs/design.md"] {
         let text = fs::read_to_string(path).unwrap();
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -252,7 +235,6 @@ fn find_docs_document_body_terms_not_phrase_search() {
     let reference = fs::read_to_string("docs/cli-reference.md").unwrap();
     let reference = reference.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(reference.contains("There is no public `heading:<term>` field"));
-    assert!(reference.contains("possible future use"));
 }
 
 #[test]
@@ -402,7 +384,6 @@ const ROOT_COMMANDS: &[&str] = &[
     "init",
     "note",
     "todo",
-    "rebuild",
     "list",
     "find",
     "show",

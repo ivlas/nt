@@ -25,7 +25,6 @@ nt show <id>
 nt open <id>             # edit in $EDITOR
 nt list                  # id title kind status due tag
 nt agenda                # open/waiting todos
-nt rebuild               # after out-of-band file edits or deletes
 ```
 
 ## Documentation

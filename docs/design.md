@@ -43,7 +43,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 | `cli/help.rs` | Flagless built-in help text. |
 | `cli/completion.rs` | Bash and Zsh completion script generation, including dynamic values. |
 | `commands/mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
-| `commands/init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
+| `commands/init.rs` | `init` and Markdown import for existing flat vaults. |
 | `commands/add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `commands/show.rs` | `show`, `open`, and `find`. |
 | `commands/rm.rs` | `rm` and index removal. |
@@ -52,15 +52,13 @@ related concerns into directories, each with a `mod.rs` entry point:
 | `commands/agenda.rs` | `agenda` sections, selection, and ordering. |
 | `commands/export_cmd.rs` | `export` and active-vault guards. |
 | `commands/config.rs` | `config show` and `config vault`. |
-| `index/mod.rs` | Serialized metadata, vault state, persistence, and derived maps. |
-| `index/terms.rs` | Tokenization, body/heading term indexing, and term-match queries. |
+| `index/mod.rs` | Serialized primary metadata, vault state, and persistence. |
 | `listing/mod.rs` | List request parsing, compatibility forms, and filter dispatch. |
 | `listing/field.rs` | `ListField` enum, projection parsing, and per-field rendering. |
 | `listing/render.rs` | Row and table layout for TTY and pipe output. |
 | `query/mod.rs` | `Query` and `QueryExpr` types, public parse/match API. |
 | `query/parse.rs` | Expression parsing, field validators, and unknown-field suggestions. |
-| `query/eval.rs` | Metadata and body match verification. |
-| `query/plan.rs` | Candidate-set algebra and index lookups for query planning. |
+| `query/eval.rs` | Metadata matching and on-demand body reads. |
 | `query/suggest.rs` | Edit-distance field suggestion utility. |
 | `note/id.rs` | Note id validation, id-to-iso conversion, and collision-safe id allocation. |
 | `note/date.rs` | Timestamps, calendar date validation, and date arithmetic. |
@@ -75,8 +73,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 Errors propagate as `Result<T, NtError>` to `main`, which prints one red error
 line to stderr when color is enabled and exits with status 1. Commands validate
 before mutation where possible. A mutation that fails after changing a file
-leaves that visible state in place; `nt rebuild` is the explicit reconciliation
-tool.
+leaves that visible state in place for the user to inspect.
 
 ### Command Flow
 
@@ -88,16 +85,16 @@ An `nt note` demonstrates the normal ownership and persistence flow:
 4. `note::id` allocates an unused UTC id and derives the note path.
 5. `fs::atomic_write` writes the Markdown body through a sibling temp file,
    syncs it, then renames it into place.
-6. `Index::upsert_note_with_body` refreshes body terms and all derived maps.
+6. `Index::upsert_note` stores the primary metadata record.
 7. The JSON index is atomically saved. If this fails, the new note remains a
-   visible file for the user to inspect and reconcile with `nt rebuild`.
+   visible file for the user to inspect.
 8. The command prints `saved <id>`.
 
 Reads follow the same explicit route without mutation. For example, `find`
-loads the index, parses expressions, intersects available candidate sets,
-verifies candidates, and prints matching summaries in active-recent order.
-`list` follows the same selection path for structured filters, then projects
-the requested `NoteMeta` fields into tab-separated rows.
+loads the index, parses expressions, evaluates them against every active note's
+metadata, reads Markdown bodies from disk for body terms, and prints matching
+summaries in newest-first order. `list` evaluates the same structured filters,
+then projects the requested `NoteMeta` fields into tab-separated rows.
 
 ## Storage Decisions
 
@@ -106,26 +103,23 @@ Canonical note bodies live in one configured flat directory as
 line is its required `# Title`; the rest is unrestricted CommonMark. Active
 notes have no front matter or nt-specific body syntax.
 
-`$HOME/.nt/index.json` stores:
+`$HOME/.nt/index.json` stores only primary state:
 
 - index version, known vaults, and active vault
 - primary note metadata: `id`, `path`, `created`, `updated`, `title`, `kind`,
   `status`, `priority`, `scheduled`, `due`, `closed`, `tags`, `collections`,
   `links`, and `sources`
-- rebuildable maps: `recent`, `kinds`, `statuses`, `tags`, `collections`,
-  `days`, `backlinks`, and metadata `terms`
-- rebuildable `body_terms`, `heading_terms`, and the `body_indexed` trust set
 
-Note bodies are never stored in the index. Metadata that cannot be derived from
-CommonMark remains visible primary JSON data and is changed through explicit
-commands. Loading an index rebuilds derived metadata maps; `nt rebuild` is the
-operation that re-reads active Markdown bodies and refreshes body indexes.
+Note bodies are never stored in the index, and no derived maps are persisted:
+ordering, filtering, and body matching are computed at query time from primary
+metadata and the Markdown files themselves. There is no cache to invalidate
+and no rebuild command. Metadata that cannot be derived from CommonMark
+remains visible primary JSON data and is changed through explicit commands.
 
 Both note and index writes use temp-file-and-rename. Multi-file mutations are
 not filesystem transactions: a failed later write can leave visible note and
-index state to reconcile with `nt rebuild`. This is an intentional trade for a
-small, user-directed, single-writer CLI rather than a hidden coordination
-layer.
+index state for the user to inspect. This is an intentional trade for a small,
+user-directed, single-writer CLI rather than a hidden coordination layer.
 
 Multiple vaults share one index. Commands operate only on the active vault;
 vault names are directory basenames and note ids are globally keyed in the
@@ -134,16 +128,19 @@ index.
 ## Retrieval Decisions
 
 `nt find` is deterministic filtering, not ranked retrieval. All positional
-expressions are `AND`-combined and case-insensitive. Exact derived maps narrow
-ids for fields such as tags, kinds, statuses, collections, dates, and links.
-Metadata and body term indexes narrow text queries. Final matches retain
-active-recent order.
+expressions are `AND`-combined and case-insensitive. Every expression is
+evaluated directly against each active note's primary metadata; `body:` terms
+and unmatched bare words read the note's Markdown file at query time. Body
+search reads Markdown bodies at query time, so out-of-band edits are visible
+to search immediately. Quoted multiword `body:` values match all terms, not an
+exact phrase. Final matches retain newest-first order.
 
-Indexed body entries are trusted until `nt rebuild`. This makes normal queries
-independent of vault size, but an out-of-band body edit remains stale until the
-explicit rebuild. Notes absent from `body_indexed` fall back to direct Markdown
-reads. Quoted multiword `body:` values match all indexed terms, not an exact
-phrase.
+Scanning every active note keeps retrieval correct by construction and stays
+fast for vaults in the tens of thousands of notes: metadata fits in a few
+megabytes of JSON, and body reads only happen for textual expressions. If body
+scans ever become the bottleneck, reach for `memchr`-based substring search or
+parallel file reads first; either speeds up scanning without reintroducing a
+persisted text index.
 
 Unknown fields are errors, with a close-field suggestion when available. This
 prevents a misspelled structured filter from silently becoming a broad text
@@ -154,7 +151,7 @@ Structured selection is shared with `nt list`. List accepts exact metadata and
 created-date expressions, including `not`, but rejects bare words and `title`,
 `source`, and `body` search expressions. This keeps list responsible for
 metadata inspection and projection while find remains the textual retrieval
-command. Both retain active-recent order and use the same candidate planner.
+command. Both evaluate the same `Query` type and retain newest-first order.
 
 ## Metadata Decisions
 
@@ -199,7 +196,7 @@ specific, approved write, but an agent never decides to mutate the vault alone.
 List projections use a comma-separated field argument. Interactive output has
 a header and aligned columns; redirected output is headerless and tab-separated.
 Bare `nt list` expands to the fixed summary `id`, `title`, `kind`, `status`,
-`due`, and `tag`; `nt list all` expands to every indexed metadata field. Scripts
+`due`, and `tag`; `nt list all` expands to every metadata field. Scripts
 should request explicit fields, such as
 `nt list id,title,status`, so defaults can evolve without changing their column
 positions. Plural `tags`, `collections`, and `links` remain explicit metadata
@@ -227,8 +224,7 @@ Future changes are constrained to preserve canonical CommonMark, visible JSON,
 explicit commands, deterministic output, atomic writes, and no hidden runtime.
 The following ideas are deliberately deferred rather than promised:
 
-- a public `heading:<term>` query; `heading_terms` exists only as an internal
-  rebuildable index
+- a public `heading:<term>` query
 - `OR` or grouping; add it only if real use requires it and keep grouping
   explicit
 - recurrence, effort estimates, time tracking, habits, or Markdown task parsing
@@ -246,7 +242,6 @@ cargo test
 cargo clippy --all-targets
 cargo run -- help
 cargo run -- help find
-cargo run -- help rebuild
 ```
 
 Also run the README quick start manually, verify that documented commands are

@@ -15,9 +15,11 @@ retrieval: list, find, and show commands that help the user inspect their
 notes.
 
 Mutating commands assume one user-directed writer at a time; do not run them
-concurrently. If a write fails after changing a note file, inspect the visible
-files and run `nt rebuild` to reconcile the active vault with the index. Reapply
-any explicit metadata that did not reach the index.
+concurrently. Note bodies are plain Markdown and metadata is plain JSON, so
+editing note files outside `nt` is always safe: body search reads Markdown
+bodies at query time, and out-of-band edits are visible to search immediately.
+If a write fails after changing a note file, inspect the visible files and
+reapply any explicit metadata that did not reach the index with `nt update`.
 
 ## Install And Initialize
 
@@ -86,20 +88,19 @@ nt show NT20260620T101500
 
 Bare `nt list` prints `id`, `title`, `kind`, `status`, `due`, and `tag` with a
 header and aligned columns in a terminal. Redirected output is headerless and
-tab-separated. `nt list all` prints every indexed field. A comma-separated first
-argument selects custom fields; following arguments use the exact structured
-subset of the `find` grammar. Use `find` for bare words and title, source, or
-body search.
+tab-separated. `nt list all` prints every metadata field. A comma-separated
+first argument selects custom fields; following arguments use the exact
+structured subset of the `find` grammar. Use `find` for bare words and title,
+source, or body search.
 
 Every `find` expression is combined with `AND`; order does not matter and
-matching is case-insensitive. Bare words search metadata and body terms. Use
+matching is case-insensitive. Bare words search metadata and body text. Use
 exact metadata fields when possible. Quoted multiword `body:` values match all
-indexed terms, not an exact phrase.
+terms, not an exact phrase.
 
-`nt find` narrows candidates with the visible metadata and body indexes, then
-prints verified matches in deterministic newest-first order. Indexed body
-entries are trusted until `nt rebuild`; out-of-band Markdown edits are not
-visible to indexed body search until the index is rebuilt.
+`nt find` evaluates expressions against the visible JSON metadata and prints
+matches in deterministic newest-first order. Body search reads Markdown bodies
+at query time; out-of-band edits are visible to search immediately.
 
 Use normal shell tools for paging, selection, previews, and batching:
 
@@ -169,24 +170,20 @@ The default agenda groups each open or waiting todo once under `Overdue`,
 `D`. Setting status to `done` or `dropped` records a UTC `closed` timestamp;
 reopening the note clears it.
 
-## Edit, Remove, And Rebuild
+## Edit And Remove
 
 ```sh
 nt open NT20260620T101500
 nt rm NT20260620T101500
-nt rebuild
 ```
 
 `open` edits through `$EDITOR`, validates the title, writes the body atomically,
-and refreshes the index. `rm` removes the body, metadata, body terms, and inbound
-links.
+and updates the stored title and timestamp. `rm` removes the body, its metadata,
+and inbound links.
 
-Run `nt rebuild` after editing, adding, or deleting vault files outside `nt`,
-or after a failed mutation changed a vault file. It preserves primary JSON
-metadata, preserves existing sources and merges URLs currently found in Markdown
-bodies, removes stale active-vault entries, cleans dangling links, and refreshes
-titles, file timestamps, and text indexes. Rebuild cannot recover explicit
-metadata from a failed command if that metadata was never saved to the index.
+Editing note bodies outside `nt` needs no reconciliation: body search reads
+the current file contents. If you delete a note file out-of-band, remove its
+metadata with `nt rm <id>`; until then, body search reports the missing file.
 
 ## Export And Vaults
 
