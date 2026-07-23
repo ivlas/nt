@@ -1,11 +1,8 @@
-use std::collections::BTreeSet;
-
 use crate::error::{NtError, Result};
-use crate::index::{Index, NoteMeta};
+use crate::index::NoteMeta;
 
 mod eval;
 mod parse;
-mod plan;
 mod suggest;
 
 #[derive(Debug)]
@@ -54,12 +51,6 @@ const QUERY_FIELDS: &[&str] = &[
     "body",
 ];
 
-#[derive(Debug)]
-struct CandidateSet {
-    ids: BTreeSet<String>,
-    exact: bool,
-}
-
 impl Query {
     pub fn parse(exprs: &[String]) -> Result<Self> {
         if exprs.is_empty() {
@@ -89,26 +80,14 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
+    pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
         for expr in &self.exprs {
-            if !expr.matches(index, note)? {
+            if !expr.matches(note)? {
                 return Ok(false);
             }
         }
 
         Ok(true)
-    }
-
-    pub fn candidate_ids(&self, index: &Index) -> Option<BTreeSet<String>> {
-        let mut candidates = Vec::new();
-
-        for expr in &self.exprs {
-            if let Some(candidate) = expr.candidate_ids(index) {
-                candidates.push(candidate.ids);
-            }
-        }
-
-        plan::intersect_candidates(candidates)
     }
 }
 
@@ -193,15 +172,13 @@ impl QueryExpr {
         }
     }
 
-    fn matches(&self, index: &Index, note: &NoteMeta) -> Result<bool> {
+    fn matches(&self, note: &NoteMeta) -> Result<bool> {
         match self {
             Self::Bare(value) => {
-                if index.metadata_term_matches(&note.id, value)
-                    || eval::matches_metadata(note, value)
-                {
+                if eval::matches_metadata(note, value) {
                     Ok(true)
                 } else {
-                    eval::matches_body(index, note, value)
+                    eval::matches_body(note, value)
                 }
             }
             Self::Id(value) => Ok(parse::normalize(&note.id).starts_with(value)),
@@ -236,78 +213,20 @@ impl QueryExpr {
                 .sources
                 .iter()
                 .any(|reference| parse::normalize(reference).contains(value))),
-            Self::Body(value) => eval::matches_body(index, note, value),
-            Self::Not(expr) => Ok(!expr.matches(index, note)?),
-        }
-    }
-
-    fn candidate_ids(&self, index: &Index) -> Option<CandidateSet> {
-        match self {
-            Self::Bare(value) => plan::bare_word_candidates(index, value),
-            Self::Id(value) => Some(plan::exact_candidate(
-                index
-                    .notes
-                    .keys()
-                    .filter(|id| parse::normalize(id).starts_with(value))
-                    .cloned()
-                    .collect(),
-            )),
-            Self::Tag(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
-                &index.tags,
-                value,
-            ))),
-            Self::Title(_) => None,
-            Self::Day(value) => Some(plan::exact_candidate(plan::ids_for_key(&index.days, value))),
-            Self::Since(value) => Some(plan::exact_candidate(plan::ids_for_days(index, |day| {
-                day >= value
-            }))),
-            Self::Before(value) => Some(plan::exact_candidate(plan::ids_for_days(index, |day| {
-                day < value
-            }))),
-            Self::Kind(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
-                &index.kinds,
-                value,
-            ))),
-            Self::Status(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
-                &index.statuses,
-                value,
-            ))),
-            Self::Priority(_) | Self::Scheduled(_) | Self::Due(_) | Self::Closed(_) => None,
-            Self::Collection(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
-                &index.collections,
-                value,
-            ))),
-            Self::Link(value) => Some(plan::exact_candidate(plan::ids_for_normalized_key(
-                &index.backlinks,
-                value,
-            ))),
-            Self::Source(_) => None,
-            Self::Body(value) => plan::body_candidates(index, value),
-            Self::Not(expr) => {
-                let candidate = expr.candidate_ids(index)?;
-                if !candidate.exact {
-                    return None;
-                }
-
-                let mut ids = plan::all_note_ids(index);
-                for id in candidate.ids {
-                    ids.remove(&id);
-                }
-                Some(plan::exact_candidate(ids))
-            }
+            Self::Body(value) => eval::matches_body(note, value),
+            Self::Not(expr) => Ok(!expr.matches(note)?),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::index::{Index, NoteMeta, VaultMeta};
+    use crate::index::NoteMeta;
 
-    use super::{Query, plan::intersect_candidates};
+    use super::Query;
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -317,19 +236,6 @@ mod tests {
             "2026-05-28T14:30:12Z".to_string(),
             "Storage Decision".to_string(),
         )
-    }
-
-    fn active_index() -> Index {
-        let mut index = Index::default();
-        index.active_vault = Some("notes".to_string());
-        index.vaults.insert(
-            "notes".to_string(),
-            VaultMeta {
-                path: PathBuf::from("notes"),
-                created: "2026-05-28T14:30:12Z".to_string(),
-            },
-        );
-        index
     }
 
     #[test]
@@ -354,13 +260,11 @@ mod tests {
 
     #[test]
     fn matches_metadata_fields_with_and_semantics() {
-        let mut index = Index::default();
         let mut note = note("NT20260528T143012");
         note.kind = "todo".to_string();
         note.status = Some("open".to_string());
         note.collections = vec!["projects/nt".to_string()];
         note.sources = vec!["https://example.com/spec".to_string()];
-        index.upsert_note(note.clone());
 
         let query = Query::parse(&[
             "kind:todo".to_string(),
@@ -372,47 +276,39 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&index, &note).unwrap());
+        assert!(query.matches(&note).unwrap());
     }
 
     #[test]
     fn matches_link_direction() {
-        let mut index = Index::default();
         let mut from = note("NT20260528T143012");
         let to = note("NT20260529T120000");
         from.links = vec![to.id.clone()];
-        index.upsert_note(from.clone());
-        index.upsert_note(to.clone());
 
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
-        assert!(link.matches(&index, &from).unwrap());
-        assert!(!link.matches(&index, &to).unwrap());
+        assert!(link.matches(&from).unwrap());
+        assert!(!link.matches(&to).unwrap());
     }
 
     #[test]
     fn negates_simple_expressions() {
-        let mut index = Index::default();
         let mut note = note("NT20260528T143012");
         note.tags = vec!["draft".to_string()];
-        index.upsert_note(note.clone());
 
         let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
 
-        assert!(!query.matches(&index, &note).unwrap());
+        assert!(!query.matches(&note).unwrap());
     }
 
     #[test]
     fn matches_tag_shorthand_id_prefix_title_day_and_multiword_body() {
-        let mut index = Index::default();
         let dir = temp_dir("query-multiword-body");
         let path = dir.join("NT20260528T143012.md");
-        let body = "# Storage Decision\n\nMicroVM jailer notes.\n";
-        fs::write(&path, body).unwrap();
+        fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
 
         let mut note = note("NT20260528T143012");
         note.path = path;
         note.tags = vec!["QEMU".to_string()];
-        index.upsert_note_with_body(note.clone(), body);
 
         let query = Query::parse(&[
             "#qemu".to_string(),
@@ -423,257 +319,31 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(query.matches(&index, &note).unwrap());
+        assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn plans_tag_status_and_body_intersection() {
-        let mut index = active_index();
-        let mut matching = note("NT20260528T143012");
-        matching.tags = vec!["rust".to_string()];
-        matching.status = Some("open".to_string());
-        index.upsert_note_with_body(matching, "# Ownership\n\nBorrowed ownership notes.\n");
-
-        let mut wrong_status = note("NT20260529T120000");
-        wrong_status.created = "2026-05-29T12:00:00Z".to_string();
-        wrong_status.tags = vec!["rust".to_string()];
-        wrong_status.status = Some("done".to_string());
-        index.upsert_note_with_body(wrong_status, "# Ownership\n\nOwnership notes.\n");
-
-        let mut wrong_body = note("NT20260530T120000");
-        wrong_body.created = "2026-05-30T12:00:00Z".to_string();
-        wrong_body.tags = vec!["rust".to_string()];
-        wrong_body.status = Some("open".to_string());
-        index.upsert_note_with_body(wrong_body, "# Lifetimes\n\nRegion notes.\n");
-
-        let query = Query::parse(&[
-            "tag:rust".to_string(),
-            "status:open".to_string(),
-            "body:ownership".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260528T143012".to_string()])
-        );
-    }
-
-    #[test]
-    fn plans_body_only_queries_from_body_terms() {
-        let mut index = active_index();
-        index.upsert_note_with_body(note("NT20260528T143012"), "# Body\n\nOwnership details.\n");
-        index.upsert_note_with_body(note("NT20260529T120000"), "# Other\n\nLifetime details.\n");
-
-        let query = Query::parse(&["body:ownership".to_string()]).unwrap();
-
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260528T143012".to_string()])
-        );
-    }
-
-    #[test]
-    fn plans_empty_intersections_as_empty_candidates() {
-        let mut index = active_index();
-        let mut note = note("NT20260528T143012");
-        note.tags = vec!["rust".to_string()];
-        note.status = Some("open".to_string());
-        index.upsert_note_with_body(note, "# Ownership\n\nOwnership details.\n");
-
-        let query =
-            Query::parse(&["status:done".to_string(), "body:ownership".to_string()]).unwrap();
-
-        assert!(query.candidate_ids(&index).unwrap().is_empty());
-    }
-
-    #[test]
-    fn body_candidates_keep_unindexed_notes_for_fallback() {
-        let mut index = active_index();
-        let dir = temp_dir("query-body-candidate-fallback");
+    fn multiword_body_values_match_all_terms_not_an_exact_phrase() {
+        let dir = temp_dir("query-body-terms");
         let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Body\n\nOnly the body has bodyonlyterm.\n").unwrap();
+        fs::write(&path, "# Body\n\nThe jailer starts the microvm.\n").unwrap();
 
-        index.vaults.get_mut("notes").unwrap().path = dir.clone();
         let mut note = note("NT20260528T143012");
         note.path = path;
-        index.upsert_note(note.clone());
 
-        let query = Query::parse(&["body:bodyonlyterm".to_string()]).unwrap();
+        let all_terms = Query::parse(&["body:microvm jailer".to_string()]).unwrap();
+        assert!(all_terms.matches(&note).unwrap());
 
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260528T143012".to_string()])
-        );
-        assert!(query.matches(&index, &note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn indexed_body_entries_are_trusted_until_rebuild() {
-        let mut index = active_index();
-        let dir = temp_dir("query-body-stale-index");
-        let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Body\n\nFresh bodyonlyterm from disk.\n").unwrap();
-
-        index.vaults.get_mut("notes").unwrap().path = dir.clone();
-        let mut note = note("NT20260528T143012");
-        note.path = path;
-        index.upsert_note_with_body(note.clone(), "# Body\n\nOld indexed text.\n");
-
-        let query = Query::parse(&["body:bodyonlyterm".to_string()]).unwrap();
-
-        assert!(query.candidate_ids(&index).unwrap().is_empty());
-        assert!(!query.matches(&index, &note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn plans_not_candidates_only_when_inner_set_is_exact() {
-        let mut index = active_index();
-        let mut draft = note("NT20260528T143012");
-        draft.tags = vec!["draft".to_string()];
-        index.upsert_note(draft);
-        index.upsert_note(note("NT20260529T120000"));
-
-        let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
-
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260529T120000".to_string()])
-        );
-    }
-
-    #[test]
-    fn not_body_candidates_are_verification_only_when_body_plan_is_superset() {
-        let mut index = active_index();
-
-        index.upsert_note_with_body(
-            note("NT20260528T143012"),
-            "# Indexed\n\nIndexed body text.\n",
-        );
-        index.upsert_note(note("NT20260529T120000"));
-
-        let exact = Query::parse(&["not:body:indexed".to_string()]).unwrap();
-        assert!(
-            exact.candidate_ids(&index).is_none(),
-            "unindexed active notes make body planning a superset, so not:body stays verification-only"
-        );
-
-        let fallback_only = Query::parse(&["not:body:fallback".to_string()]).unwrap();
-        assert!(
-            fallback_only.candidate_ids(&index).is_none(),
-            "fallback-only body queries cannot be subtracted structurally"
-        );
-    }
-
-    #[test]
-    fn plans_since_and_before_candidates() {
-        let mut index = active_index();
-        let mut before = note("NT20260527T120000");
-        before.created = "2026-05-27T12:00:00Z".to_string();
-        let matching = note("NT20260528T143012");
-        let mut after = note("NT20260529T120000");
-        after.created = "2026-05-29T12:00:00Z".to_string();
-        index.upsert_note(before);
-        index.upsert_note(matching);
-        index.upsert_note(after);
-
-        let query = Query::parse(&[
-            "since:2026-05-28".to_string(),
-            "before:2026-05-29".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(
-            query.candidate_ids(&index).unwrap(),
-            BTreeSet::from(["NT20260528T143012".to_string()])
-        );
-    }
-
-    #[test]
-    fn candidate_intersection_is_deterministic() {
-        let candidates = intersect_candidates(vec![
-            BTreeSet::from(["b".to_string(), "c".to_string()]),
-            BTreeSet::from(["a".to_string(), "b".to_string(), "c".to_string()]),
-            BTreeSet::from(["b".to_string()]),
-        ]);
-
-        assert_eq!(candidates.unwrap(), BTreeSet::from(["b".to_string()]));
-    }
-
-    #[test]
-    fn large_index_candidate_narrowing_is_structural_and_preserves_recent_order() {
-        let mut index = active_index();
-        let dir = temp_dir("query-large-index");
-        index.vaults.get_mut("notes").unwrap().path = dir.clone();
-        let mut expected_recent = Vec::new();
-
-        for second in 0..1000 {
-            let hour = second / 3600;
-            let minute = second / 60 % 60;
-            let second_of_minute = second % 60;
-            let id = format!("NT20260601T{hour:02}{minute:02}{second_of_minute:02}");
-            let mut item = note(&id);
-            item.path = dir.join(format!("{id}.md"));
-            item.created = format!("2026-06-01T{hour:02}:{minute:02}:{second_of_minute:02}Z");
-
-            if matches!(second, 100 | 500 | 900) {
-                item.tags = vec!["target".to_string()];
-                item.status = Some("open".to_string());
-                expected_recent.push(id.clone());
-                fs::write(&item.path, "# Target\n\nneedle marker.\n").unwrap();
-                index.upsert_note_with_body(item, "# Target\n\nneedle marker.\n");
-            } else {
-                if second % 2 == 0 {
-                    item.tags = vec!["target".to_string()];
-                }
-                if second % 3 == 0 {
-                    item.status = Some("open".to_string());
-                }
-                index.upsert_note_with_body(item, "# Filler\n\nhaystack marker.\n");
-            }
-        }
-
-        expected_recent.sort_by(|left, right| right.cmp(left));
-
-        let query = Query::parse(&[
-            "tag:target".to_string(),
-            "status:open".to_string(),
-            "body:needle".to_string(),
-        ])
-        .unwrap();
-        let candidates = query.candidate_ids(&index).unwrap();
-
-        assert_eq!(candidates.len(), 3);
-        assert_eq!(
-            candidates,
-            BTreeSet::from([
-                "NT20260601T000140".to_string(),
-                "NT20260601T000820".to_string(),
-                "NT20260601T001500".to_string()
-            ])
-        );
-
-        let found: Vec<&str> = index
-            .active_recent_notes()
-            .filter(|note| candidates.contains(&note.id))
-            .filter(|note| query.matches(&index, note).unwrap())
-            .map(|note| note.id.as_str())
-            .collect();
-
-        assert_eq!(found, expected_recent);
+        let missing_term = Query::parse(&["body:microvm jailer missing".to_string()]).unwrap();
+        assert!(!missing_term.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn bare_words_fall_back_to_body_search() {
-        let index = Index::default();
         let dir = temp_dir("query-bare-body");
         let path = dir.join("NT20260528T143012.md");
         fs::write(
@@ -687,35 +357,46 @@ mod tests {
 
         let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
 
-        assert!(query.matches(&index, &note).unwrap());
+        assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn bare_words_match_indexed_body_terms() {
-        let mut index = Index::default();
-        let dir = temp_dir("query-indexed-bare-body");
+    fn body_search_reads_current_file_contents() {
+        let dir = temp_dir("query-fresh-body");
         let path = dir.join("NT20260528T143012.md");
-        let body = "# Body\n\nOnly bodyonlyterm appears here.\n";
-        fs::write(&path, body).unwrap();
+        fs::write(&path, "# Body\n\nOld text.\n").unwrap();
 
         let mut note = note("NT20260528T143012");
-        note.path = path;
-        index.upsert_note_with_body(note.clone(), body);
+        note.path = path.clone();
 
-        let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
+        let query = Query::parse(&["body:fresh".to_string()]).unwrap();
+        assert!(!query.matches(&note).unwrap());
 
-        assert!(query.matches(&index, &note).unwrap());
+        fs::write(&path, "# Body\n\nFresh text.\n").unwrap();
+        assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn body_search_reports_missing_note_files() {
+        let note = note("NT20260528T143012");
+
+        let query = Query::parse(&["body:anything".to_string()]).unwrap();
+
+        let error = query.matches(&note).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("note body not readable for NT20260528T143012")
+        );
     }
 
     #[test]
     fn date_filters_include_since_and_exclude_before() {
-        let mut index = Index::default();
         let note = note("NT20260528T143012");
-        index.upsert_note(note.clone());
 
         let matching = Query::parse(&[
             "since:2026-05-28".to_string(),
@@ -724,20 +405,18 @@ mod tests {
         .unwrap();
         let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
 
-        assert!(matching.matches(&index, &note).unwrap());
-        assert!(!too_late.matches(&index, &note).unwrap());
+        assert!(matching.matches(&note).unwrap());
+        assert!(!too_late.matches(&note).unwrap());
     }
 
     #[test]
     fn date_filters_accept_valid_leap_days() {
-        let mut index = Index::default();
         let mut note = note("NT20240229T120000");
         note.created = "2024-02-29T12:00:00Z".to_string();
-        index.upsert_note(note.clone());
 
         let query = Query::parse(&["day:2024-02-29".to_string()]).unwrap();
 
-        assert!(query.matches(&index, &note).unwrap());
+        assert!(query.matches(&note).unwrap());
     }
 
     #[test]

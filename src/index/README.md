@@ -1,9 +1,9 @@
 # index/
 
-On-disk JSON index: serialization shape, persistence, derived maps, and text
-term indexing.
+On-disk JSON index: serialization shape and persistence of primary metadata.
+No derived maps are stored; ordering, filtering, and body matching are computed
+at query time.
 
 | File | Responsibility |
 |---|---|
-| `mod.rs` | Serialized metadata, vault state, persistence, and derived maps. |
-| `terms.rs` | Tokenization, body/heading term indexing, and term-match queries. |
+| `mod.rs` | Serialized primary metadata, vault state, and persistence. |

@@ -168,32 +168,6 @@ fn init_rejects_non_flat_or_non_note_entries() {
 }
 
 #[test]
-fn rebuild_rejects_invalid_entries_without_pruning_index() {
-    let root = temp_dir("rebuild-invalid-notes-dir");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-    let saved = run_nt_with_stdin(&home, &["note"], "# Kept\n\nbody.\n");
-    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
-    let index_path = home.join(".nt/index.json");
-    let original_index = fs::read(&index_path).unwrap();
-    fs::write(notes.join("draft.md"), "# Draft\n").unwrap();
-
-    assert_failed(
-        &home,
-        &["rebuild"],
-        "notes directory must contain only NTYYYYMMDDTHHmmss.md files",
-    );
-
-    assert_eq!(fs::read(&index_path).unwrap(), original_index);
-    assert!(notes.join(format!("{id}.md")).exists());
-    assert_eq!(run_nt(&home, &["list", "ids"]).trim(), id);
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
 fn indexed_note_paths_must_match_the_active_vault_and_id() {
     let root = temp_dir("invalid-indexed-note-path");
     let home = root.join("home");
@@ -218,34 +192,6 @@ fn indexed_note_paths_must_match_the_active_vault_and_id() {
     assert_failed(&home, &["rm", &id], &format!("note not found: {id}"));
     assert_eq!(fs::read_to_string(&outside).unwrap(), "do not remove\n");
     assert!(notes.join(format!("{id}.md")).exists());
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn rebuild_rejects_note_ids_owned_by_another_vault() {
-    let root = temp_dir("rebuild-cross-vault-id-collision");
-    let home = root.join("home");
-    let notes = root.join("notes");
-    let research = root.join("research");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-    let saved = run_nt_with_stdin(&home, &["note"], "# Original\n\nbody.\n");
-    let id = saved.trim().strip_prefix("saved ").unwrap().to_string();
-    run_nt(&home, &["init", research.to_str().unwrap()]);
-    fs::write(research.join(format!("{id}.md")), "# Duplicate\n\nbody.\n").unwrap();
-    let index_path = home.join(".nt/index.json");
-    let original_index = fs::read(&index_path).unwrap();
-
-    assert_failed(
-        &home,
-        &["rebuild"],
-        &format!("note id `{id}` already exists in index at"),
-    );
-
-    assert_eq!(fs::read(&index_path).unwrap(), original_index);
-    run_nt(&home, &["config", "vault", "notes"]);
-    assert!(run_nt(&home, &["show", &id]).contains("Original"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -356,8 +302,6 @@ fn new_user_release_readiness_smoke_flow() {
         vec![id.as_str()]
     );
 
-    let rebuilt = run_nt(&home, &["rebuild"]);
-    assert_eq!(rebuilt.trim(), "rebuilt 1");
     let index = read_index(&home);
     assert!(index["notes"][id.as_str()]["status"].is_null());
     assert_eq!(
@@ -376,128 +320,6 @@ fn new_user_release_readiness_smoke_flow() {
     let config = run_nt(&home, &["config", "show"]);
     assert!(config.contains("vault notes"));
     assert!(config.contains(&vault.display().to_string()));
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn rebuild_reconstructs_active_vault_index_from_markdown() {
-    let root = temp_dir("rebuild-active-vault");
-    let home = root.join("home");
-    let notes = root.join("notes");
-    let first_id = "NT20000101T000000";
-    let deleted_id = "NT20000102T000000";
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-    fs::write(
-        notes.join(format!("{first_id}.md")),
-        "# Imported\n\nBody with https://example.com/body-one.\n",
-    )
-    .unwrap();
-    fs::write(
-        notes.join(format!("{deleted_id}.md")),
-        "# Deleted\n\nThis file will be removed.\n",
-    )
-    .unwrap();
-
-    let rebuilt = run_nt(&home, &["rebuild"]);
-    assert_eq!(rebuilt.trim(), "rebuilt 2");
-
-    run_nt(&home, &["update", first_id, "tag", "+storage"]);
-    run_nt(&home, &["update", first_id, "collection", "+projects/nt"]);
-    run_nt(&home, &["update", first_id, "kind", "todo"]);
-    run_nt(&home, &["update", first_id, "status", "open"]);
-    run_nt(
-        &home,
-        &["update", first_id, "link", &format!("+{}", deleted_id)],
-    );
-
-    let mut index = read_index(&home);
-    assert_eq!(
-        index["notes"][first_id]["sources"].as_array().unwrap(),
-        &vec![serde_json::Value::String(
-            "https://example.com/body-one".to_string()
-        )]
-    );
-    index["notes"][first_id]["sources"] = serde_json::json!([
-        "https://example.com/body-one",
-        "https://example.com/explicit"
-    ]);
-    write_index(&home, &index);
-
-    fs::write(
-        notes.join(format!("{first_id}.md")),
-        "# Refreshed\n\nBody with https://example.com/body-two.\n",
-    )
-    .unwrap();
-    fs::remove_file(notes.join(format!("{deleted_id}.md"))).unwrap();
-
-    let rebuilt = run_nt(&home, &["rebuild"]);
-    assert_eq!(rebuilt, "rebuilt 1\n");
-    let rebuilt_again = run_nt(&home, &["rebuild"]);
-    assert_eq!(rebuilt_again, "rebuilt 1\n");
-
-    let shown = run_nt(&home, &["show", first_id]);
-    assert!(shown.contains(&format!("{first_id}  Refreshed")));
-    assert!(shown.contains("kind todo"));
-    assert!(shown.contains("status open"));
-    assert!(shown.contains("tags storage"));
-    assert!(shown.contains("collections projects/nt"));
-    assert!(shown.contains("links -"));
-    assert!(shown.contains(
-        "sources https://example.com/body-one,https://example.com/body-two,https://example.com/explicit"
-    ));
-
-    let index = read_index(&home);
-    assert!(index["notes"].get(first_id).is_some());
-    assert!(index["notes"].get(deleted_id).is_none());
-    assert_eq!(
-        index["notes"][first_id]["title"].as_str(),
-        Some("Refreshed")
-    );
-    assert_eq!(
-        index["body_terms"]["body"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
-    );
-    assert_eq!(
-        index["body_terms"]["two"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
-    );
-    assert_eq!(
-        index["heading_terms"]["refreshed"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
-    );
-    assert!(index["body_terms"].get("deleted").is_none());
-    assert!(
-        !serde_json::to_string(&index)
-            .unwrap()
-            .contains("# Refreshed\\n\\nBody with")
-    );
-    assert_eq!(
-        index["notes"][first_id]["created"].as_str(),
-        Some("2000-01-01T00:00:00Z")
-    );
-    assert_ne!(
-        index["notes"][first_id]["updated"].as_str(),
-        Some("2000-01-01T00:00:00Z")
-    );
-    assert!(index["backlinks"].as_object().unwrap().is_empty());
-    assert_eq!(
-        index["notes"][first_id]["sources"].as_array().unwrap(),
-        &vec![
-            serde_json::Value::String("https://example.com/body-one".to_string()),
-            serde_json::Value::String("https://example.com/body-two".to_string()),
-            serde_json::Value::String("https://example.com/explicit".to_string()),
-        ]
-    );
-    assert_eq!(
-        index["tags"]["storage"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
-    );
-
-    let listed = run_nt(&home, &["list"]);
-    assert!(listed.contains(first_id));
-    assert!(!listed.contains(deleted_id));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -566,17 +388,11 @@ fn open_uses_editor_and_updates_visible_note() {
     assert!(shown.contains("# Edited\n\nbody two with https://example.com/edited."));
     assert!(!shown.contains("\x1b["));
 
-    let index = read_index(&home);
-    assert!(index["body_terms"].get("one").is_none());
     assert_eq!(
-        index["body_terms"]["two"].as_array().unwrap(),
-        &vec![serde_json::Value::String(id.to_string())]
+        summary_ids(&run_nt(&home, &["find", "body:two"])),
+        vec![id.as_str()]
     );
-    assert!(index["heading_terms"].get("original").is_none());
-    assert_eq!(
-        index["heading_terms"]["edited"].as_array().unwrap(),
-        &vec![serde_json::Value::String(id.to_string())]
-    );
+    assert!(run_nt(&home, &["find", "body:one"]).trim().is_empty());
 
     let body = fs::read_to_string(notes.join(format!("{id}.md"))).unwrap();
     assert_eq!(
@@ -967,18 +783,6 @@ fn collection_and_status_commands_validate_and_update_index_only() {
             .len(),
         1
     );
-    assert_eq!(
-        index["collections"]["projects/nt"].as_array().unwrap(),
-        &vec![serde_json::Value::String(first_id.to_string())]
-    );
-    assert_eq!(
-        index["kinds"]["todo"].as_array().unwrap(),
-        &vec![
-            serde_json::Value::String(second_id.to_string()),
-            serde_json::Value::String(first_id.to_string()),
-        ]
-    );
-    assert!(index["statuses"].get("open").is_none());
 
     let uncollected = run_nt(&home, &["update", first_id, "collection", "-projects/nt"]);
     assert_eq!(
@@ -998,7 +802,6 @@ fn collection_and_status_commands_validate_and_update_index_only() {
             .unwrap()
             .is_empty()
     );
-    assert!(index["collections"].as_object().unwrap().is_empty());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -1055,7 +858,7 @@ fn failed_updates_leave_index_bytes_unchanged() {
 }
 
 #[test]
-fn agenda_metadata_round_trips_through_commands_export_and_rebuild() {
+fn agenda_metadata_round_trips_through_commands_and_export() {
     let root = temp_dir("agenda-metadata-round-trip");
     let home = root.join("home");
     let notes = root.join("notes");
@@ -1108,16 +911,15 @@ fn agenda_metadata_round_trips_through_commands_export_and_rebuild() {
     assert!(exported.contains("due: \"2099-06-30\"\n"));
     assert!(exported.contains(&format!("closed: \"{closed}\"\n")));
 
-    assert_eq!(run_nt(&home, &["rebuild"]).trim(), "rebuilt 1");
-    let rebuilt = read_index(&home);
-    assert_eq!(rebuilt["notes"][id]["priority"].as_str(), Some("A"));
+    let stored = read_index(&home);
+    assert_eq!(stored["notes"][id]["priority"].as_str(), Some("A"));
     assert_eq!(
-        rebuilt["notes"][id]["scheduled"].as_str(),
+        stored["notes"][id]["scheduled"].as_str(),
         Some("2099-06-25")
     );
-    assert_eq!(rebuilt["notes"][id]["due"].as_str(), Some("2099-06-30"));
+    assert_eq!(stored["notes"][id]["due"].as_str(), Some("2099-06-30"));
     assert_eq!(
-        rebuilt["notes"][id]["closed"].as_str(),
+        stored["notes"][id]["closed"].as_str(),
         Some(closed.as_str())
     );
 
@@ -1239,8 +1041,8 @@ fn find_supports_documented_query_forms() {
 }
 
 #[test]
-fn find_uses_visible_body_term_indexes() {
-    let root = temp_dir("find-body-index");
+fn find_reads_bodies_from_disk_without_storing_body_text_in_the_index() {
+    let root = temp_dir("find-body-on-disk");
     let home = root.join("home");
     let notes = root.join("notes");
 
@@ -1254,14 +1056,9 @@ fn find_uses_visible_body_term_indexes() {
     let id = saved.trim().strip_prefix("saved ").unwrap();
 
     let index = read_index(&home);
-    assert_eq!(
-        index["body_terms"]["alpha"].as_array().unwrap(),
-        &vec![serde_json::Value::String(id.to_string())]
-    );
-    assert_eq!(
-        index["heading_terms"]["runtime"].as_array().unwrap(),
-        &vec![serde_json::Value::String(id.to_string())]
-    );
+    assert!(index.get("body_terms").is_none());
+    assert!(index.get("heading_terms").is_none());
+    assert!(index.get("terms").is_none());
     assert!(
         !serde_json::to_string(&index)
             .unwrap()
@@ -1277,64 +1074,24 @@ fn find_uses_visible_body_term_indexes() {
     let heading_found = run_nt(&home, &["find", "body:runtime"]);
     assert_eq!(summary_ids(&heading_found), vec![id]);
 
-    let _ = fs::remove_dir_all(root);
-}
+    fs::write(
+        notes.join(format!("{id}.md")),
+        "# Runtime Heading\n\nGamma replacement text.\n",
+    )
+    .unwrap();
 
-#[test]
-fn find_skips_body_file_reads_when_indexed_candidates_are_empty() {
-    let root = temp_dir("find-empty-index-candidates");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-
-    let saved = run_nt_with_stdin(&home, &["note"], "# Indexed\n\noldterm only.\n");
-    let id = saved.trim().strip_prefix("saved ").unwrap();
-    fs::remove_file(notes.join(format!("{id}.md"))).unwrap();
-
-    let found = run_nt(&home, &["find", "body:missingterm"]);
-
-    assert!(found.trim().is_empty());
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn find_reads_body_files_for_missing_body_index_entries() {
-    let root = temp_dir("find-missing-body-index");
-    let home = root.join("home");
-    let notes = root.join("notes");
-
-    run_nt(&home, &["init", notes.to_str().unwrap()]);
-
-    let saved = run_nt_with_stdin(
-        &home,
-        &["note"],
-        "# Unindexed\n\nfallbackonlyterm lives only in the Markdown body.\n",
+    assert!(run_nt(&home, &["find", "body:alpha"]).trim().is_empty());
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:gamma"])),
+        vec![id]
     );
-    let id = saved.trim().strip_prefix("saved ").unwrap();
-
-    let mut index = read_index(&home);
-    index["body_terms"]
-        .as_object_mut()
-        .unwrap()
-        .remove("fallbackonlyterm");
-    index["body_indexed"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|value| value.as_str() != Some(id));
-    write_index(&home, &index);
-
-    let found = run_nt(&home, &["find", "body:fallbackonlyterm"]);
-
-    assert_eq!(summary_ids(&found), vec![id]);
 
     let _ = fs::remove_dir_all(root);
 }
 
 #[test]
-fn find_preserves_active_recent_order_with_index_candidates() {
-    let root = temp_dir("find-candidate-order");
+fn find_preserves_active_recent_order() {
+    let root = temp_dir("find-recent-order");
     let home = root.join("home");
     let notes = root.join("notes");
 
@@ -1390,9 +1147,6 @@ fn rm_removes_multiple_notes_and_cleans_links() {
     assert!(index["notes"].get(first_id).is_none());
     assert!(index["notes"].get(second_id).is_none());
     assert_eq!(index["notes"][kept_id]["links"], serde_json::json!([]));
-    assert_eq!(index["body_terms"]["shared"], serde_json::json!([kept_id]));
-    assert!(index["body_terms"].get("firstonly").is_none());
-    assert!(index["body_terms"].get("secondonly").is_none());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -1464,7 +1218,7 @@ fn common_mistakes_fail_cleanly() {
     );
     assert_failed(
         &uninitialized_home,
-        &["rebuild"],
+        &["export", "archive"],
         "run `nt init <notes-dir>` first",
     );
 

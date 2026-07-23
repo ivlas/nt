@@ -32,7 +32,6 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         metadata: Vec<String>,
     },
-    Rebuild,
     List {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -124,7 +123,6 @@ mod tests {
             &["nt", "note"],
             &["nt", "note", "tag:decision", "collection:projects/nt"],
             &["nt", "todo", "status:open", "priority:A"],
-            &["nt", "rebuild"],
             &["nt", "list"],
             &["nt", "list", "ids"],
             &["nt", "list", "titles"],
@@ -187,9 +185,6 @@ mod tests {
             cli.command,
             Some(Command::Todo { metadata }) if metadata == vec!["status:open", "priority:A"]
         ));
-
-        let cli = Cli::parse_from(["nt", "rebuild"]);
-        assert!(matches!(cli.command, Some(Command::Rebuild)));
 
         let cli = Cli::parse_from(["nt", "list"]);
         assert!(matches!(cli.command, Some(Command::List { args }) if args.is_empty()));
@@ -321,7 +316,6 @@ mod tests {
                 "init",
                 "note",
                 "todo",
-                "rebuild",
                 "list",
                 "find",
                 "show",

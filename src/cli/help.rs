@@ -13,7 +13,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         ),
         "note" => Ok(NOTE),
         "todo" => Ok(TODO),
-        "rebuild" => Ok(REBUILD),
         "list" => Ok(LIST),
         "find" => Ok(FIND),
         "show" => Ok(
@@ -72,7 +71,6 @@ Plan and organize:
   agenda [today|week|overdue|waiting|undated]  show actionable todos
 
 Maintenance:
-  rebuild                             rebuild the active vault index
   export <path> [id...]               export Markdown with front matter
   config show                         inspect the active vault
   config vault [vault-name]           list or select vaults
@@ -106,16 +104,6 @@ tag, collection, link, and source.
 
 Examples:
   nt todo priority:A due:2026-06-30
-"#;
-
-const REBUILD: &str = r#"nt rebuild
-
-Rebuild from Markdown while preserving primary JSON metadata and merging URLs
-currently found in Markdown bodies. Use after out-of-band file changes or a
-failed mutation changed a note file.
-
-Examples:
-  nt rebuild
 "#;
 
 const RM: &str = r#"nt rm <id...>
@@ -208,7 +196,6 @@ Commands:
   nt init <notes-dir>
   nt note [metadata...]
   nt todo [metadata...]
-  nt rebuild
   nt list [projection] [filter...]
   nt find <expr...>
   nt show <id>
@@ -297,7 +284,6 @@ mod tests {
             "init",
             "note",
             "todo",
-            "rebuild",
             "list",
             "find",
             "show",

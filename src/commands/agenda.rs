@@ -45,7 +45,7 @@ fn select_agenda<'a>(
         (AgendaSection::Waiting, Vec::new()),
         (AgendaSection::Undated, Vec::new()),
     ];
-    for note in index.active_recent_notes() {
+    for note in index.active_notes() {
         if note.kind != "todo" || !matches!(note.status.as_deref(), Some("open" | "waiting")) {
             continue;
         }

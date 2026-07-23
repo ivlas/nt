@@ -9,7 +9,7 @@ handlers.
 | File | Responsibility |
 |---|---|
 | `mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
-| `init.rs` | `init`, `rebuild`, and Markdown-to-metadata reconciliation. |
+| `init.rs` | `init` and Markdown import for existing flat vaults. |
 | `add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `show.rs` | `show`, `open`, and `find`. |
 | `rm.rs` | `rm` and index removal. |

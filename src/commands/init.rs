@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,7 +6,7 @@ use crate::fs::{absolute_path, nt_home, relative_to_cwd};
 use crate::index::{Index, NoteMeta};
 use crate::note::{title_from_body, validate_id};
 
-use super::{active_vault_path, add_body_sources};
+use super::add_body_sources;
 
 pub(super) fn init(notes_dir: &Path) -> Result<()> {
     let notes_dir = absolute_path(notes_dir)?;
@@ -36,33 +35,10 @@ fn import_existing_notes(index: &mut Index, notes_dir: &Path) -> Result<()> {
         let id = id_from_note_path(&path)?;
         ensure_note_id_matches_path(index, &id, &path)?;
 
-        let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
-        index.upsert_note_with_body(note, &body);
+        let note = note_meta_from_markdown(index.notes.get(&id), &path)?;
+        index.upsert_note(note);
     }
 
-    Ok(())
-}
-
-pub(super) fn rebuild() -> Result<()> {
-    let mut index = Index::load()?;
-    let notes_dir = active_vault_path(&index)?.to_path_buf();
-    ensure_notes_dir_is_flat(&notes_dir)?;
-    let mut rebuilt_notes = BTreeMap::new();
-    let mut rebuilt_bodies = BTreeMap::new();
-
-    for path in valid_note_paths(&notes_dir)? {
-        let id = id_from_note_path(&path)?;
-        ensure_note_id_matches_path(&index, &id, &path)?;
-        let (note, body) = note_meta_from_markdown(index.notes.get(&id), &path)?;
-        rebuilt_bodies.insert(id.clone(), body);
-        rebuilt_notes.insert(id, note);
-    }
-
-    let count = rebuilt_notes.len();
-    index.replace_active_vault_notes_with_bodies(rebuilt_notes, &rebuilt_bodies)?;
-    index.save()?;
-
-    println!("rebuilt {count}");
     Ok(())
 }
 
@@ -105,7 +81,7 @@ fn id_from_note_path(path: &Path) -> Result<String> {
         .ok_or_else(|| NtError::Message(format!("invalid note filename: {}", path.display())))
 }
 
-fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<(NoteMeta, String)> {
+fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<NoteMeta> {
     let id = id_from_note_path(path)?;
     let created = crate::note::iso_from_id(&id)?;
     let updated = fs::metadata(path)
@@ -135,7 +111,7 @@ fn note_meta_from_markdown(existing: Option<&NoteMeta>, path: &Path) -> Result<(
         note.sources = existing.sources.clone();
     }
     add_body_sources(&mut note, &body);
-    Ok((note, body))
+    Ok(note)
 }
 
 fn ensure_notes_dir_is_flat(notes_dir: &Path) -> Result<()> {

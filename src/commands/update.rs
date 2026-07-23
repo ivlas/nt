@@ -173,7 +173,6 @@ pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     operation.validate_for_note(note)?;
     operation.apply(note, &now);
     note.updated = now;
-    index.rebuild_derived();
     index.save()?;
     println!("updated {id} {} {value}", field_name(field));
     Ok(())

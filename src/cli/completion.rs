@@ -87,7 +87,7 @@ mod tests {
     fn bash_completion_contains_commands_and_dynamic_note_ids() {
         let script = completion_script(Shell::Bash);
 
-        assert!(script.contains("init note todo rebuild list find show open"));
+        assert!(script.contains("init note todo list find show open"));
         assert!(script.contains("_nt_note_ids"));
         assert!(script.contains("_nt_complete_query_expr"));
         assert!(script.contains("_nt_complete_add_metadata"));

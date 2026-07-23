@@ -41,7 +41,7 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     add_body_sources(&mut note, &body);
 
     atomic_write(&path, body.as_bytes())?;
-    index.upsert_note_with_body(note, &body);
+    index.upsert_note(note);
     index.save()?;
 
     println!("saved {}", timestamp.id);

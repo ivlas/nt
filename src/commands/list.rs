@@ -46,16 +46,13 @@ pub(super) fn list(args: &[String]) -> Result<()> {
 }
 
 fn matching_notes<'a>(index: &'a Index, query: &Query) -> Result<Vec<&'a NoteMeta>> {
-    let candidates = query.candidate_ids(index);
-    index
-        .active_recent_notes()
-        .filter(|note| candidates.as_ref().is_none_or(|ids| ids.contains(&note.id)))
-        .filter_map(|note| match query.matches(index, note) {
-            Ok(true) => Some(Ok(note)),
-            Ok(false) => None,
-            Err(error) => Some(Err(error)),
-        })
-        .collect()
+    let mut notes = Vec::new();
+    for note in index.active_notes() {
+        if query.matches(note)? {
+            notes.push(note);
+        }
+    }
+    Ok(notes)
 }
 
 fn list_link_graph(
@@ -98,13 +95,14 @@ fn list_metadata<'a>(
         validate(selected)?;
         return print_note_list(
             index
-                .active_recent_notes()
+                .active_notes()
+                .into_iter()
                 .filter(|note| values(note).iter().any(|value| value == selected)),
         );
     }
 
     let mut available = BTreeSet::new();
-    for note in index.active_recent_notes() {
+    for note in index.active_notes() {
         available.extend(values(note).iter().map(String::as_str));
     }
     for value in available {

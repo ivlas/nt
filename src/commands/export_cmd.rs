@@ -45,12 +45,9 @@ fn ensure_export_dir_is_not_active_vault(export_dir: &Path, active_vault: &Path)
 fn export_ids(index: &Index, ids: &[String]) -> Result<Vec<String>> {
     if ids.is_empty() {
         return Ok(index
-            .recent
+            .active_notes()
             .iter()
-            .filter_map(|id| {
-                let note = index.notes.get(id)?;
-                index.note_is_in_active_vault(note).then(|| id.clone())
-            })
+            .map(|note| note.id.clone())
             .collect());
     }
 

@@ -23,7 +23,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Init { notes_dir }) => init::init(&notes_dir),
         Some(Command::Note { metadata }) => add::note(&metadata),
         Some(Command::Todo { metadata }) => add::todo(&metadata),
-        Some(Command::Rebuild) => init::rebuild(),
         Some(Command::List { args }) => list::list(&args),
         Some(Command::Find { expr }) => show::find(&expr),
         Some(Command::Show { id }) => show::show(&id),
@@ -191,15 +190,17 @@ mod test_helpers {
     }
 
     pub fn active_index(notes: Vec<NoteMeta>) -> Index {
-        let mut index = Index::default();
-        index.active_vault = Some("notes".to_string());
-        index.vaults.insert(
-            "notes".to_string(),
-            VaultMeta {
-                path: PathBuf::from("notes"),
-                created: "2026-05-01T00:00:00Z".to_string(),
-            },
-        );
+        let mut index = Index {
+            active_vault: Some("notes".to_string()),
+            vaults: std::collections::BTreeMap::from([(
+                "notes".to_string(),
+                VaultMeta {
+                    path: PathBuf::from("notes"),
+                    created: "2026-05-01T00:00:00Z".to_string(),
+                },
+            )]),
+            ..Default::default()
+        };
         for note in notes {
             index.upsert_note(note);
         }

@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::process::Command as ProcessCommand;
 
@@ -133,7 +132,7 @@ pub(super) fn open(id: &str) -> Result<()> {
     updated.title = title;
     add_body_sources(&mut updated, &body);
 
-    index.upsert_note_with_body(updated, &body);
+    index.upsert_note(updated);
     index.save()?;
 
     println!("saved {id}");
@@ -143,18 +142,9 @@ pub(super) fn open(id: &str) -> Result<()> {
 pub(super) fn find(exprs: &[String]) -> Result<()> {
     let index = Index::load()?;
     let query = Query::parse(exprs)?;
-    let candidates = query.candidate_ids(&index);
 
-    if candidates.as_ref().is_some_and(BTreeSet::is_empty) {
-        return Ok(());
-    }
-
-    for note in index.active_recent_notes() {
-        if !candidates.as_ref().is_none_or(|ids| ids.contains(&note.id)) {
-            continue;
-        }
-
-        if query.matches(&index, note)? {
+    for note in index.active_notes() {
+        if query.matches(note)? {
             println!("{}", summary_line(note));
         }
     }
