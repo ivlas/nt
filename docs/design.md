@@ -41,7 +41,7 @@ related concerns into directories, each with a `mod.rs` entry point:
 |---|---|
 | `cli/mod.rs` | Public command, subcommand, field, view, and shell enums. |
 | `cli/help.rs` | Flagless built-in help text. |
-| `cli/completion.rs` | Bash and Zsh completion script generation, including dynamic values. |
+| `cli/completion.rs` | Bash and Zsh command and note id completion. |
 | `commands/mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
 | `commands/init.rs` | `init` and Markdown import for existing flat vaults. |
 | `commands/add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |

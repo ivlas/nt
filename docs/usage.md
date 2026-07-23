@@ -215,8 +215,8 @@ nt completion bash
 nt completion zsh
 ```
 
-The generated scripts complete commands, note ids, metadata, query fields, and
-known tags and collections. Use built-in positional help instead of flags:
+The generated scripts complete commands and note ids. Use built-in positional
+help instead of flags:
 
 ```sh
 nt help

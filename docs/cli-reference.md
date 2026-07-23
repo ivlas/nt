@@ -461,10 +461,8 @@ nt completion bash
 nt completion zsh
 ```
 
-Writes a completion script to stdout. Completion covers the typed command
-grammar, note ids through `nt list id`, list fields and structured filters,
-known metadata values, query prefixes,
-and comma-separated creation metadata.
+Writes a completion script to stdout. Completion covers the command grammar and
+note ids through `nt list id`.
 
 ## help
 
