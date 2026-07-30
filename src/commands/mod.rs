@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cli::completion::print_completion;
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
 use crate::fs::nt_home;
@@ -32,10 +31,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Agenda { view }) => agenda::agenda(view),
         Some(Command::Export { path, ids }) => export_cmd::export(&path, &ids),
         Some(Command::Config { command }) => config::config(command),
-        Some(Command::Completion { shell }) => {
-            print_completion(shell);
-            Ok(())
-        }
         Some(Command::Help { topic }) => crate::cli::help::print(&topic),
     }
 }

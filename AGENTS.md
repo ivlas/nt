@@ -7,8 +7,7 @@ around visible commands, deterministic retrieval, editable CommonMark notes, and
 no hidden memory layer.
 
 Humans and agents use the same Unix-like interface. Commands should read stdin,
-write stdout, use `$EDITOR`, and compose with grep, awk, pipes, and shell
-completion.
+write stdout, use `$EDITOR`, and compose with grep, awk, and pipes.
 
 `nt` is not an agent framework, RAG system, vector database, daemon, server,
 browser/runtime orchestrator, microVM orchestrator, workflow engine, Codex
@@ -32,8 +31,7 @@ launcher, or Hermes replacement.
 - Do not add hidden agent-only behavior.
 - Do not add built-in agent launchers such as `nt agent` or `nt discuss`.
 - Do not create `AGENTS.md`, skill files, or agent workspaces during `nt init`.
-- Provide command and note id completion.
-- Use `clap` and `clap_complete` for CLI behavior.
+- Use `clap` for CLI behavior.
 - Use `serde` and `serde_json` for JSON.
 - Use `thiserror` for application errors.
 
@@ -62,7 +60,6 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt config show`
 - `nt config vault`
 - `nt config vault <vault-name>`
-- `nt completion <shell>`
 - `nt help`
 - `nt help <command>`
 
@@ -184,8 +181,8 @@ syntax for note links.
 
 Agents should retrieve notes through cheap, visible operations:
 
-- Use `nt list id` for completion and direct id lists (`nt list ids` remains a
-  compatibility alias).
+- Use `nt list id` for direct id lists (`nt list ids` remains a compatibility
+  alias).
 - Use `nt list` for the `id`, `title`, `kind`, `status`, `due`, and `tag`
   summary in active-recent order; use `nt list all` for every indexed field.
 - Use projections such as `nt list id,title,status status:open` for stable,
@@ -255,7 +252,7 @@ Suggested TTY colors:
 - Run `cargo test` when behavior changes.
 - Run `cargo run -- help` for a basic command smoke test.
 - Add focused tests for command routing, note ids, atomic writes, index updates,
-  completion, parsing, query syntax, metadata mutation commands, and storage.
+  parsing, query syntax, metadata mutation commands, and storage.
 
 ## Commits
 

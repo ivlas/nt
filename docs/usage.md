@@ -206,17 +206,9 @@ nt config vault
 nt config vault work
 ```
 
-## Completion And Help
+## Help
 
-Generate completion for Bash or Zsh:
-
-```sh
-nt completion bash
-nt completion zsh
-```
-
-The generated scripts complete commands and note ids. Use built-in positional
-help instead of flags:
+Use built-in positional help instead of flags:
 
 ```sh
 nt help

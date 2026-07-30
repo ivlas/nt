@@ -56,7 +56,6 @@ nt export <path> [id...]
 nt config show
 nt config vault
 nt config vault <vault-name>
-nt completion <bash|zsh>
 nt help
 nt help <command...>
 nt help reference
@@ -453,16 +452,6 @@ nt config vault <vault-name>
 ```
 
 Supplying a name selects it and prints `configured vault <name> <path>`.
-
-## completion
-
-```text
-nt completion bash
-nt completion zsh
-```
-
-Writes a completion script to stdout. Completion covers the command grammar and
-note ids through `nt list id`.
 
 ## help
 

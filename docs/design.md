@@ -39,9 +39,8 @@ related concerns into directories, each with a `mod.rs` entry point:
 
 | Module | Responsibility |
 |---|---|
-| `cli/mod.rs` | Public command, subcommand, field, view, and shell enums. |
+| `cli/mod.rs` | Public command, subcommand, field, and view enums. |
 | `cli/help.rs` | Flagless built-in help text. |
-| `cli/completion.rs` | Bash and Zsh command and note id completion. |
 | `commands/mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
 | `commands/init.rs` | `init` and Markdown import for existing flat vaults. |
 | `commands/add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
@@ -215,8 +214,8 @@ approved before `nt note`, `$EDITOR`, or `nt update` mutates state.
 ## Decision Status
 
 The command surface includes generic list projections and structured filters,
-typed `update`, agenda fields and views, dynamic completion, and compatibility
-forms for the original list submodes. The 0.1.0 stable
+typed `update`, agenda fields and views, and compatibility forms for the
+original list submodes. The 0.1.0 stable
 core remains the current storage, retrieval, metadata, and shell contract, not
 a pending storage migration.
 
@@ -229,12 +228,12 @@ The following ideas are deliberately deferred rather than promised:
   explicit
 - recurrence, effort estimates, time tracking, habits, or Markdown task parsing
 - a TUI or broader browse, graph, workflow, or runtime commands
-- richer workspace, research queue, import, tag, and completion workflows
+- richer workspace, research queue, import, and tag workflows
 
 ## Development And Release
 
-Behavior changes should add focused parser, storage, query, completion, and
-command tests as appropriate. Before release, run:
+Behavior changes should add focused parser, storage, query, and command tests as
+appropriate. Before release, run:
 
 ```sh
 cargo fmt --check

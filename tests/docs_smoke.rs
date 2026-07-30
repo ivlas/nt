@@ -381,20 +381,8 @@ fn clean_shell_token(token: &str) -> String {
 }
 
 const ROOT_COMMANDS: &[&str] = &[
-    "init",
-    "note",
-    "todo",
-    "list",
-    "find",
-    "show",
-    "open",
-    "rm",
-    "update",
-    "agenda",
-    "export",
-    "config",
-    "completion",
-    "help",
+    "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda", "export",
+    "config", "help",
 ];
 
 const UNSUPPORTED_ROOT_COMMAND_EXAMPLES: &[&str] = &[

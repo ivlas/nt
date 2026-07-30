@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-pub mod completion;
 pub mod help;
 
 #[derive(Parser)]
@@ -67,19 +66,10 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    Completion {
-        shell: Shell,
-    },
     Help {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         topic: Vec<String>,
     },
-}
-
-#[derive(Clone, Copy, ValueEnum)]
-pub enum Shell {
-    Bash,
-    Zsh,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -114,7 +104,7 @@ pub enum ConfigCommand {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AgendaView, Cli, Command, ConfigCommand, Shell, UpdateField};
+    use super::{AgendaView, Cli, Command, ConfigCommand, UpdateField};
 
     #[test]
     fn parses_target_commands() {
@@ -154,7 +144,6 @@ mod tests {
             &["nt", "config", "show"],
             &["nt", "config", "vault"],
             &["nt", "config", "vault", "notes"],
-            &["nt", "completion", "zsh"],
             &["nt", "help"],
             &["nt", "help", "find"],
         ];
@@ -266,12 +255,6 @@ mod tests {
             })
         ));
 
-        let cli = Cli::parse_from(["nt", "completion", "zsh"]);
-        assert!(matches!(
-            cli.command,
-            Some(Command::Completion { shell: Shell::Zsh })
-        ));
-
         let cli = Cli::parse_from(["nt", "help", "find"]);
         assert!(matches!(
             cli.command,
@@ -313,20 +296,8 @@ mod tests {
         assert_eq!(
             commands,
             vec![
-                "init",
-                "note",
-                "todo",
-                "list",
-                "find",
-                "show",
-                "open",
-                "rm",
-                "update",
-                "agenda",
-                "export",
-                "config",
-                "completion",
-                "help",
+                "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
+                "export", "config", "help",
             ]
         );
 

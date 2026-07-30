@@ -34,9 +34,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "config vault" => Ok(
             "nt config vault [vault-name]\n\nList or select vaults.\n\nExamples:\n  nt config vault notes\n",
         ),
-        "completion" => Ok(
-            "nt completion <bash|zsh>\n\nGenerate shell completion.\n\nExamples:\n  nt completion zsh\n",
-        ),
         "help" => Ok(
             "nt help [command...]\nnt help reference\n\nShow command help or the compact CLI reference.\n\nExamples:\n  nt help find\n  nt help reference\n",
         ),
@@ -74,7 +71,6 @@ Maintenance:
   export <path> [id...]               export Markdown with front matter
   config show                         inspect the active vault
   config vault [vault-name]           list or select vaults
-  completion <bash|zsh>               generate shell completion
 
 Help:
   help [command...]                   show command help
@@ -206,7 +202,6 @@ Commands:
   nt export <path> [id...]
   nt config show
   nt config vault [vault-name]
-  nt completion <bash|zsh>
   nt help [command...]
   nt help reference
 
@@ -280,21 +275,8 @@ mod tests {
     #[test]
     fn target_commands_have_help() {
         for topic in [
-            "",
-            "init",
-            "note",
-            "todo",
-            "list",
-            "find",
-            "show",
-            "open",
-            "rm",
-            "update",
-            "agenda",
-            "export",
-            "config",
-            "completion",
-            "help",
+            "", "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
+            "export", "config", "help",
         ] {
             let help = topic_text(topic).unwrap();
             assert!(
@@ -375,7 +357,6 @@ mod tests {
             "export <path> [id...]",
             "config show",
             "config vault [vault-name]",
-            "completion <bash|zsh>",
             "help [command...]",
             "help reference",
         ] {
