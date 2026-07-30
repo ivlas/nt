@@ -3,7 +3,7 @@ use std::process::Command as ProcessCommand;
 
 use crate::display::{joined_or_dash, summary_line};
 use crate::error::{NtError, Result};
-use crate::fs::{atomic_write, relative_to_cwd};
+use crate::fs::atomic_write;
 use crate::index::Index;
 use crate::note::{title_from_body, validate_id};
 use crate::query::Query;
@@ -26,7 +26,6 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     validate_id(id)?;
     let index = Index::load()?;
     let note = note_ref(&index, id)?;
-    let body = fs::read_to_string(&note.path)?;
 
     let mut text = String::new();
     text.push_str(&format!(
@@ -34,14 +33,7 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
         paint(&note.id, Style::BrightCyan, color),
         note.title
     ));
-    text.push_str(&format!(
-        "path {}\n",
-        paint(
-            &relative_to_cwd(&note.path).display().to_string(),
-            Style::Dim,
-            color
-        )
-    ));
+    text.push_str(&format!("home {}\n", note.home_collection));
     text.push_str(&format!(
         "created {}\n",
         paint(&note.created, Style::Dim, color)
@@ -78,7 +70,7 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     ));
     text.push_str(&format!("links {}\n", joined_or_dash(&note.links)));
     text.push_str(&format!("sources {}\n\n", joined_or_dash(&note.sources)));
-    text.push_str(&body);
+    text.push_str(&note.body);
     if !text.ends_with('\n') {
         text.push('\n');
     }
@@ -91,8 +83,9 @@ pub(super) fn open(id: &str) -> Result<()> {
     let index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    let body = fs::read_to_string(&note.path)?;
-    let original_body = body.as_bytes().to_vec();
+    let body = note.body.clone();
+    let original_body = body.clone();
+    let original_updated = note.updated.clone();
     let open_path = open_temp_path(id)?;
     atomic_write(&open_path, body.as_bytes())?;
 
@@ -118,18 +111,17 @@ pub(super) fn open(id: &str) -> Result<()> {
 
     let mut index = Index::load()?;
     let note = note_ref(&index, id)?.clone();
-    let current_body = fs::read(&note.path)?;
-    if current_body != original_body {
+    if note.updated != original_updated || note.body != original_body {
         return Err(NtError::Message(
             "note changed during edit; please retry".to_string(),
         ));
     }
 
-    atomic_write(&note.path, body.as_bytes())?;
     let timestamp = crate::note::timestamp_now();
     let mut updated = note;
     updated.updated = timestamp.iso;
     updated.title = title;
+    updated.body = body.clone();
     add_body_sources(&mut updated, &body);
 
     index.upsert_note(updated);
@@ -143,7 +135,7 @@ pub(super) fn find(exprs: &[String]) -> Result<()> {
     let index = Index::load()?;
     let query = Query::parse(exprs)?;
 
-    for note in index.active_notes() {
+    for note in index.all_notes() {
         if query.matches(note)? {
             println!("{}", summary_line(note));
         }

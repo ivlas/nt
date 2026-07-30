@@ -14,6 +14,7 @@ enum UpdateOperation {
     Priority(Option<String>),
     Scheduled(Option<String>),
     Due(Option<String>),
+    Home(String),
     Set {
         field: UpdateField,
         add: bool,
@@ -52,6 +53,10 @@ impl UpdateOperation {
                 } else {
                     Self::Due(value)
                 })
+            }
+            UpdateField::Home => {
+                validate_collection(raw)?;
+                Ok(Self::Home(raw.to_string()))
             }
             UpdateField::Tag
             | UpdateField::Collection
@@ -108,6 +113,10 @@ impl UpdateOperation {
             Self::Priority(value) => note.priority = value,
             Self::Scheduled(value) => note.scheduled = value,
             Self::Due(value) => note.due = value,
+            Self::Home(value) => {
+                note.home_collection = value.clone();
+                push_unique_sorted(&mut note.collections, value);
+            }
             Self::Set { field, add, value } => {
                 let values = match field {
                     UpdateField::Tag => &mut note.tags,
@@ -134,7 +143,7 @@ impl UpdateOperation {
             Self::Status(None) | Self::Priority(None) | Self::Scheduled(None) | Self::Due(None) => {
                 None
             }
-            Self::Kind(_) | Self::Set { .. } => None,
+            Self::Kind(_) | Self::Home(_) | Self::Set { .. } => None,
         };
 
         if let Some(field) = field
@@ -158,6 +167,7 @@ fn field_name(field: UpdateField) -> &'static str {
         UpdateField::Due => "due",
         UpdateField::Tag => "tag",
         UpdateField::Collection => "collection",
+        UpdateField::Home => "home",
         UpdateField::Link => "link",
         UpdateField::Source => "source",
     }
@@ -169,6 +179,24 @@ pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     super::ensure_note_exists(&index, id)?;
     let operation = UpdateOperation::parse(field, value, &index)?;
     let now = crate::note::timestamp_now().iso;
+    match &operation {
+        UpdateOperation::Home(collection)
+        | UpdateOperation::Set {
+            field: UpdateField::Collection,
+            add: true,
+            value: collection,
+        } => index.ensure_collection(collection, &now)?,
+        UpdateOperation::Set {
+            field: UpdateField::Collection,
+            add: false,
+            value: collection,
+        } if index.notes[id].home_collection == *collection => {
+            return Err(NtError::Message(format!(
+                "cannot remove home collection `{collection}`; move home first"
+            )));
+        }
+        _ => {}
+    }
     let note = note_mut(&mut index, id)?;
     operation.validate_for_note(note)?;
     operation.apply(note, &now);

@@ -90,8 +90,6 @@ fn format_columns(values: impl Iterator<Item = String>, widths: &[usize]) -> Str
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use crate::index::NoteMeta;
 
     use super::render_table;
@@ -100,16 +98,18 @@ mod tests {
     #[test]
     fn table_has_headers_and_aligned_columns() {
         let mut short = NoteMeta::new_note(
-            "NT20260621T100000".to_string(),
-            PathBuf::from("NT20260621T100000.md"),
+            "018fbe0a-6c00-7000-8000-000000000001".to_string(),
+            "personal/inbox".to_string(),
+            "# Short\n".to_string(),
             "2026-06-21T10:00:00Z".to_string(),
             "2026-06-21T10:00:00Z".to_string(),
             "Short".to_string(),
         );
         short.status = Some("open".to_string());
         let long = NoteMeta::new_note(
-            "NT20260621T110000".to_string(),
-            PathBuf::from("NT20260621T110000.md"),
+            "018fbe0a-6c00-7000-8000-000000000002".to_string(),
+            "personal/inbox".to_string(),
+            "# Long\n".to_string(),
             "2026-06-21T11:00:00Z".to_string(),
             "2026-06-21T11:00:00Z".to_string(),
             "A much longer title".to_string(),
@@ -120,8 +120,17 @@ mod tests {
             &[ListField::Id, ListField::Title, ListField::Status],
         );
 
-        assert_eq!(lines[0], "ID                 TITLE                STATUS");
-        assert_eq!(lines[1], "NT20260621T100000  Short                open");
-        assert_eq!(lines[2], "NT20260621T110000  A much longer title  -");
+        assert_eq!(
+            lines[0],
+            "ID                                    TITLE                STATUS"
+        );
+        assert_eq!(
+            lines[1],
+            "018fbe0a-6c00-7000-8000-000000000001  Short                open"
+        );
+        assert_eq!(
+            lines[2],
+            "018fbe0a-6c00-7000-8000-000000000002  A much longer title  -"
+        );
     }
 }

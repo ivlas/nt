@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-use std::fs;
-
-use crate::error::{NtError, Result};
+use crate::error::Result;
 use crate::index::NoteMeta;
+use std::collections::BTreeSet;
 
 use super::parse::normalize;
 
@@ -53,23 +51,13 @@ pub(super) fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
 }
 
 pub(super) fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
-    let body = read_body(note)?.to_ascii_lowercase();
+    let body = note.body.to_ascii_lowercase();
     let terms = tokenize_text(needle);
     if terms.is_empty() {
         return Ok(body.contains(needle));
     }
 
     Ok(terms.iter().all(|term| body.contains(term)))
-}
-
-fn read_body(note: &NoteMeta) -> Result<String> {
-    fs::read_to_string(&note.path).map_err(|err| {
-        NtError::Message(format!(
-            "note body not readable for {} at {}: {err}",
-            note.id,
-            note.path.display()
-        ))
-    })
 }
 
 fn tokenize_text(text: &str) -> BTreeSet<String> {

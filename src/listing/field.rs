@@ -1,12 +1,11 @@
 use crate::display::joined_or_dash;
 use crate::error::{NtError, Result};
-use crate::fs::relative_to_cwd;
 use crate::index::NoteMeta;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ListField {
     Id,
-    Path,
+    Home,
     Created,
     Updated,
     Title,
@@ -24,7 +23,7 @@ pub enum ListField {
 
 pub(super) const ALL_FIELDS: &[ListField] = &[
     ListField::Id,
-    ListField::Path,
+    ListField::Home,
     ListField::Created,
     ListField::Updated,
     ListField::Title,
@@ -71,7 +70,7 @@ impl ListField {
     fn parse(value: &str) -> Result<Self> {
         match value {
             "id" => Ok(Self::Id),
-            "path" => Ok(Self::Path),
+            "home" => Ok(Self::Home),
             "created" => Ok(Self::Created),
             "updated" => Ok(Self::Updated),
             "title" => Ok(Self::Title),
@@ -92,7 +91,7 @@ impl ListField {
     pub(super) fn render(self, note: &NoteMeta) -> String {
         match self {
             Self::Id => note.id.clone(),
-            Self::Path => relative_to_cwd(&note.path).display().to_string(),
+            Self::Home => note.home_collection.clone(),
             Self::Created => note.created.clone(),
             Self::Updated => note.updated.clone(),
             Self::Title => note.title.clone(),
@@ -112,7 +111,7 @@ impl ListField {
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Id => "id",
-            Self::Path => "path",
+            Self::Home => "home",
             Self::Created => "created",
             Self::Updated => "updated",
             Self::Title => "title",

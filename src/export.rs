@@ -5,10 +5,7 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
     let mut text = String::new();
     text.push_str("---\n");
     text.push_str(&format!("id: {}\n", json_value(&note.id)?));
-    text.push_str(&format!(
-        "path: {}\n",
-        json_value(&note.path.to_string_lossy())?
-    ));
+    text.push_str(&format!("home: {}\n", json_value(&note.home_collection)?));
     text.push_str(&format!("created: {}\n", json_value(&note.created)?));
     text.push_str(&format!("updated: {}\n", json_value(&note.updated)?));
     text.push_str(&format!("title: {}\n", json_value(&note.title)?));
@@ -54,8 +51,6 @@ fn json_list(values: &[String]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use crate::index::NoteMeta;
 
     use super::export_markdown;
@@ -63,7 +58,8 @@ mod tests {
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.to_string(),
-            PathBuf::from(format!("notes/{id}.md")),
+            "personal/inbox".to_string(),
+            "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "Storage shape".to_string(),
@@ -72,14 +68,13 @@ mod tests {
 
     #[test]
     fn export_markdown_adds_front_matter_from_note_metadata() {
-        let mut note = note("NT20260528T143012");
-        note.path = PathBuf::from("/tmp/notes/NT20260528T143012.md");
+        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
         note.title = "Storage: \"shape\"".to_string();
         note.kind = "decision".to_string();
         note.status = Some("open".to_string());
         note.tags = vec!["cli".to_string(), "storage".to_string()];
-        note.collections = vec!["projects/nt".to_string()];
-        note.links = vec!["NT20260527T120000".to_string()];
+        note.collections = vec!["personal/inbox".to_string(), "work/project_a".to_string()];
+        note.links = vec!["018fbe0a-6c00-7000-8000-000000000002".to_string()];
         note.sources = vec!["https://example.com/a,b".to_string()];
 
         let exported = export_markdown(&note, "# Storage\n\nBody.\n").unwrap();
@@ -87,8 +82,8 @@ mod tests {
         assert_eq!(
             exported,
             "---\n\
-id: \"NT20260528T143012\"\n\
-path: \"/tmp/notes/NT20260528T143012.md\"\n\
+id: \"018fbe0a-6c00-7000-8000-000000000001\"\n\
+home: \"personal/inbox\"\n\
 created: \"2026-05-28T14:30:12Z\"\n\
 updated: \"2026-05-28T14:30:12Z\"\n\
 title: \"Storage: \\\"shape\\\"\"\n\
@@ -99,8 +94,8 @@ scheduled: null\n\
 due: null\n\
 closed: null\n\
 tags: [\"cli\",\"storage\"]\n\
-collections: [\"projects/nt\"]\n\
-links: [\"NT20260527T120000\"]\n\
+collections: [\"personal/inbox\",\"work/project_a\"]\n\
+links: [\"018fbe0a-6c00-7000-8000-000000000002\"]\n\
 sources: [\"https://example.com/a,b\"]\n\
 ---\n\n\
 # Storage\n\n\
@@ -110,7 +105,7 @@ Body.\n"
 
     #[test]
     fn export_markdown_uses_null_status_and_empty_lists() {
-        let note = note("NT20260528T143012");
+        let note = note("018fbe0a-6c00-7000-8000-000000000001");
 
         let exported = export_markdown(&note, "# Storage\n").unwrap();
 

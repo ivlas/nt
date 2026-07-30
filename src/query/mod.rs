@@ -222,7 +222,6 @@ impl QueryExpr {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
 
     use crate::index::NoteMeta;
 
@@ -231,7 +230,8 @@ mod tests {
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.to_string(),
-            PathBuf::from(format!("notes/{id}.md")),
+            "personal/inbox".to_string(),
+            "# Storage Decision\n\nMicroVM jailer notes.\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "Storage Decision".to_string(),
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn matches_metadata_fields_with_and_semantics() {
-        let mut note = note("NT20260528T143012");
+        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
         note.kind = "todo".to_string();
         note.status = Some("open".to_string());
         note.collections = vec!["projects/nt".to_string()];
@@ -281,8 +281,8 @@ mod tests {
 
     #[test]
     fn matches_link_direction() {
-        let mut from = note("NT20260528T143012");
-        let to = note("NT20260529T120000");
+        let mut from = note("018fbe0a-6c00-7000-8000-000000000001");
+        let to = note("018fbe0a-6c00-7000-8000-000000000002");
         from.links = vec![to.id.clone()];
 
         let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
@@ -306,13 +306,13 @@ mod tests {
         let path = dir.join("NT20260528T143012.md");
         fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
 
-        let mut note = note("NT20260528T143012");
-        note.path = path;
+        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
+        note.body = fs::read_to_string(path).unwrap();
         note.tags = vec!["QEMU".to_string()];
 
         let query = Query::parse(&[
             "#qemu".to_string(),
-            "id:NT20260528".to_string(),
+            "id:018fbe0a".to_string(),
             "title:storage".to_string(),
             "day:2026-05-28".to_string(),
             "body:microvm jailer".to_string(),
@@ -331,7 +331,7 @@ mod tests {
         fs::write(&path, "# Body\n\nThe jailer starts the microvm.\n").unwrap();
 
         let mut note = note("NT20260528T143012");
-        note.path = path;
+        note.body = fs::read_to_string(path).unwrap();
 
         let all_terms = Query::parse(&["body:microvm jailer".to_string()]).unwrap();
         assert!(all_terms.matches(&note).unwrap());
@@ -353,7 +353,7 @@ mod tests {
         .unwrap();
 
         let mut note = note("NT20260528T143012");
-        note.path = path;
+        note.body = fs::read_to_string(path).unwrap();
 
         let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
 
@@ -369,29 +369,27 @@ mod tests {
         fs::write(&path, "# Body\n\nOld text.\n").unwrap();
 
         let mut note = note("NT20260528T143012");
-        note.path = path.clone();
+        note.body = fs::read_to_string(&path).unwrap();
 
         let query = Query::parse(&["body:fresh".to_string()]).unwrap();
         assert!(!query.matches(&note).unwrap());
 
         fs::write(&path, "# Body\n\nFresh text.\n").unwrap();
+        note.body = fs::read_to_string(&path).unwrap();
         assert!(query.matches(&note).unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn body_search_reports_missing_note_files() {
+    fn body_search_handles_empty_stored_body() {
         let note = note("NT20260528T143012");
 
         let query = Query::parse(&["body:anything".to_string()]).unwrap();
 
-        let error = query.matches(&note).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("note body not readable for NT20260528T143012")
-        );
+        let mut note = note;
+        note.body.clear();
+        assert!(!query.matches(&note).unwrap());
     }
 
     #[test]
@@ -440,20 +438,20 @@ mod tests {
             "invalid `day` date `2025-02-29`; use YYYY-MM-DD"
         );
         assert_eq!(
-            Query::parse(&["id:bad".to_string()])
+            Query::parse(&["id:xyz".to_string()])
                 .unwrap_err()
                 .to_string(),
-            "invalid `id` prefix `bad`; use a prefix of NTYYYYMMDDTHHmmss"
+            "invalid `id` prefix `xyz`; use a UUIDv7 prefix"
         );
         assert_eq!(
-            Query::parse(&["link:NT20260528T14301".to_string()])
+            Query::parse(&["link:018fbe0a".to_string()])
                 .unwrap_err()
                 .to_string(),
-            "invalid `link` note id `nt20260528t14301`; use NTYYYYMMDDTHHmmss"
+            "invalid `link` note id `018fbe0a`; use a UUIDv7"
         );
     }
 
-    fn temp_dir(name: &str) -> PathBuf {
+    fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("nt-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();

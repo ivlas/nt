@@ -19,8 +19,8 @@ pub fn nt_home() -> Result<PathBuf> {
     Ok(home_dir()?.join(".nt"))
 }
 
-pub fn index_path() -> Result<PathBuf> {
-    Ok(nt_home()?.join("index.json"))
+pub fn database_path() -> Result<PathBuf> {
+    Ok(nt_home()?.join("nt.sqlite3"))
 }
 
 pub fn absolute_path(path: &Path) -> Result<PathBuf> {

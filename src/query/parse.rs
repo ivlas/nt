@@ -33,28 +33,18 @@ pub(super) fn validate_priority(value: &str) -> Result<()> {
 }
 
 pub(super) fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
-    validate_id(&value.to_ascii_uppercase()).map_err(|_| {
-        NtError::Message(format!(
-            "invalid `{field}` note id `{value}`; use NTYYYYMMDDTHHmmss"
-        ))
-    })
+    validate_id(value)
+        .map_err(|_| NtError::Message(format!("invalid `{field}` note id `{value}`; use a UUIDv7")))
 }
 
 pub(super) fn validate_id_prefix(value: &str) -> Result<()> {
-    if value.len() > 17 || !value.starts_with("nt") {
+    if value.is_empty() || value.len() > 36 {
         return Err(invalid_id_prefix(value));
     }
-
-    for (index, byte) in value.bytes().enumerate() {
-        let valid = match index {
-            0 => byte == b'n',
-            1 | 10 => byte == b't',
-            2..=9 | 11..=16 => byte.is_ascii_digit(),
-            _ => false,
-        };
-        if !valid {
-            return Err(invalid_id_prefix(value));
-        }
+    if !value.bytes().enumerate().all(|(index, byte)| {
+        matches!(index, 8 | 13 | 18 | 23) && byte == b'-' || byte.is_ascii_hexdigit()
+    }) {
+        return Err(invalid_id_prefix(value));
     }
 
     Ok(())
@@ -62,6 +52,6 @@ pub(super) fn validate_id_prefix(value: &str) -> Result<()> {
 
 fn invalid_id_prefix(value: &str) -> NtError {
     NtError::Message(format!(
-        "invalid `id` prefix `{value}`; use a prefix of NTYYYYMMDDTHHmmss"
+        "invalid `id` prefix `{value}`; use a UUIDv7 prefix"
     ))
 }

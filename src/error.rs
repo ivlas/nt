@@ -8,9 +8,11 @@ pub enum NtError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
     #[error("home directory not found")]
     HomeNotFound,
-    #[error("run `nt init <notes-dir>` first")]
+    #[error("run `nt init <vault>` first")]
     MissingVault,
     #[error("note not found: {0}")]
     NoteNotFound(String),

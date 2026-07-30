@@ -6,7 +6,6 @@ const SECONDS_PER_DAY: i64 = 86_400;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Timestamp {
-    pub id: String,
     pub iso: String,
     pub day: String,
 }
@@ -90,7 +89,6 @@ fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
     let second = second_of_day % 60;
 
     Timestamp {
-        id: format!("NT{year:04}{month:02}{day:02}T{hour:02}{minute:02}{second:02}"),
         iso: format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"),
         day: format!("{year:04}-{month:02}-{day:02}"),
     }
@@ -137,7 +135,6 @@ mod tests {
     #[test]
     fn formats_unix_epoch_timestamp() {
         let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
-        assert_eq!(timestamp.id, "NT19700101T000000");
         assert_eq!(timestamp.iso, "1970-01-01T00:00:00Z");
         assert_eq!(timestamp.day, "1970-01-01");
     }

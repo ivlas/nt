@@ -30,9 +30,16 @@ pub(super) fn list(args: &[String]) -> Result<()> {
             list_metadata(&index, tag.as_deref(), validate_tag, |note| &note.tags)
         }
         ListRequest::Collections(collection) => {
-            list_metadata(&index, collection.as_deref(), validate_collection, |note| {
-                &note.collections
-            })
+            if let Some(collection) = collection.as_deref() {
+                list_metadata(&index, Some(collection), validate_collection, |note| {
+                    &note.collections
+                })
+            } else {
+                for collection in index.collections.keys() {
+                    println!("{collection}");
+                }
+                Ok(())
+            }
         }
         ListRequest::Sources(source) => {
             list_metadata(&index, source.as_deref(), validate_source, |note| {
@@ -47,7 +54,7 @@ pub(super) fn list(args: &[String]) -> Result<()> {
 
 fn matching_notes<'a>(index: &'a Index, query: &Query) -> Result<Vec<&'a NoteMeta>> {
     let mut notes = Vec::new();
-    for note in index.active_notes() {
+    for note in index.all_notes() {
         if query.matches(note)? {
             notes.push(note);
         }
@@ -95,14 +102,14 @@ fn list_metadata<'a>(
         validate(selected)?;
         return print_note_list(
             index
-                .active_notes()
+                .all_notes()
                 .into_iter()
                 .filter(|note| values(note).iter().any(|value| value == selected)),
         );
     }
 
     let mut available = BTreeSet::new();
-    for note in index.active_notes() {
+    for note in index.all_notes() {
         available.extend(values(note).iter().map(String::as_str));
     }
     for value in available {

@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
@@ -19,7 +19,7 @@ mod update;
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         None => crate::cli::help::print(&[]),
-        Some(Command::Init { notes_dir }) => init::init(&notes_dir),
+        Some(Command::Init { vault }) => init::init(&vault),
         Some(Command::Note { metadata }) => add::note(&metadata),
         Some(Command::Todo { metadata }) => add::todo(&metadata),
         Some(Command::List { args }) => list::list(&args),
@@ -35,22 +35,7 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn active_vault_path(index: &Index) -> Result<&Path> {
-    index.active_vault_path().ok_or(NtError::MissingVault)
-}
-
 fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
-    let in_active_vault = {
-        let note = index
-            .notes
-            .get(id)
-            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-        index.note_is_in_active_vault(note)
-    };
-    if !in_active_vault {
-        return Err(NtError::NoteNotFound(id.to_string()));
-    }
-
     index
         .notes
         .get_mut(id)
@@ -58,15 +43,10 @@ fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
 }
 
 fn note_ref<'a>(index: &'a Index, id: &str) -> Result<&'a NoteMeta> {
-    let note = index
+    index
         .notes
         .get(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-    if index.note_is_in_active_vault(note) {
-        Ok(note)
-    } else {
-        Err(NtError::NoteNotFound(id.to_string()))
-    }
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
 }
 
 fn ensure_note_exists(index: &Index, id: &str) -> Result<()> {
@@ -118,7 +98,7 @@ fn validate_lowercase_name(value: &str, kind: &str) -> Result<()> {
 }
 
 fn validate_collection(collection: &str) -> Result<()> {
-    validate_lowercase_name(collection, "collection")
+    crate::index::parse_collection_name(collection).map(|_| ())
 }
 
 fn validate_tag(tag: &str) -> Result<()> {
@@ -170,14 +150,13 @@ fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod test_helpers {
-    use std::path::PathBuf;
-
-    use crate::index::{Index, NoteMeta, VaultMeta};
+    use crate::index::{Index, NoteMeta};
 
     pub fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.to_string(),
-            PathBuf::from(format!("notes/{id}.md")),
+            "personal/inbox".to_string(),
+            "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "Storage shape".to_string(),
@@ -185,17 +164,7 @@ mod test_helpers {
     }
 
     pub fn active_index(notes: Vec<NoteMeta>) -> Index {
-        let mut index = Index {
-            active_vault: Some("notes".to_string()),
-            vaults: std::collections::BTreeMap::from([(
-                "notes".to_string(),
-                VaultMeta {
-                    path: PathBuf::from("notes"),
-                    created: "2026-05-01T00:00:00Z".to_string(),
-                },
-            )]),
-            ..Default::default()
-        };
+        let mut index = Index::default();
         for note in notes {
             index.upsert_note(note);
         }
@@ -210,7 +179,6 @@ mod test_helpers {
         due: Option<&str>,
     ) -> NoteMeta {
         let mut note = note(id);
-        note.created = crate::note::iso_from_id(id).unwrap();
         note.kind = "todo".to_string();
         note.status = Some(status.to_string());
         note.priority = priority.map(str::to_string);
@@ -226,7 +194,7 @@ mod tests {
 
     #[test]
     fn status_transitions_manage_closed_deterministically() {
-        let mut note = note("NT20260528T143012");
+        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
         apply_status_transition(&mut note, Some("done".to_string()), "2026-05-28T15:00:00Z");
         assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
 

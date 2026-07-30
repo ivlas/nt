@@ -1,9 +1,7 @@
-use std::collections::BTreeSet;
-use std::fs;
-
 use crate::error::{NtError, Result};
 use crate::index::Index;
 use crate::note::validate_id;
+use std::collections::BTreeSet;
 
 use super::note_ref;
 
@@ -19,10 +17,6 @@ pub(super) fn rm(ids: &[String]) -> Result<()> {
         }
 
         notes.push(note_ref(&index, id)?.clone());
-    }
-
-    for note in &notes {
-        fs::remove_file(&note.path)?;
     }
 
     index.remove_notes(ids.iter().map(String::as_str));

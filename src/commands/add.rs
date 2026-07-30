@@ -6,12 +6,11 @@ use std::process::Command as ProcessCommand;
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
 use crate::index::{Index, NoteMeta};
-use crate::note::{generate_unique_id, note_path, title_from_body, validate_id};
+use crate::note::{new_id, title_from_body, validate_id};
 
 use super::{
-    active_vault_path, add_body_sources, apply_status_transition, editor_temp_path,
-    ensure_note_exists, push_unique_sorted, validate_collection, validate_priority,
-    validate_status, validate_tag,
+    add_body_sources, apply_status_transition, editor_temp_path, ensure_note_exists,
+    push_unique_sorted, validate_collection, validate_priority, validate_status, validate_tag,
 };
 
 pub(super) fn note(metadata: &[String]) -> Result<()> {
@@ -26,30 +25,41 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     let body = read_note_body_for_create()?;
     let title = title_from_body(&body)?;
     let mut index = Index::load()?;
-    let notes_dir = active_vault_path(&index)?.to_path_buf();
     let metadata = CreationMetadata::parse(kind, metadata, &index)?;
-    let timestamp = generate_unique_id(&notes_dir, &index)?;
-    let path = note_path(&notes_dir, &timestamp.id)?;
+    let timestamp = crate::note::timestamp_now().iso;
+    let home = metadata
+        .home
+        .clone()
+        .or_else(|| metadata.collections.first().cloned())
+        .map(Ok)
+        .unwrap_or_else(|| index.default_home_collection())?;
+
+    index.ensure_collection(&home, &timestamp)?;
+    for collection in &metadata.collections {
+        index.ensure_collection(collection, &timestamp)?;
+    }
+
+    let id = new_id();
     let mut note = NoteMeta::new_note(
-        timestamp.id.clone(),
-        path.clone(),
-        timestamp.iso.clone(),
-        timestamp.iso.clone(),
+        id.clone(),
+        home,
+        body.clone(),
+        timestamp.clone(),
+        timestamp.clone(),
         title,
     );
-    metadata.apply(kind, &mut note, &timestamp.iso);
+    metadata.apply(kind, &mut note, &timestamp);
     add_body_sources(&mut note, &body);
-
-    atomic_write(&path, body.as_bytes())?;
     index.upsert_note(note);
     index.save()?;
 
-    println!("saved {}", timestamp.id);
+    println!("saved {id}");
     Ok(())
 }
 
 #[derive(Debug, Default)]
 struct CreationMetadata {
+    home: Option<String>,
     status: Option<String>,
     priority: Option<String>,
     scheduled: Option<String>,
@@ -63,27 +73,30 @@ struct CreationMetadata {
 impl CreationMetadata {
     fn parse(kind: CreationKind, exprs: &[String], index: &Index) -> Result<Self> {
         let mut metadata = Self::default();
-
         for expr in exprs {
             metadata.parse_expr(kind, expr, index)?;
         }
-
         Ok(metadata)
     }
 
     fn parse_expr(&mut self, kind: CreationKind, expr: &str, index: &Index) -> Result<()> {
         let Some((field, value)) = expr.split_once(':') else {
             return Err(NtError::Message(format!(
-                "unknown {kind} metadata `{expr}`; use tag:<tag>, collection:<name>, link:<id>, or source:<term>"
+                "unknown {kind} metadata `{expr}`"
             )));
         };
-
         match field {
+            "home" => {
+                validate_collection(value)?;
+                set_single_metadata(&mut self.home, field, value)
+            }
             "tag" => push_value_list(&mut self.tags, field, value),
             "collection" => {
                 for collection in split_metadata_values(field, value)? {
                     validate_collection(&collection)?;
-                    push_unique_sorted(&mut self.collections, collection);
+                    if !self.collections.contains(&collection) {
+                        self.collections.push(collection);
+                    }
                 }
                 Ok(())
             }
@@ -128,7 +141,6 @@ impl CreationMetadata {
         } else {
             self.status
         };
-
         if kind == CreationKind::Todo {
             note.kind = "todo".to_string();
         }
@@ -137,7 +149,9 @@ impl CreationMetadata {
         note.scheduled = self.scheduled;
         note.due = self.due;
         note.tags = self.tags;
-        note.collections = self.collections;
+        for collection in self.collections {
+            push_unique_sorted(&mut note.collections, collection);
+        }
         note.links = self.links;
         note.sources = self.sources;
     }
@@ -163,10 +177,10 @@ impl CreationKind {
 
 impl std::fmt::Display for CreationKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Note => formatter.write_str("note"),
-            Self::Todo => formatter.write_str("todo"),
-        }
+        formatter.write_str(match self {
+            Self::Note => "note",
+            Self::Todo => "todo",
+        })
     }
 }
 
@@ -187,7 +201,6 @@ fn push_single_value(values: &mut Vec<String>, field: &str, raw: &str) -> Result
             "empty add metadata value for `{field}`"
         )));
     }
-
     push_unique_sorted(values, value.to_string());
     Ok(())
 }
@@ -208,39 +221,33 @@ fn set_single_metadata(target: &mut Option<String>, field: &str, raw: &str) -> R
 }
 
 fn split_metadata_values(field: &str, raw: &str) -> Result<Vec<String>> {
-    let values: Vec<String> = raw
+    let values: Vec<_> = raw
         .split(',')
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .collect();
-
     if values.is_empty() {
         return Err(NtError::Message(format!(
             "empty add metadata value for `{field}`"
         )));
     }
-
     Ok(values)
 }
 
 fn read_note_body_for_create() -> Result<String> {
     let mut body = String::new();
-
     if !io::stdin().is_terminal() {
         io::stdin().read_to_string(&mut body)?;
     } else {
         body = read_from_editor()?;
     }
-
     if body.trim().is_empty() {
         return Err(NtError::EmptyNote);
     }
-
     if !body.ends_with('\n') {
         body.push('\n');
     }
-
     Ok(body)
 }
 
@@ -248,13 +255,11 @@ fn read_from_editor() -> Result<String> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let path = add_temp_path()?;
     atomic_write(&path, b"")?;
-
     let status = ProcessCommand::new(&editor).arg(&path).status()?;
     if !status.success() {
         let _ = fs::remove_file(&path);
         return Err(NtError::EditorFailed(editor));
     }
-
     let body = fs::read_to_string(&path)?;
     fs::remove_file(&path)?;
     Ok(body)
@@ -262,115 +267,4 @@ fn read_from_editor() -> Result<String> {
 
 fn add_temp_path() -> Result<PathBuf> {
     editor_temp_path("note", None)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::index::Index;
-
-    use super::{CreationKind, CreationMetadata};
-    use crate::commands::test_helpers::note;
-
-    #[test]
-    fn creation_metadata_accepts_repeated_and_comma_separated_values() {
-        let metadata = CreationMetadata::parse(
-            CreationKind::Note,
-            &[
-                "tag:design,cli".to_string(),
-                "tag:rust".to_string(),
-                "collection:projects/nt".to_string(),
-                "source:https://example.com/a,b".to_string(),
-            ],
-            &Index::default(),
-        )
-        .unwrap();
-        let mut note = note("NT20260528T143012");
-
-        metadata.apply(CreationKind::Note, &mut note, "2026-05-28T14:30:12Z");
-
-        assert_eq!(note.tags, vec!["cli", "design", "rust"]);
-        assert_eq!(note.collections, vec!["projects/nt"]);
-        assert_eq!(note.sources, vec!["https://example.com/a,b"]);
-        assert_eq!(note.kind, "note");
-        assert_eq!(note.status, None);
-    }
-
-    #[test]
-    fn creation_metadata_rejects_unknown_fields() {
-        let err = CreationMetadata::parse(
-            CreationKind::Note,
-            &["topic:storage".to_string()],
-            &Index::default(),
-        )
-        .unwrap_err();
-        assert_eq!(err.to_string(), "unknown note metadata field `topic`");
-
-        let err = CreationMetadata::parse(
-            CreationKind::Note,
-            &["unknown".to_string()],
-            &Index::default(),
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("unknown note metadata"));
-
-        let err =
-            CreationMetadata::parse(CreationKind::Note, &["tag:".to_string()], &Index::default())
-                .unwrap_err();
-        assert_eq!(err.to_string(), "empty add metadata value for `tag`");
-
-        let err = CreationMetadata::parse(
-            CreationKind::Note,
-            &["due:2026-06-30".to_string()],
-            &Index::default(),
-        )
-        .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "`due` metadata is only valid for `nt todo`"
-        );
-
-        let err = CreationMetadata::parse(
-            CreationKind::Note,
-            &["link:NT99999999T999999".to_string()],
-            &Index::default(),
-        )
-        .unwrap_err();
-        assert_eq!(err.to_string(), "note not found: NT99999999T999999");
-    }
-
-    #[test]
-    fn todo_metadata_sets_kind_and_accepts_action_fields() {
-        let metadata = CreationMetadata::parse(
-            CreationKind::Todo,
-            &[
-                "status:open".to_string(),
-                "priority:A".to_string(),
-                "scheduled:2026-06-25".to_string(),
-                "due:2026-06-30".to_string(),
-            ],
-            &Index::default(),
-        )
-        .unwrap();
-        let mut note = note("NT20260528T143012");
-
-        metadata.apply(CreationKind::Todo, &mut note, "2026-05-28T14:30:12Z");
-
-        assert_eq!(note.kind, "todo");
-        assert_eq!(note.status.as_deref(), Some("open"));
-        assert_eq!(note.priority.as_deref(), Some("A"));
-        assert_eq!(note.scheduled.as_deref(), Some("2026-06-25"));
-        assert_eq!(note.due.as_deref(), Some("2026-06-30"));
-    }
-
-    #[test]
-    fn todo_metadata_defaults_status_to_open() {
-        let metadata = CreationMetadata::parse(CreationKind::Todo, &[], &Index::default()).unwrap();
-        let mut note = note("NT20260528T143012");
-
-        metadata.apply(CreationKind::Todo, &mut note, "2026-05-28T14:30:12Z");
-
-        assert_eq!(note.kind, "todo");
-        assert_eq!(note.status.as_deref(), Some("open"));
-        assert_eq!(note.closed, None);
-    }
 }

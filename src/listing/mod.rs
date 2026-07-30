@@ -238,31 +238,40 @@ mod tests {
 
         let ListRequest::LinkGraph { from, to, .. } = ListRequest::parse(&args(&[
             "links",
-            "from:NT20260618T210731",
-            "to:NT20260618T212305",
+            "from:018fbe0a-6c00-7000-8000-000000000001",
+            "to:018fbe0a-6c00-7000-8000-000000000002",
         ]))
         .unwrap() else {
             panic!("expected link graph");
         };
-        assert_eq!(from.as_deref(), Some("NT20260618T210731"));
-        assert_eq!(to.as_deref(), Some("NT20260618T212305"));
+        assert_eq!(
+            from.as_deref(),
+            Some("018fbe0a-6c00-7000-8000-000000000001")
+        );
+        assert_eq!(to.as_deref(), Some("018fbe0a-6c00-7000-8000-000000000002"));
     }
 
     #[test]
     fn rejects_ambiguous_or_duplicate_link_endpoint_filters() {
-        let error = ListRequest::parse(&args(&["links", "NT20260618T210731"])).unwrap_err();
+        let error = ListRequest::parse(&args(&["links", "018fbe0a-6c00-7000-8000-000000000001"]))
+            .unwrap_err();
         assert!(error.to_string().contains("directionless link lookup"));
 
-        let error = ListRequest::parse(&args(&["links", "NT20260618T210731", "from"])).unwrap_err();
+        let error = ListRequest::parse(&args(&[
+            "links",
+            "018fbe0a-6c00-7000-8000-000000000001",
+            "from",
+        ]))
+        .unwrap_err();
         assert_eq!(
             error.to_string(),
-            "positional link directions are not supported; use `nt list links from:NT20260618T210731`"
+            "positional link directions are not supported; use `nt list links from:018fbe0a-6c00-7000-8000-000000000001`"
         );
 
         let error = ListRequest::parse(&args(&[
             "links",
-            "from:NT20260618T210731",
-            "from:NT20260618T212305",
+            "from:018fbe0a-6c00-7000-8000-000000000001",
+            "from:018fbe0a-6c00-7000-8000-000000000002",
         ]))
         .unwrap_err();
         assert_eq!(error.to_string(), "duplicate link endpoint filter `from`");
@@ -282,11 +291,14 @@ mod tests {
 
     #[test]
     fn redirects_misplaced_link_directions() {
-        for value in ["NT20260618T210731", "link:NT20260618T210731"] {
+        for value in [
+            "018fbe0a-6c00-7000-8000-000000000001",
+            "link:018fbe0a-6c00-7000-8000-000000000001",
+        ] {
             let error = ListRequest::parse(&args(&[value, "from"])).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "link direction `from` must be an endpoint filter; use `nt list links from:NT20260618T210731`"
+                "link direction `from` must be an endpoint filter; use `nt list links from:018fbe0a-6c00-7000-8000-000000000001`"
             );
         }
     }
