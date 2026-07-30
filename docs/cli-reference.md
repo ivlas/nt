@@ -102,10 +102,11 @@ is no scoring, fuzzy search, embeddings, or semantic search.
 
 ## Show And Open
 
-`show` prints id, title, home, timestamps, metadata, then the exact body. `open`
-copies the body to a temporary file for `$EDITOR`, validates it, detects a
-concurrent update by timestamp, and commits the body and derived title back to
-SQLite.
+`show` prints id, title, home, timestamps, kind-specific metadata, then the exact
+body. Note output omits the todo-only `status`, `priority`, `scheduled`, `due`,
+and `closed` fields. `open` copies the body to a temporary file for `$EDITOR`,
+validates it, detects a concurrent update by timestamp, and commits the body and
+derived title back to SQLite.
 
 ## Update
 

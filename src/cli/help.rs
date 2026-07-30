@@ -16,7 +16,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "list" => Ok(LIST),
         "find" => Ok(FIND),
         "show" => Ok(
-            "nt show <id>\n\nPrint metadata and the CommonMark body.\n\nExamples:\n  nt show 018fbe0a-6c00-7000-8000-000000000001\n",
+            "nt show <id>\n\nPrint kind-specific metadata and the CommonMark body.\n\nExamples:\n  nt show 018fbe0a-6c00-7000-8000-000000000001\n",
         ),
         "open" => Ok(
             "nt open <id>\n\nEdit one database-backed note with $EDITOR.\n\nExamples:\n  nt open 018fbe0a-6c00-7000-8000-000000000001\n",

@@ -84,11 +84,49 @@ fn note_body_and_metadata_are_canonical_in_sqlite() {
 
     let shown = run_nt(&home, &["show", id]);
     assert!(shown.contains("home personal/inbox"));
+    assert!(shown.contains("kind note\n"));
+    for todo_field in ["status", "priority", "scheduled", "due", "closed"] {
+        assert!(!shown.contains(&format!("\n{todo_field} ")));
+    }
     assert!(shown.ends_with("# Rust ownership\n\nBorrow checker notes.\n"));
     assert_eq!(
         summary_ids(&run_nt(&home, &["find", "body:borrow"])),
         vec![id]
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn todo_show_includes_todo_metadata() {
+    let root = temp_dir("todo-show-metadata");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+
+    let saved = run_nt_with_stdin(
+        &home,
+        &[
+            "todo",
+            "status:waiting",
+            "priority:A",
+            "scheduled:2026-08-01",
+            "due:2026-08-02",
+        ],
+        "# Ship release\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let shown = run_nt(&home, &["show", id]);
+    for metadata in [
+        "kind todo",
+        "status waiting",
+        "priority A",
+        "scheduled 2026-08-01",
+        "due 2026-08-02",
+        "closed -",
+    ] {
+        assert!(shown.contains(&format!("\n{metadata}\n")));
+    }
 
     let _ = fs::remove_dir_all(root);
 }

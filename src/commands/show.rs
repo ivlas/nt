@@ -43,23 +43,25 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
         paint(&note.updated, Style::Dim, color)
     ));
     text.push_str(&format!("kind {}\n", note.kind));
-    text.push_str(&format!(
-        "status {}\n",
-        note.status.as_deref().unwrap_or("-")
-    ));
-    text.push_str(&format!(
-        "priority {}\n",
-        note.priority.as_deref().unwrap_or("-")
-    ));
-    text.push_str(&format!(
-        "scheduled {}\n",
-        note.scheduled.as_deref().unwrap_or("-")
-    ));
-    text.push_str(&format!("due {}\n", note.due.as_deref().unwrap_or("-")));
-    text.push_str(&format!(
-        "closed {}\n",
-        note.closed.as_deref().unwrap_or("-")
-    ));
+    if note.kind == "todo" {
+        text.push_str(&format!(
+            "status {}\n",
+            note.status.as_deref().unwrap_or("-")
+        ));
+        text.push_str(&format!(
+            "priority {}\n",
+            note.priority.as_deref().unwrap_or("-")
+        ));
+        text.push_str(&format!(
+            "scheduled {}\n",
+            note.scheduled.as_deref().unwrap_or("-")
+        ));
+        text.push_str(&format!("due {}\n", note.due.as_deref().unwrap_or("-")));
+        text.push_str(&format!(
+            "closed {}\n",
+            note.closed.as_deref().unwrap_or("-")
+        ));
+    }
     text.push_str(&format!(
         "tags {}\n",
         paint(&joined_or_dash(&note.tags), Style::Green, color)
