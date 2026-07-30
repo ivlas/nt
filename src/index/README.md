@@ -1,9 +1,6 @@
-# index/
+# index
 
-On-disk JSON index: serialization shape and persistence of primary metadata.
-No derived maps are stored; ordering, filtering, and body matching are computed
-at query time.
-
-| File | Responsibility |
-|---|---|
-| `mod.rs` | Serialized primary metadata, vault state, and persistence. |
+Owns the SQLite schema and repository snapshot used by commands. The database
+stores logical vaults, vault-owned collections, canonical note bodies and
+metadata, many-to-many memberships, tags, links, and sources. Foreign keys and
+transactions enforce consistency, including home membership.

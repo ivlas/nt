@@ -1,51 +1,15 @@
 # nt CLI Reference
 
-This is the implemented command, query, value, and output contract for `nt`.
-For a task-oriented introduction, see [usage.md](usage.md).
+`nt` is a flagless, local CLI over `$HOME/.nt/nt.sqlite3`. SQLite is canonical
+for note bodies, metadata, vaults, collections, and relationships.
 
-## Grammar
-
-```text
-nt <command> [positional...]
-```
-
-Core workflows use positional arguments rather than flags. Shell quoting keeps
-multiword values in one argument. Note ids and filenames use:
+## Commands
 
 ```text
-NTYYYYMMDDTHHmmss
-NTYYYYMMDDTHHmmss.md
-```
-
-## User-Directed Operation
-
-`nt` is a local organizer for its user. The user can run commands
-directly or direct an agent to run a specific command. Agents have no autonomous
-note-taking or mutation workflow; their normal role is read-only inspection with
-`list`, `find`, and `show`.
-
-Mutation commands assume one user-directed writer at a time and must not run
-concurrently. Body search reads Markdown bodies at query time, so out-of-band
-note edits are visible to search immediately and need no reconciliation. If a
-mutation fails after changing a note file, inspect the plain files and reapply
-any explicit metadata that was not saved to the index with `nt update`.
-
-The top-level command surface is:
-
-```text
-nt
-nt init <notes-dir>
+nt init <vault>
 nt note [metadata...]
 nt todo [metadata...]
-nt list
-nt list all [filter...]
-nt list <field>[,<field>...] [filter...]
-nt list ids
-nt list titles
-nt list tags [tag]
-nt list collections [collection]
-nt list sources [source]
-nt list links [filter...]
+nt list [projection] [filter...]
 nt find <expr...>
 nt show <id>
 nt open <id>
@@ -55,93 +19,57 @@ nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]
 nt config show
 nt config vault
-nt config vault <vault-name>
-nt help
-nt help <command...>
-nt help reference
+nt help [command...]
 ```
 
-Help and version flags are not part of the interface. Use `nt help`; package
-version information comes from the normal distribution mechanism. Running `nt`
-without arguments is equivalent to `nt help`.
+Running `nt` is equivalent to `nt help`. Use `nt help`, not help flags.
 
-## init
+## Ids
 
-```text
-nt init <notes-dir>
-```
+Notes, vaults, and collections use canonical lowercase UUIDv7 identifiers.
+Commands print full note ids; `id:<prefix>` accepts a hexadecimal UUID prefix.
 
-Creates or opens a flat note directory, registers it under its basename, makes
-it active, imports existing valid note files, and prints:
+## Vaults And Collections
 
-```text
-initialized <vault-name> <path>
-```
+`nt init personal` creates logical vault `personal` and collection
+`personal/inbox`. Vaults are database namespaces, not directories. There is no
+active-vault state and reads operate across the database.
 
-An existing directory must contain only regular files named
-`NTYYYYMMDDTHHmmss.md`. A vault name must be unique in the index.
+A collection belongs to exactly one vault and uses the qualified form
+`<vault>/<collection>`, such as `personal/rust` or `work/project_a`. Collection
+names may contain additional `/` separators after the vault.
 
-## note
+A note has exactly one home collection and may have additional memberships in
+any vault. The home is always also a membership. For capture:
 
-```text
-nt note [metadata...]
-```
+- `home:<vault>/<collection>` sets home explicitly.
+- The first `collection:` value becomes home when `home:` is absent.
+- With exactly one vault and no collection metadata, `<vault>/inbox` is home.
+- With multiple vaults, capture requires an explicit home or collection.
 
-Reads CommonMark from stdin, or opens `$EDITOR` when stdin is a terminal. The
-first non-empty line must be a non-empty `# Title` heading. Success prints
-`saved <id>`.
+Unknown collections are created when their vault exists. Unknown vaults are
+errors. Move home with `nt update <id> home <vault>/<collection>`. The old home
+remains a reference until removed with a collection update.
 
-Note metadata:
+## Capture
 
-| Expression | Meaning |
-|---|---|
-| `tag:<tag>[,<tag>...]` | Add one or more tags. Repeatable. |
-| `collection:<name>[,<name>...]` | Add one or more collections. Repeatable. |
-| `link:<id>[,<id>...]` | Add outbound links to existing active notes. Repeatable. |
-| `source:<value>` | Add one source string. Repeatable. Commas are literal. |
-
-Repeated values are deduplicated and stored in sorted order. URLs found in the
-body are merged into sources.
+`note` and `todo` read CommonMark from stdin or `$EDITOR`. The first non-empty
+line must be `# Title`. Success prints `saved <id>`.
 
 ```sh
-printf '%s\n' '# Research' '' 'Compare runtimes.' \
-  | nt note tag:qemu,firecracker collection:research/vm
+printf '%s\n' '# Ownership' '' 'Borrow checker notes.' \
+  | nt note home:personal/rust tag:rust
+
+printf '%s\n' '# Release' '' 'Ship.' \
+  | nt todo home:work/project_a priority:A due:2026-08-15
 ```
 
-## todo
+Note metadata is `home:`, `tag:`, `collection:`, `link:`, and `source:`. Todo
+also accepts `status:`, `priority:`, `scheduled:`, and `due:`. New todos default
+to `status:open`. Set metadata is repeatable and comma-separated except source,
+where commas are literal.
 
-```text
-nt todo [metadata...]
-```
-
-Reads CommonMark from stdin, or opens `$EDITOR` when stdin is a terminal, and
-creates a `kind:todo` note. The first non-empty line must be a non-empty
-`# Title` heading. New todos default to `status:open` unless `status:<status>`
-is supplied. Success prints `saved <id>`.
-
-Todo metadata:
-
-| Expression | Meaning |
-|---|---|
-| `status:<status>` | Set one status. |
-| `priority:<S|A|B|C|D>` | Set one priority. |
-| `scheduled:<YYYY-MM-DD>` | Set one scheduled date. |
-| `due:<YYYY-MM-DD>` | Set one due date. |
-| `tag:<tag>[,<tag>...]` | Add one or more tags. Repeatable. |
-| `collection:<name>[,<name>...]` | Add one or more collections. Repeatable. |
-| `link:<id>[,<id>...]` | Add outbound links to existing active notes. Repeatable. |
-| `source:<value>` | Add one source string. Repeatable. Commas are literal. |
-
-Single-value todo fields may appear only once. `closed` is system-managed and
-cannot be supplied. Repeated set values are deduplicated and stored in sorted
-order. URLs found in the body are merged into sources.
-
-```sh
-printf '%s\n' '# Release' '' 'Run checks.' \
-  | nt todo priority:A due:2026-06-30 tag:release
-```
-
-## list
+## List And Find
 
 ```text
 nt list
@@ -155,345 +83,62 @@ nt list sources [source]
 nt list links [filter...]
 ```
 
-`nt list` prints active notes in newest-created-first order. Bare `nt list`
-prints this fixed summary:
+Fields are `id`, `home`, `created`, `updated`, `title`, `kind`, `status`,
+`priority`, `scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and
+`source`. Redirected projections are headerless tab-separated rows.
+
+`find` expressions are case-insensitive and AND-combined:
 
 ```text
-id, title, kind, status, due, tag
+<word> #<tag> id:<prefix> tag:<tag> title:<term>
+day:<date> since:<date> before:<date> kind:<kind> status:<status>
+priority:<priority> scheduled:<date> due:<date> closed:<date>
+collection:<vault>/<collection> link:<id> source:<term> body:<term> not:<expr>
 ```
 
-`nt list all` prints every metadata field in this fixed order:
+Body search reads body text from SQLite. Quoted multiword `body:` values match
+all terms, not an exact phrase. Retrieval is deterministic and unranked; there
+is no scoring, fuzzy search, embeddings, or semantic search.
 
-```text
-id, path, created, updated, title, kind, status, priority, scheduled, due,
-closed, tag, collection, link, source
-```
+## Show And Open
 
-Select one or more fields with a comma-separated first argument:
+`show` prints id, title, home, timestamps, metadata, then the exact body. `open`
+copies the body to a temporary file for `$EDITOR`, validates it, detects a
+concurrent update by timestamp, and commits the body and derived title back to
+SQLite.
+
+## Update
+
+Single fields `kind`, `status`, `priority`, `scheduled`, and `due` take a value;
+use `-` to clear. `home` takes a qualified collection. Set fields `tag`,
+`collection`, `link`, and `source` require `+value` or `-value`.
 
 ```sh
-nt list id
-nt list all status:done
-nt list id,title,status
-nt list title,tag
+nt update <id> home work/project_a
+nt update <id> collection +personal/rust
+nt update <id> tag +decision
 ```
 
-Interactive output includes a header and aligns columns with spaces. Redirected
-output contains no header and separates columns with one tab. Set-like values
-are comma-separated within their column, and absent optional or set-like values
-are `-`. Paths are relative to the current directory when possible. Explicit
-projections are the stable interface for scripts; fields added in future are
-appended deliberately to the `all` projection.
+A home collection cannot be removed until home moves. Terminal statuses manage
+the `closed` timestamp.
 
-After an optional projection, `list` accepts `AND`-combined structured filters:
+## Agenda, Remove, And Export
 
-```sh
-nt list id,title,status status:open
-nt list title,tag tag:decision since:2026-06-01 not:tag:draft
-nt list status:waiting
-```
+`agenda` includes open and waiting todos and supports `today`, `week`, `overdue`,
+`waiting`, and `undated`. `rm` validates all ids and removes notes and dependent
+relationships transactionally.
 
-Supported list filters are `id`, `tag`, `day`, `since`, `before`, `kind`,
-`status`, `priority`, `scheduled`, `due`, `closed`, `collection`, `link`, and
-`not` around another supported filter. Matching is case-insensitive and uses
-the same validation and newest-first ordering as `find`.
-`link:<id>` selects notes with an outbound link to that target. It is the note
-metadata counterpart of the edge filter `list links to:<id>`.
-Bare words and `title`, `source`, and `body` expressions are search operations;
-`list` rejects them and directs the user to `nt find`.
+`export <path> [id...]` writes portable `<id>.md` snapshots with generated front
+matter. Exported Markdown is not canonical storage.
 
-Compatibility and metadata operations:
+## Config
 
-| Form | Output |
-|---|---|
-| `list ids` | Compatibility alias for `list id`. |
-| `list titles` | Compatibility alias for `list id,title`. |
-| `list tags` | Sorted, deduplicated active tag names. |
-| `list tags <tag>` | Matching summary records, newest first. |
-| `list collections` | Sorted, deduplicated active collection names. |
-| `list collections <name>` | Matching summary records, newest first. |
-| `list sources` | Sorted, deduplicated active source values. |
-| `list sources <source>` | Matching summary records, newest first. |
-| `list links [filter...]` | Edge rows with ids and titles for both endpoints. |
-| `list links from:<id>` | Edges originating at an exact note id. |
-| `list links to:<id>` | Edges targeting an exact note id. |
+`config show` prints the database path. `config vault` prints vault UUID and
+name rows. There is no command to select a vault.
 
-Bare `list links` omits notes with no relationships. Interactive output has
-`FROM ID`, `FROM TITLE`, `TO ID`, and `TO TITLE` columns. Redirected output is
-the same four fields separated by tabs, one stored relationship per line. It
-accepts `from:<id>` and `to:<id>` endpoint filters. Other structured `list`
-filters select the `FROM` notes that own the outbound relationships, so endpoint
-and metadata filters compose:
+## Operation
 
-```sh
-nt list links from:NT20260528T143012
-nt list links to:NT20260528T143012 status:open
-nt list links from:NT20260528T143012 to:NT20260527T120000
-```
-
-Positional directions and directionless `list links <id>` are rejected because
-they introduce a second traversal grammar or obscure the relationship represented
-by each result.
-
-## find
-
-```text
-nt find <expr...>
-```
-
-Every argument is one expression. Expressions are case-insensitive, combined
-with `AND`, and independent of order. Matches print stable summary records in
-active newest-first order. An empty result prints nothing and succeeds. Use
-`list` when only structured filtering and metadata projection are needed; use
-`find` for bare terms or title, source, and body search.
-
-Expression forms:
-
-| Expression | Match |
-|---|---|
-| `<word>` | Metadata contains the value or the body contains it. |
-| `#<tag>` | Exact tag; shorthand for `tag:<tag>`. |
-| `id:<prefix>` | Id begins with a valid prefix of `NTYYYYMMDDTHHmmss`. |
-| `tag:<tag>` | Exact tag. |
-| `title:<term>` | Title contains the value. |
-| `day:<YYYY-MM-DD>` | Created on the day. |
-| `since:<YYYY-MM-DD>` | Created on or after the day. |
-| `before:<YYYY-MM-DD>` | Created before the day. |
-| `kind:<kind>` | Exact kind. |
-| `status:<status>` | Exact status. |
-| `priority:<S|A|B|C|D>` | Exact priority. |
-| `scheduled:<YYYY-MM-DD>` | Exact scheduled date. |
-| `due:<YYYY-MM-DD>` | Exact due date. |
-| `closed:<YYYY-MM-DD>` | Closed during that UTC calendar day. |
-| `collection:<name>` | Exact collection. |
-| `link:<id>` | Has an outbound link to the exact id. |
-| `source:<term>` | A source contains the value. |
-| `body:<term>` | Body contains all terms. |
-| `not:<expr>` | Negate one expression. |
-
-Examples:
-
-```sh
-nt find qemu firecracker
-nt find tag:decision collection:projects/nt
-nt find since:2026-05-01 before:2026-06-01 not:tag:draft
-nt find kind:todo priority:S due:2026-06-30
-nt find body:'microvm jailer'
-```
-
-Shell quoting makes `body:microvm jailer` one argument in the last example.
-Quoted multiword `body:` values match all terms, not an exact phrase. Body
-search reads Markdown bodies at query time, so out-of-band edits are visible
-immediately. Unknown fields are errors, not bare-word searches. There is no
-public `heading:<term>` field.
-
-There is no ranking, fuzzy or semantic search, regex, parentheses, or `OR`.
-
-## show
-
-```text
-nt show <id>
-```
-
-Prints identity and metadata, a blank line, then the exact CommonMark body:
-
-```text
-<id>  <title>
-path <path>
-created <UTC timestamp>
-updated <UTC timestamp>
-kind <kind>
-status <value-or-dash>
-priority <value-or-dash>
-scheduled <value-or-dash>
-due <value-or-dash>
-closed <value-or-dash>
-tags <comma-values-or-dash>
-collections <comma-values-or-dash>
-links <comma-values-or-dash>
-sources <comma-values-or-dash>
-
-# Title
-...
-```
-
-## open
-
-```text
-nt open <id>
-```
-
-Copies the body to a temporary file, runs `$EDITOR` or `vi`, validates the
-result, atomically replaces the canonical body, updates the stored title and
-timestamp, merges body URLs into sources, and prints `saved <id>`. An empty
-body, invalid title, or failed editor leaves the canonical note unchanged.
-
-## rm
-
-```text
-nt rm <id...>
-```
-
-Removes one or more active notes, their metadata, and links to them, then
-prints `removed <id>` once per note. All ids are validated before removal, and
-the index is updated and saved once.
-
-## update
-
-```text
-nt update <id> <field> <value>
-```
-
-Changes exactly one primary metadata field and prints
-`updated <id> <field> <value>`. Every successful metadata update refreshes the
-note's `updated` timestamp.
-
-Single-value fields:
-
-| Field | Accepted value | Clear behavior |
-|---|---|---|
-| `kind` | A supported kind | `-` resets to `note`. |
-| `status` | A supported status | `-` removes status and clears `closed`. |
-| `priority` | `S`, `A`, `B`, `C`, or `D` | `-` removes priority. |
-| `scheduled` | Valid `YYYY-MM-DD` | `-` removes the date. |
-| `due` | Valid `YYYY-MM-DD` | `-` removes the date. |
-
-Setting `status`, `priority`, `scheduled`, or `due` requires the target note to
-be `kind:todo`. Clearing those fields with `-` is allowed for cleanup. Changing
-`kind` to `note` clears `status`, `priority`, `scheduled`, `due`, and `closed`.
-
-Set-like fields require an operator:
-
-| Field | Accepted value |
-|---|---|
-| `tag` | `+<tag>` or `-<tag>` |
-| `collection` | `+<name>` or `-<name>` |
-| `link` | `+<existing-id>` or `-<existing-id>` |
-| `source` | `+<value>` or `-<value>` |
-
-Adding an existing value and removing an absent value both succeed without
-changing the set. A link target must exist in the active vault even for a
-remove operation.
-
-Changing status to `done` or `dropped` records the current UTC time in `closed`.
-Repeating the same terminal status preserves that timestamp. Moving between
-different terminal statuses records a new timestamp. `open`, `waiting`, and `-`
-clear it.
-
-## agenda
-
-```text
-nt agenda
-nt agenda today
-nt agenda week
-nt agenda overdue
-nt agenda waiting
-nt agenda undated
-```
-
-Agenda includes only `kind:todo` notes with status `open` or `waiting`. The
-default view prints non-empty section headings and assigns every included note
-to exactly one section in this precedence:
-
-| Section | Membership |
-|---|---|
-| `Overdue` | Open with `due` before today. |
-| `Today` | Open with `due` today or `scheduled` on or before today. |
-| `Upcoming` | Remaining dated open notes. |
-| `Waiting` | All waiting notes, regardless of dates. |
-| `Undated` | Remaining open notes with neither date. |
-
-`today` includes Overdue and Today. `week` includes open overdue notes plus open
-notes scheduled or due from today through the following six local calendar
-days. The other views select their named section. Selected views omit headings.
-
-Records are tab-separated:
-
-```text
-<id> <status> <priority-or-dash> <scheduled-or-dash> <due-or-dash> <title>
-```
-
-Dated sections sort by relevant date, then priority `S`, `A`, `B`, `C`, `D`,
-then no priority, then active recency. The relevant date is `due` for Overdue
-and the earliest available scheduled or due date for Today and Upcoming.
-Waiting and Undated omit the date key.
-
-## export
-
-```text
-nt export <path> [id...]
-```
-
-Exports all active notes in newest-first order, or the deduplicated ids in the
-given order. The destination must be outside the active vault. Each
-`<id>.md` copy is atomically written with generated front matter containing all
-primary metadata, followed by the canonical body. Each success prints:
-
-```text
-exported <id> <path>
-```
-
-The active vault and index are unchanged.
-
-## config
-
-```text
-nt config show
-nt config vault
-nt config vault <vault-name>
-```
-
-`config show` prints `vault <name-or-dash> <path-or-dash>`.
-
-`config vault` lists known vaults sorted by name as:
-
-```text
-<star-if-active-or-dash> <name> <path>
-```
-
-Supplying a name selects it and prints `configured vault <name> <path>`.
-
-## help
-
-```text
-nt help
-nt help <command...>
-```
-
-Prints root or command-specific help to stdout. Nested topics such as
-`nt help config vault` are supported; unknown topics are errors. `nt help
-reference` prints a compact operational summary of commands, metadata, filters,
-query expressions, update forms, and value formats.
-
-## Values And Validation
-
-Kinds:
-
-```text
-note todo
-```
-
-Statuses:
-
-```text
-open waiting done dropped
-```
-
-Priorities, highest first:
-
-```text
-S A B C D
-```
-
-Dates are real calendar dates in `YYYY-MM-DD`. Tags and collections are
-non-empty lowercase values without whitespace or commas. `/` is allowed in a
-collection name but does not create nested storage. Note ids must have the
-documented shape; links must target existing active notes.
-
-## Output And Errors
-
-Successful mutations print one short line. Lists and `find` are one record per
-line. Application errors are prefixed with `error:`, written to stderr, and exit
-with status 1; `clap` rejects invalid command grammar before dispatch. ANSI
-color appears only on TTY output and is disabled for redirected output,
-`NO_COLOR`, or `TERM=dumb`.
+SQLite transactions provide atomic mutations and foreign-key consistency.
+The CLI supports one user-directed writer at a time; SQLite serializes writes,
+and commands use a busy timeout. Agents use the same visible interface and
+should obtain user approval before mutations.

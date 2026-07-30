@@ -1,39 +1,43 @@
 # nt
 
-> **Status: alpha** `nt` is functional but experimental, built around a user-owned note-taking workflow; expect rough edges, bugs, and breaking changes.
+> **Status: alpha** `nt` is functional but experimental; expect breaking changes.
 
-`nt` is a small CLI-native note organizer: canonical CommonMark notes in a flat
-vault, visible JSON metadata, deterministic search, and shell-friendly commands.
-The user owns the notes and directs every mutation. An agent may use the same
-Unix interface — stdin, stdout, `$EDITOR`, and one-record-per-line output — only
-when the user asks it to do so; there is no hidden memory layer or autonomous
-note-taking behavior.
-
+`nt` is a local, agent-first knowledge and memory layer optimized for fast
+capture, deterministic retrieval, low-cost context construction, and full local
+ownership. Notes and metadata live in one portable SQLite database. Humans and
+agents use the same shell-friendly commands, stdin, stdout, and `$EDITOR`.
 
 ## Quick Start
 
 ```sh
-nt init notes
+nt init personal
 printf '%s\n' '# First Note' '' 'body text' | nt note tag:example
-nt find example          # prints NT20260616T101500-style ids
+nt find example
 ```
 
-`nt note` prints a note id like `NT20260616T101500`.
+`nt note` prints a canonical UUIDv7 id like
+`018fbe0a-6c00-7000-8000-000000000001`.
 
 ```sh
 nt show <id>
-nt open <id>             # edit in $EDITOR
-nt list                  # id title kind status due tag
-nt agenda                # open/waiting todos
+nt open <id>
+nt list
+nt agenda
+```
+
+Collections are logical `<vault>/<collection>` namespaces:
+
+```sh
+nt init work
+printf '%s\n' '# Shared' | nt note home:personal/rust collection:work/project_a
 ```
 
 ## Documentation
 
-- [docs/usage.md](docs/usage.md) — task-oriented workflows and shell recipes
-- [docs/cli-reference.md](docs/cli-reference.md) — complete command, query,
-  value, and output contract
-- [docs/design.md](docs/design.md) — architecture and decisions
+- [docs/usage.md](docs/usage.md)
+- [docs/cli-reference.md](docs/cli-reference.md)
+- [docs/design.md](docs/design.md)
 
 ## License
 
-MIT — see [LICENSE](./LICENSE)
+MIT; see [LICENSE](./LICENSE).

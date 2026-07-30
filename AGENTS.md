@@ -2,54 +2,41 @@
 
 ## Project
 
-`nt` is a small CLI-native note organizer for humans and agents. It is built
-around visible commands, deterministic retrieval, editable CommonMark notes, and
-no hidden memory layer.
+`nt` is a local, agent-first knowledge and memory layer. It prioritizes fast
+capture, deterministic retrieval, bounded context construction, durable logical
+organization, low LLM token use, and local ownership.
 
-Humans and agents use the same Unix-like interface. Commands should read stdin,
-write stdout, use `$EDITOR`, and compose with grep, awk, and pipes.
-
-`nt` is not an agent framework, RAG system, vector database, daemon, server,
-browser/runtime orchestrator, microVM orchestrator, workflow engine, Codex
-launcher, or Hermes replacement.
+Humans and agents use the same Unix-like interface. Commands read stdin, write
+stdout, use `$EDITOR`, and compose with normal shell tools. User approval is
+required before agent-driven mutations.
 
 ## Rules
 
-- The binary name is `nt`.
-- Core workflows are flagless.
-- Prefer positional arguments, stdin, stdout, and `$EDITOR`.
-- Note ids use `NTYYYYMMDDTHHmmss`.
-- Note filenames use `<id>.md`.
-- The notes directory is flat and contains only atomic `.md` note files.
-- Notes are plain CommonMark Markdown.
-- Do not store metadata in Markdown front matter.
+- The binary name is `nt` and core workflows are flagless.
+- Canonical state lives in `$HOME/.nt/nt.sqlite3`.
+- Store CommonMark note bodies directly in SQLite.
+- Use canonical lowercase UUIDv7 ids for notes, vaults, and collections.
+- Vaults are logical namespaces, never filesystem directories.
+- Collections belong to exactly one vault and use `<vault>/<collection>` names.
+- Notes use many-to-many collection memberships and exactly one home collection.
+- The home collection must also be a membership.
+- A note may reference collections from multiple vaults.
+- There is no active-vault state, JSON index, canonical Markdown vault, or
+  rebuild workflow.
+- Use SQLite transactions and foreign keys for consistency.
 - Do not add wiki-link syntax or nt-specific note-body markup.
-- Store metadata in `$HOME/.nt/index.json`.
-- Write notes and indexes atomically with temp-file-and-rename.
-- Do not add a database, daemon, embeddings, vector store, RAG, or hidden
-  retrieval layer.
-- Do not add hidden agent-only behavior.
-- Do not add built-in agent launchers such as `nt agent` or `nt discuss`.
-- Do not create `AGENTS.md`, skill files, or agent workspaces during `nt init`.
-- Use `clap` for CLI behavior.
-- Use `serde` and `serde_json` for JSON.
-- Use `thiserror` for application errors.
+- Do not add hidden agent-only behavior or built-in agent launchers.
+- Use `clap`, `rusqlite`, `uuid`, `serde_json`, and `thiserror` for their
+  established responsibilities.
 
 ## Commands
 
-Implemented command surface (see `docs/cli-reference.md`):
+The canonical command contract is `docs/cli-reference.md`:
 
-- `nt init <notes-dir>`
+- `nt init <vault>`
 - `nt note [metadata...]`
 - `nt todo [metadata...]`
-- `nt list`
-- `nt list all [filter...]`
-- `nt list <field>[,<field>...] [filter...]`
-- `nt list ids`
-- `nt list tags`
-- `nt list collections`
-- `nt list sources [source]`
-- `nt list links [filter...]`
+- `nt list [projection] [filter...]`
 - `nt find <expr...>`
 - `nt show <id>`
 - `nt open <id>`
@@ -59,211 +46,64 @@ Implemented command surface (see `docs/cli-reference.md`):
 - `nt export <path> [id...]`
 - `nt config show`
 - `nt config vault`
-- `nt config vault <vault-name>`
-- `nt help`
-- `nt help <command>`
+- `nt help [command...]`
 
-Avoid adding broader commands such as `search`, `grep`, `graph`,
-`browse`, `agent`, `discuss`, workflow orchestration, or runtime management
-until real usage proves they are necessary.
-
-## Query Syntax
-
-The canonical CLI command and query syntax lives in `docs/cli-reference.md`.
-Agents should follow that file when constructing commands.
-
-`nt find` uses trailing positional query expressions:
-
-```sh
-nt find qemu firecracker
-nt find tag:decision qemu
-nt find since:2026-05-01 before:2026-06-01 tag:decision collection:projects/nt
-nt find tag:meeting
-nt find status:open
-nt find collection:meetings
-nt find link:NT20260528T143012
-nt find source:firecracker
-nt find body:'microvm jailer'
-nt find not:tag:draft qemu
-```
-
-Rules:
-
-- Each positional argument is one query expression.
-- All expressions are combined with `AND`.
-- Expression order does not matter.
-- Search is case-insensitive.
-- Bare words match searchable metadata or note bodies.
-- `#tag` is shorthand for `tag:<tag>`.
-- Quoted values rely on normal shell quoting, not separate nt query syntax.
-- Unknown fields are errors, not bare-word searches.
-- Avoid full boolean syntax, parentheses, scoring, fuzzy search, and regex by
-  default.
-
-Initial query fields:
-
-- `id:<id>`
-- `tag:<tag>`
-- `title:<term>`
-- `day:<YYYY-MM-DD>`
-- `since:<YYYY-MM-DD>`
-- `before:<YYYY-MM-DD>`
-- `kind:<kind>`
-- `status:<status>`
-- `priority:<priority>`
-- `scheduled:<YYYY-MM-DD>`
-- `due:<YYYY-MM-DD>`
-- `closed:<YYYY-MM-DD>`
-- `collection:<name>`
-- `link:<id>`
-- `source:<term>`
-- `body:<term>`
-- `not:<expr>`
+Avoid broader commands or hidden runtime management until concrete usage proves
+the need.
 
 ## Storage
 
-- Store note bodies under the configured notes directory.
-- Keep that directory flat: only `NTYYYYMMDDTHHmmss.md` files.
-- The id is the filename stem.
-- Store metadata under `$HOME/.nt/index.json`.
-- Use a metadata map keyed by note id for direct lookup.
-- Store only primary metadata in the index; never persist derived maps.
-- Compute ordering, filtering, and body matching at query time.
-- Body search reads the Markdown files on demand; there is no text index,
-  no cache, and no rebuild command.
-- Do not store note bodies in the index.
+Primary relational state includes vaults, vault-owned collections, notes with
+bodies, note-collection memberships, tags, links, and sources. Persist only
+primary state. Enable foreign keys on every connection and keep schema changes
+versioned.
 
-Primary note metadata should stay small:
+`home_collection_id` is canonical placement. Other `note_collections` rows are
+references. Moving home may preserve the old membership until explicitly
+removed. Never permit removal of the current home membership.
 
-- `id`
-- `path`
-- `created`
-- `updated`
-- `title`
-- `kind`
-- `status`
-- `priority`
-- `scheduled`
-- `due`
-- `closed`
-- `tags`
-- `collections`
-- `links`
-- `sources`
+Markdown exists at the interface boundary: stdin, `$EDITOR`, display, and
+export. Export files are snapshots, not canonical storage.
 
-## Metadata Model
+## Retrieval
 
-Use distinct fields instead of overloading tags:
+- Use `nt list` and explicit projections for cheap candidate construction.
+- Use `nt find` for deterministic metadata/body filtering.
+- Use `nt show <id>` only for exact body retrieval.
+- Keep output stable, grep-friendly, and one record per line.
+- Unknown query fields are errors.
+- Avoid scoring, fuzzy matching, embeddings, vector search, and hidden retrieval
+  unless a separately approved design requires them.
 
-- `kind`: the system shape of a note, either `note` or `todo`.
-- `status`: todo agenda state, such as `open`, `waiting`, `done`, or `dropped`.
-- `priority`: optional todo urgency ordered `S`, `A`, `B`, `C`, `D`.
-- `scheduled`: optional todo calendar date when it should appear.
-- `due`: optional todo calendar date, formatted as `YYYY-MM-DD`.
-- `closed`: system-managed UTC timestamp for the terminal status transition.
-- `collection`: where a note belongs, such as `todos`, `meetings`,
-  `projects/nt`, or `research/qemu`.
-- `tag`: sparse topics or entities.
-- `link`: exact note-to-note relationships stored in JSON metadata.
-- `source`: external source references.
+## Metadata
 
-Tags should stay sparse. Agents should run `nt list tags` before choosing tags,
-prefer existing tags, use one to three tags by default, and create a new tag
-only when the concept is likely to recur.
-
-Collections are workspace-like groups. Collection names should be lowercase and
-may use `/` as a naming convention, not nested file storage.
-
-Note-to-note links live in JSON metadata. Do not require special Markdown link
-syntax for note links.
-
-## Agent Flow
-
-Agents should retrieve notes through cheap, visible operations:
-
-- Use `nt list id` for direct id lists (`nt list ids` remains a compatibility
-  alias).
-- Use `nt list` for the `id`, `title`, `kind`, `status`, `due`, and `tag`
-  summary in active-recent order; use `nt list all` for every indexed field.
-- Use projections such as `nt list id,title,status status:open` for stable,
-  tab-separated metadata rows and exact structured filtering.
-- Use `nt list tags`, `nt list collections`, and `nt list sources` before
-  choosing metadata.
-- Use `nt find <expr...>` for indexed/body search.
-- Use `nt show <id>` for exact retrieval.
-- Use `nt list links`, `nt list links from:<id>`, and `nt list links to:<id>` for
-  explicit note relationships.
-- Compose command output with normal Unix tools when helpful.
-
-When answering from notes, cite supporting note ids.
-
-Agent-driven writes require approval before mutation:
-
-- New notes: produce a CommonMark draft and ask before saving with `nt note` or
-  `nt todo`.
-- Note edits: produce a proposed replacement or patch, then open `$EDITOR`
-  before saving.
-- Metadata updates: show planned `nt update <id> <field> <value>` commands
-  before running them.
-
-Rejection must leave notes and metadata unchanged.
-
-Agent skill examples belong in documentation, not runtime initialization.
-Repository-local contributor skills under `.agents/skills/` must not be copied
-into user vaults by `nt init`.
+- `kind`: `note` or `todo`
+- `status`: `open`, `waiting`, `done`, or `dropped`
+- `priority`: `S`, `A`, `B`, `C`, or `D`
+- `scheduled`, `due`: `YYYY-MM-DD`
+- `closed`: system-managed terminal transition timestamp
+- `home`: canonical `<vault>/<collection>`
+- `collection`: additional qualified membership
+- `tag`: sparse topic or entity
+- `link`: exact note UUID relationship
+- `source`: external reference
 
 ## Terminal UX
 
-`nt` output should be minimal, fast, predictable, and grep-friendly:
-
-- Successful mutations print one short line, such as `saved <id>`.
-- Lists use aligned columns: id, date, tags, title.
-- `show` prints note identity and metadata before the CommonMark body.
-- Prefer lowercase verbs in status output.
+- Successful mutations print one short lowercase line.
 - Keep ids visually dominant.
-- Keep paths relative when possible.
-- Avoid decorative boxes, banners, spinners, and progress bars.
-- Use ANSI color only when stdout is a TTY.
-- Disable color when stdout is piped, `NO_COLOR` is set, or `TERM=dumb`.
-- Machine-facing `list` submodes and `find` must stay stable and
-  one-record-per-line.
-
-Suggested TTY colors:
-
-- ids: bright cyan
-- dates and paths: dim
-- tags: green
-- errors: red
-
-## Coding Style
-
-- Keep modules small.
-- Prefer explicit control flow.
-- Prefer standard library APIs.
-- Avoid clever abstractions.
-- Avoid dependencies unless they clearly simplify stable core behavior.
-- Keep terminal output readable.
-- Keep error messages actionable.
-- Do not hand-roll JSON parsing.
+- Use ANSI color only on TTY stdout and respect `NO_COLOR` and `TERM=dumb`.
+- Avoid banners, boxes, spinners, and progress bars.
 
 ## Testing
 
 - Run `cargo fmt` before finishing Rust changes.
 - Run `cargo test` when behavior changes.
-- Run `cargo run -- help` for a basic command smoke test.
-- Add focused tests for command routing, note ids, atomic writes, index updates,
-  parsing, query syntax, metadata mutation commands, and storage.
+- Run `cargo run -- help` for a command smoke test.
+- Add focused tests for schema constraints, transactions, UUIDv7 ids, command
+  routing, query syntax, metadata updates, and cross-vault memberships.
 
 ## Commits
 
-Use concise conventional commit prefixes:
-
-- `fix: ...`
-- `refactor: ...`
-- `chore: ...`
-- `docs: ...`
-- `test: ...`
-
-Keep each commit focused on one kind of change. Do not mix documentation-only
-changes, behavior changes, refactors, chores, and tests unless they are tightly
-coupled.
+Use concise `fix:`, `refactor:`, `chore:`, `docs:`, or `test:` prefixes and keep
+commits focused.

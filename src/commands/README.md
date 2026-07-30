@@ -9,12 +9,12 @@ handlers.
 | File | Responsibility |
 |---|---|
 | `mod.rs` | Command routing, shared validators, status transitions, and index helpers. |
-| `init.rs` | `init` and Markdown import for existing flat vaults. |
+| `init.rs` | Logical vault and inbox creation. |
 | `add.rs` | `note`/`todo`, creation metadata parsing, and editor plumbing. |
 | `show.rs` | `show`, `open`, and `find`. |
-| `rm.rs` | `rm` and index removal. |
+| `rm.rs` | Transactional note and relationship removal. |
 | `update.rs` | `update` and the update operation model. |
 | `list.rs` | `list` orchestration and link graph rendering. |
 | `agenda.rs` | `agenda` sections, selection, and ordering. |
-| `export_cmd.rs` | `export` and active-vault guards. |
-| `config.rs` | `config show` and `config vault`. |
+| `export_cmd.rs` | Portable Markdown snapshot export. |
+| `config.rs` | Database-path inspection and logical vault listing. |

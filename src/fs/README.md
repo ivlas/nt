@@ -1,9 +1,5 @@
-# fs/
+# fs
 
-Filesystem primitives: path resolution and atomic file replacement.
-
-| File | Responsibility |
-|---|---|
-| `mod.rs` | Re-exports the public API. |
-| `paths.rs` | Home and nt-home resolution, index path, and cwd-relative paths. |
-| `atomic.rs` | Atomic temp-file-and-rename writes. |
+Resolves `$HOME/.nt/nt.sqlite3`, temporary editor paths, export destinations,
+and atomic writes for temporary or exported files. Canonical notes do not live
+in the filesystem.
