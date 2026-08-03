@@ -74,19 +74,14 @@ where commas are literal.
 nt list
 nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
-nt list ids
-nt list titles
-nt list tags [tag]
-nt list collections [collection]
-nt list sources [source]
-nt list links [from:<id>] [to:<id>] [filter...]
 ```
 
 Fields are `id`, `home`, `created`, `updated`, `title`, `kind`, `status`,
 `priority`, `scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and
-`source`. Redirected projections are headerless tab-separated rows. `list`
-accepts structured metadata filters only; bare words and `title:`, `source:`,
-and `body:` filters require `find`.
+`source`; `all` selects every field. Redirected projections are headerless
+tab-separated rows, one per note. Set-valued fields are comma-separated. `list`
+accepts AND-combined structured metadata filters only; bare words and `title:`,
+`source:`, and `body:` filters require `find`.
 
 `find` field names are lowercase. Matching values are case-insensitive and
 expressions are AND-combined:

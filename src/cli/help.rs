@@ -105,21 +105,17 @@ Examples:
 const LIST: &str = r#"nt list
 nt list all [filter...]
 nt list <field>[,<field>...] [filter...]
-nt list ids
-nt list titles
-nt list tags [tag]
-nt list collections [collection]
-nt list sources [source]
-nt list links [filter...]
 
 Fields are id, home, created, updated, title, kind, status, priority, scheduled,
 due, closed, tag, collection, link, and source. Redirected projections are
-stable tab-separated rows.
+stable tab-separated rows, one per note. Set-valued fields are comma-separated.
+Filters are structured metadata expressions and are AND-combined. Use all to
+select every field.
 
 Examples:
   nt list id,title,home collection:personal/rust
-  nt list collections
-  nt list links from:018fbe0a-6c00-7000-8000-000000000001
+  nt list tag
+  nt list id,title,status,priority,scheduled,due kind:todo status:open
 "#;
 
 const FIND: &str = r#"nt find <expr...>

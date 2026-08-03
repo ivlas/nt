@@ -4,6 +4,6 @@
 
 | File | Responsibility |
 |---|---|
-| `mod.rs` | List request parsing, compatibility forms, and filter dispatch. |
+| `mod.rs` | Projection and structured-filter request parsing. |
 | `field.rs` | `ListField` enum, projection parsing, and per-field rendering. |
 | `render.rs` | Row and table layout for TTY and pipe output. |

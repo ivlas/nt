@@ -1,27 +1,16 @@
 use crate::error::{NtError, Result};
-use crate::note::validate_id;
 use crate::query::Query;
 
 mod field;
 mod render;
 
 pub use field::ListField;
-pub use render::{render_link_row, render_link_table, render_row, render_table};
+pub use render::{render_row, render_table};
 
 #[derive(Debug)]
-pub enum ListRequest {
-    Notes {
-        fields: Vec<ListField>,
-        query: Query,
-    },
-    Tags(Option<String>),
-    Collections(Option<String>),
-    Sources(Option<String>),
-    LinkGraph {
-        query: Query,
-        from: Option<String>,
-        to: Option<String>,
-    },
+pub struct ListRequest {
+    pub fields: Vec<ListField>,
+    pub query: Query,
 }
 
 impl ListRequest {
@@ -32,65 +21,10 @@ impl ListRequest {
             )));
         }
 
-        if let [value, direction] = args
-            && matches!(direction.as_str(), "from" | "to")
+        if let [projection, filters @ ..] = args
+            && projection == "all"
         {
-            let id = value.strip_prefix("link:").unwrap_or(value);
-            if validate_id(id).is_ok() {
-                return Err(NtError::Message(format!(
-                    "link direction `{direction}` must be an endpoint filter; use `nt list links {direction}:{id}`"
-                )));
-            }
-        }
-
-        match args {
-            [mode, filters @ ..] if mode == "all" => {
-                return Self::notes(field::ALL_FIELDS.to_vec(), filters);
-            }
-            [mode] if mode == "ids" => return Self::notes(vec![ListField::Id], &[]),
-            [mode] if mode == "titles" => {
-                return Self::notes(vec![ListField::Id, ListField::Title], &[]);
-            }
-            [mode, filters @ ..]
-                if mode == "links" && filters.first().is_none_or(|value| is_filter(value)) =>
-            {
-                return Self::link_graph(filters);
-            }
-            [mode] if mode == "tags" => return Ok(Self::Tags(None)),
-            [mode, tag] if mode == "tags" => return Ok(Self::Tags(Some(tag.clone()))),
-            [mode] if mode == "collections" => return Ok(Self::Collections(None)),
-            [mode, collection] if mode == "collections" => {
-                return Ok(Self::Collections(Some(collection.clone())));
-            }
-            [mode] if mode == "sources" => return Ok(Self::Sources(None)),
-            [mode, source] if mode == "sources" => {
-                return Ok(Self::Sources(Some(source.clone())));
-            }
-            [mode, id] if mode == "links" => {
-                validate_id(id)?;
-                return Err(NtError::Message(format!(
-                    "directionless link lookup is not supported; use `nt list links from:{id}` or `nt list links to:{id}`"
-                )));
-            }
-            [mode, id, direction]
-                if mode == "links" && matches!(direction.as_str(), "from" | "to") =>
-            {
-                validate_id(id)?;
-                return Err(NtError::Message(format!(
-                    "positional link directions are not supported; use `nt list links {direction}:{id}`"
-                )));
-            }
-            [mode, ..]
-                if matches!(
-                    mode.as_str(),
-                    "ids" | "titles" | "tags" | "collections" | "sources" | "links"
-                ) =>
-            {
-                return Err(NtError::Message(format!(
-                    "invalid `nt list {mode}` arguments"
-                )));
-            }
-            _ => {}
+            return Self::notes(field::ALL_FIELDS.to_vec(), filters);
         }
 
         if args.is_empty() {
@@ -106,39 +40,9 @@ impl ListRequest {
     }
 
     fn notes(fields: Vec<ListField>, filters: &[String]) -> Result<Self> {
-        Ok(Self::Notes {
+        Ok(Self {
             fields,
             query: Query::parse_list(filters)?,
-        })
-    }
-
-    fn link_graph(filters: &[String]) -> Result<Self> {
-        let mut from = None;
-        let mut to = None;
-        let mut note_filters = Vec::new();
-
-        for filter in filters {
-            let endpoint = filter
-                .strip_prefix("from:")
-                .map(|id| ("from", id, &mut from))
-                .or_else(|| filter.strip_prefix("to:").map(|id| ("to", id, &mut to)));
-
-            if let Some((name, id, selected)) = endpoint {
-                validate_id(id)?;
-                if selected.replace(id.to_string()).is_some() {
-                    return Err(NtError::Message(format!(
-                        "duplicate link endpoint filter `{name}`"
-                    )));
-                }
-            } else {
-                note_filters.push(filter.clone());
-            }
-        }
-
-        Ok(Self::LinkGraph {
-            query: Query::parse_list(&note_filters)?,
-            from,
-            to,
         })
     }
 }
@@ -157,24 +61,18 @@ mod tests {
 
     #[test]
     fn parses_fields_and_filters() {
-        let ListRequest::Notes { fields, .. } =
-            ListRequest::parse(&args(&["id,title,status", "status:open"])).unwrap()
-        else {
-            panic!("expected note listing");
-        };
+        let request = ListRequest::parse(&args(&["id,title,status", "status:open"])).unwrap();
         assert_eq!(
-            fields,
+            request.fields,
             vec![ListField::Id, ListField::Title, ListField::Status]
         );
     }
 
     #[test]
     fn default_and_filter_only_requests_use_summary_fields() {
-        let ListRequest::Notes { fields, .. } = ListRequest::parse(&[]).unwrap() else {
-            panic!("expected note listing");
-        };
+        let request = ListRequest::parse(&[]).unwrap();
         assert_eq!(
-            fields,
+            request.fields,
             vec![
                 ListField::Id,
                 ListField::Title,
@@ -185,13 +83,9 @@ mod tests {
             ]
         );
 
-        let ListRequest::Notes { fields, .. } =
-            ListRequest::parse(&args(&["status:open"])).unwrap()
-        else {
-            panic!("expected note listing");
-        };
+        let request = ListRequest::parse(&args(&["status:open"])).unwrap();
         assert_eq!(
-            fields,
+            request.fields,
             vec![
                 ListField::Id,
                 ListField::Title,
@@ -205,76 +99,23 @@ mod tests {
 
     #[test]
     fn all_selects_every_field_and_accepts_filters() {
-        let ListRequest::Notes { fields, .. } =
-            ListRequest::parse(&args(&["all", "status:open"])).unwrap()
-        else {
-            panic!("expected note listing");
-        };
-        assert_eq!(fields.len(), 15);
+        let request = ListRequest::parse(&args(&["all", "status:open"])).unwrap();
+        assert_eq!(request.fields.len(), 15);
     }
 
     #[test]
-    fn sources_mode_parses_with_optional_filter() {
-        assert!(matches!(
-            ListRequest::parse(&args(&["sources"])).unwrap(),
-            ListRequest::Sources(None)
-        ));
-        assert!(matches!(
-            ListRequest::parse(&args(&["sources", "https://example.com"])).unwrap(),
-            ListRequest::Sources(Some(value)) if value == "https://example.com"
-        ));
-    }
-
-    #[test]
-    fn links_without_an_id_selects_the_link_graph() {
-        assert!(matches!(
-            ListRequest::parse(&args(&["links"])).unwrap(),
-            ListRequest::LinkGraph { .. }
-        ));
-        assert!(matches!(
-            ListRequest::parse(&args(&["links", "day:2026-06-20"])).unwrap(),
-            ListRequest::LinkGraph { .. }
-        ));
-
-        let ListRequest::LinkGraph { from, to, .. } = ListRequest::parse(&args(&[
-            "links",
-            "from:018fbe0a-6c00-7000-8000-000000000001",
-            "to:018fbe0a-6c00-7000-8000-000000000002",
-        ]))
-        .unwrap() else {
-            panic!("expected link graph");
-        };
+    fn set_valued_metadata_uses_regular_singular_fields() {
+        let request =
+            ListRequest::parse(&args(&["tag,collection,link,source", "tag:rust"])).unwrap();
         assert_eq!(
-            from.as_deref(),
-            Some("018fbe0a-6c00-7000-8000-000000000001")
+            request.fields,
+            vec![
+                ListField::Tag,
+                ListField::Collection,
+                ListField::Link,
+                ListField::Source,
+            ]
         );
-        assert_eq!(to.as_deref(), Some("018fbe0a-6c00-7000-8000-000000000002"));
-    }
-
-    #[test]
-    fn rejects_ambiguous_or_duplicate_link_endpoint_filters() {
-        let error = ListRequest::parse(&args(&["links", "018fbe0a-6c00-7000-8000-000000000001"]))
-            .unwrap_err();
-        assert!(error.to_string().contains("directionless link lookup"));
-
-        let error = ListRequest::parse(&args(&[
-            "links",
-            "018fbe0a-6c00-7000-8000-000000000001",
-            "from",
-        ]))
-        .unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "positional link directions are not supported; use `nt list links from:018fbe0a-6c00-7000-8000-000000000001`"
-        );
-
-        let error = ListRequest::parse(&args(&[
-            "links",
-            "from:018fbe0a-6c00-7000-8000-000000000001",
-            "from:018fbe0a-6c00-7000-8000-000000000002",
-        ]))
-        .unwrap_err();
-        assert_eq!(error.to_string(), "duplicate link endpoint filter `from`");
     }
 
     #[test]
@@ -283,23 +124,15 @@ mod tests {
             ("id,titel", "unknown list field `titel`"),
             ("id,,title", "empty list field"),
             ("id,id", "duplicate list field `id`"),
+            ("tags", "unknown list field `tags`"),
+            ("collections", "unknown list field `collections`"),
+            ("sources", "unknown list field `sources`"),
+            ("links", "unknown list field `links`"),
+            ("ids", "unknown list field `ids`"),
+            ("titles", "unknown list field `titles`"),
         ] {
             let error = ListRequest::parse(&args(&[value])).unwrap_err();
             assert!(error.to_string().contains(expected));
-        }
-    }
-
-    #[test]
-    fn redirects_misplaced_link_directions() {
-        for value in [
-            "018fbe0a-6c00-7000-8000-000000000001",
-            "link:018fbe0a-6c00-7000-8000-000000000001",
-        ] {
-            let error = ListRequest::parse(&args(&[value, "from"])).unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                "link direction `from` must be an endpoint filter; use `nt list links from:018fbe0a-6c00-7000-8000-000000000001`"
-            );
         }
     }
 }

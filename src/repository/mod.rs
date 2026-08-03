@@ -136,17 +136,6 @@ impl Repository {
         Ok(())
     }
 
-    pub fn list_collections(&self) -> Result<Vec<String>> {
-        let mut statement = self.connection.prepare(
-            "SELECT v.name || '/' || c.name
-             FROM collections c JOIN vaults v ON v.id = c.vault_id
-             ORDER BY v.name, c.name",
-        )?;
-        let rows = statement.query_map([], |row| row.get(0))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
-    }
-
     pub fn default_home_collection(&self) -> Result<String> {
         let mut statement = self
             .connection

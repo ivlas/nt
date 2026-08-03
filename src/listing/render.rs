@@ -27,31 +27,6 @@ pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
     render_columns(headers, rows)
 }
 
-pub fn render_link_row(from: &NoteMeta, to: &NoteMeta) -> String {
-    [&from.id, &from.title, &to.id, &to.title]
-        .map(String::as_str)
-        .join("\t")
-}
-
-pub fn render_link_table(links: &[(&NoteMeta, &NoteMeta)]) -> Vec<String> {
-    let headers = ["FROM ID", "FROM TITLE", "TO ID", "TO TITLE"]
-        .map(str::to_string)
-        .to_vec();
-    let rows = links
-        .iter()
-        .map(|(from, to)| {
-            vec![
-                from.id.clone(),
-                from.title.clone(),
-                to.id.clone(),
-                to.title.clone(),
-            ]
-        })
-        .collect();
-
-    render_columns(headers, rows)
-}
-
 fn render_columns(headers: Vec<String>, rows: Vec<Vec<String>>) -> Vec<String> {
     let widths = headers
         .iter()

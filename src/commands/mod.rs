@@ -93,13 +93,6 @@ fn validate_tag(tag: &str) -> Result<()> {
     validate_lowercase_name(tag, "tag")
 }
 
-fn validate_source(source: &str) -> Result<()> {
-    if source.trim().is_empty() {
-        return Err(NtError::Message("empty source value".to_string()));
-    }
-    Ok(())
-}
-
 fn validate_kind(kind: &str) -> Result<()> {
     if matches!(kind, "note" | "todo") {
         Ok(())

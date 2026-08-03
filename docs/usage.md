@@ -44,8 +44,8 @@ Use compact projections before loading full bodies into an agent context:
 ```sh
 nt list id,title,home
 nt list id,title,status status:open
-nt list tags
-nt list collections
+nt list tag
+nt list collection
 nt find collection:personal/rust tag:rust
 nt find body:'ownership borrow'
 nt show <id>
@@ -54,6 +54,8 @@ nt show <id>
 This supports bounded context construction: `find` returns one compact summary
 per line, redirected `list` output is headerless and tab-separated, and `show`
 retrieves one exact body. Interactive `list` output includes aligned headers.
+Set-valued projections such as `tag` and `collection` remain one row per note
+and render their values comma-separated.
 Quoted multiword `body:` values match all terms, not an exact phrase. Body
 search reads the canonical text stored in SQLite.
 

@@ -188,8 +188,8 @@ fn notes_can_reference_collections_across_logical_vaults() {
     assert!(shown.contains("home personal/rust"));
     assert!(shown.contains("collections personal/rust,work/project_a"));
     assert_eq!(
-        run_nt(&home, &["list", "collections"]),
-        "personal/inbox\npersonal/rust\nwork/inbox\nwork/project_a\n"
+        run_nt(&home, &["list", "collection"]),
+        "personal/rust,work/project_a\n"
     );
 
     let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
