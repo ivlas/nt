@@ -1,4 +1,4 @@
-use crate::repository::NoteMeta;
+use crate::repository::{AgendaNote, NoteMeta};
 use crate::terminal::{Style, paint};
 
 pub(crate) fn summary_line(note: &NoteMeta) -> String {
@@ -27,7 +27,7 @@ pub(crate) fn joined_or_dash(values: &[String]) -> String {
     }
 }
 
-pub(crate) fn agenda_line(note: &NoteMeta) -> String {
+pub(crate) fn agenda_line(note: &AgendaNote) -> String {
     format!(
         "{}\t{}\t{}\t{}\t{}",
         note.id,
@@ -40,7 +40,7 @@ pub(crate) fn agenda_line(note: &NoteMeta) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::repository::NoteMeta;
+    use crate::repository::{AgendaNote, NoteMeta};
 
     use super::{agenda_line, summary_line, summary_line_for_display};
 
@@ -91,10 +91,14 @@ mod tests {
 
     #[test]
     fn agenda_line_omits_redundant_open_status() {
-        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
-        note.priority = Some("A".to_string());
-        note.scheduled = Some("2026-05-28".to_string());
-        note.due = Some("2026-05-30".to_string());
+        let note = AgendaNote {
+            id: "018fbe0a-6c00-7000-8000-000000000001".to_string(),
+            priority: Some("A".to_string()),
+            scheduled: Some("2026-05-28".to_string()),
+            due: Some("2026-05-30".to_string()),
+            created: "2026-05-28T14:30:12Z".to_string(),
+            title: "Storage shape".to_string(),
+        };
 
         assert_eq!(
             agenda_line(&note),

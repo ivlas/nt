@@ -143,32 +143,6 @@ mod test_helpers {
             "Storage shape".to_string(),
         )
     }
-
-    pub fn active_notes(mut notes: Vec<NoteMeta>) -> Vec<NoteMeta> {
-        notes.sort_by(|left, right| {
-            right
-                .created
-                .cmp(&left.created)
-                .then_with(|| right.id.cmp(&left.id))
-        });
-        notes
-    }
-
-    pub fn todo(
-        id: &str,
-        status: &str,
-        priority: Option<&str>,
-        scheduled: Option<&str>,
-        due: Option<&str>,
-    ) -> NoteMeta {
-        let mut note = note(id);
-        note.kind = "todo".to_string();
-        note.status = Some(status.to_string());
-        note.priority = priority.map(str::to_string);
-        note.scheduled = scheduled.map(str::to_string);
-        note.due = due.map(str::to_string);
-        note
-    }
 }
 
 #[cfg(test)]

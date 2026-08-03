@@ -30,6 +30,16 @@ pub struct NoteMeta {
     pub sources: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AgendaNote {
+    pub id: String,
+    pub priority: Option<String>,
+    pub scheduled: Option<String>,
+    pub due: Option<String>,
+    pub created: String,
+    pub title: String,
+}
+
 impl NoteMeta {
     pub fn new_note(
         id: String,
@@ -249,6 +259,29 @@ impl Repository {
         }
         transaction.commit()?;
         Ok(notes)
+    }
+
+    pub fn agenda_notes(&self, through: &str) -> Result<Vec<AgendaNote>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, priority, scheduled, due, created, title
+             FROM notes
+             WHERE kind = 'todo'
+               AND status = 'open'
+               AND (scheduled <= ?1 OR due <= ?1)
+             ORDER BY created DESC, id DESC",
+        )?;
+        let rows = statement.query_map([through], |row| {
+            Ok(AgendaNote {
+                id: row.get(0)?,
+                priority: row.get(1)?,
+                scheduled: row.get(2)?,
+                due: row.get(3)?,
+                created: row.get(4)?,
+                title: row.get(5)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn update_note(&mut self, id: &str, change: &NoteChange, now: &str) -> Result<()> {
@@ -745,7 +778,9 @@ fn is_terminal_status(status: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_collection_name;
+    use tempfile::tempdir;
+
+    use super::{NoteMeta, Repository, parse_collection_name};
 
     #[test]
     fn collection_names_are_vault_qualified() {
@@ -755,5 +790,80 @@ mod tests {
         );
         assert!(parse_collection_name("rust").is_err());
         assert!(parse_collection_name("Personal/rust").is_err());
+    }
+
+    #[test]
+    fn agenda_query_filters_rows_in_sql_and_does_not_materialize_bodies() {
+        let directory = tempdir().unwrap();
+        let mut repository = Repository::open_path(&directory.path().join("nt.sqlite3")).unwrap();
+        repository
+            .create_vault("personal", "2026-05-01T00:00:00Z")
+            .unwrap();
+
+        {
+            let mut insert = |id: &str,
+                              kind: &str,
+                              status: Option<&str>,
+                              scheduled: Option<&str>,
+                              due: Option<&str>| {
+                let mut note = NoteMeta::new_note(
+                    id.to_string(),
+                    "personal/inbox".to_string(),
+                    "# Body that agenda must not load\n".to_string(),
+                    "2026-05-01T00:00:00Z".to_string(),
+                    "2026-05-01T00:00:00Z".to_string(),
+                    id.to_string(),
+                );
+                note.kind = kind.to_string();
+                note.status = status.map(str::to_string);
+                note.scheduled = scheduled.map(str::to_string);
+                note.due = due.map(str::to_string);
+                repository.insert_note(&note).unwrap();
+            };
+
+            insert("overdue", "todo", Some("open"), None, Some("2026-05-27"));
+            insert(
+                "scheduled-today",
+                "todo",
+                Some("open"),
+                Some("2026-05-28"),
+                None,
+            );
+            insert("week", "todo", Some("open"), None, Some("2026-06-03"));
+            insert("future", "todo", Some("open"), None, Some("2026-06-04"));
+            insert("waiting", "todo", Some("waiting"), None, Some("2026-05-27"));
+            insert("undated", "todo", Some("open"), None, None);
+            insert("done", "todo", Some("done"), None, Some("2026-05-27"));
+            insert("dropped", "todo", Some("dropped"), Some("2026-05-27"), None);
+            insert("note", "note", Some("open"), None, Some("2026-05-28"));
+        }
+
+        repository
+            .connection
+            .execute("UPDATE notes SET body = x'80' WHERE id = 'overdue'", [])
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET title = x'80'
+                 WHERE id IN ('future', 'waiting', 'undated', 'done', 'dropped', 'note')",
+                [],
+            )
+            .unwrap();
+
+        let today = repository.agenda_notes("2026-05-28").unwrap();
+        assert_eq!(
+            today
+                .iter()
+                .map(|note| note.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["scheduled-today", "overdue"]
+        );
+
+        let week = repository.agenda_notes("2026-06-03").unwrap();
+        assert_eq!(
+            week.iter().map(|note| note.id.as_str()).collect::<Vec<_>>(),
+            vec!["week", "scheduled-today", "overdue"]
+        );
     }
 }
