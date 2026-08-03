@@ -13,6 +13,7 @@ required before agent-driven mutations.
 ## Rules
 
 - The binary name is `nt` and core workflows are flagless.
+- The tool should not have config: do not add configuration files or a `config` command.
 - Canonical state lives in `$HOME/.nt/nt.sqlite3`.
 - Store CommonMark note bodies directly in SQLite.
 - Use canonical lowercase UUIDv7 ids for notes, vaults, and collections.
@@ -44,8 +45,6 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt update <id> <field> <value>`
 - `nt agenda [today|week|overdue|waiting|undated]`
 - `nt export <path> [id...]`
-- `nt config show`
-- `nt config vault`
 - `nt help [command...]`
 
 Avoid broader commands or hidden runtime management until concrete usage proves

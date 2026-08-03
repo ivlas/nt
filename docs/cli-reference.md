@@ -1,7 +1,7 @@
 # nt CLI Reference
 
-`nt` is a flagless, local CLI over `$HOME/.nt/nt.sqlite3`. SQLite is canonical
-for note bodies, metadata, vaults, collections, and relationships.
+`nt` is a flagless, configless local CLI over `$HOME/.nt/nt.sqlite3`. SQLite is
+canonical for note bodies, metadata, vaults, collections, and relationships.
 
 ## Commands
 
@@ -17,8 +17,6 @@ nt rm <id...>
 nt update <id> <field> <value>
 nt agenda [today|week|overdue|waiting|undated]
 nt export <path> [id...]
-nt config show
-nt config vault
 nt help [command...]
 ```
 
@@ -143,11 +141,6 @@ matter. `<path>` is a directory and is created if necessary. Omitting ids
 exports all notes; explicit ids are validated and deduplicated before any
 snapshot is written. Each file is atomically replaced, but a multi-file export
 is not transactional. Exported Markdown is not canonical storage.
-
-## Config
-
-`config show` prints the database path. `config vault` prints vault UUID and
-name rows. There is no command to select a vault.
 
 ## Operation
 

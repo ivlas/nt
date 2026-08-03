@@ -62,10 +62,6 @@ pub enum Command {
         path: PathBuf,
         ids: Vec<String>,
     },
-    Config {
-        #[command(subcommand)]
-        command: ConfigCommand,
-    },
     Help {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         topic: Vec<String>,
@@ -95,17 +91,11 @@ pub enum AgendaView {
     Undated,
 }
 
-#[derive(Subcommand)]
-pub enum ConfigCommand {
-    Show,
-    Vault,
-}
-
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AgendaView, Cli, Command, ConfigCommand, UpdateField};
+    use super::{AgendaView, Cli, Command, UpdateField};
 
     const ID: &str = "018fbe0a-6c00-7000-8000-000000000001";
 
@@ -123,8 +113,6 @@ mod tests {
             &["nt", "update", ID, "home", "work/project_a"],
             &["nt", "agenda", "week"],
             &["nt", "export", "archive", ID],
-            &["nt", "config", "show"],
-            &["nt", "config", "vault"],
             &["nt", "help", "find"],
         ];
         for case in cases {
@@ -151,19 +139,13 @@ mod tests {
                 view: Some(AgendaView::Week)
             })
         ));
-
-        let cli = Cli::parse_from(["nt", "config", "vault"]);
-        assert!(matches!(
-            cli.command,
-            Some(Command::Config {
-                command: ConfigCommand::Vault
-            })
-        ));
     }
 
     #[test]
     fn grammar_rejects_removed_and_flag_forms() {
-        assert!(Cli::try_parse_from(["nt", "config", "vault", "personal"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "config"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "config", "show"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "config", "vault"]).is_err());
         assert!(Cli::try_parse_from(["nt", "rm"]).is_err());
         assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
         assert!(Cli::parse_from(["nt"]).command.is_none());
@@ -180,7 +162,7 @@ mod tests {
             commands,
             [
                 "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
-                "export", "config", "help",
+                "export", "help",
             ]
         );
     }

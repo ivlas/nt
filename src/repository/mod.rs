@@ -11,13 +11,6 @@ use crate::note::new_id;
 const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Clone, Debug)]
-pub struct VaultMeta {
-    pub id: String,
-    pub name: String,
-    pub created: String,
-}
-
-#[derive(Clone, Debug)]
 pub struct NoteMeta {
     pub id: String,
     pub home_collection: String,
@@ -100,7 +93,7 @@ impl Repository {
         Ok(Self { connection })
     }
 
-    pub fn create_vault(&mut self, name: &str, created: &str) -> Result<VaultMeta> {
+    pub fn create_vault(&mut self, name: &str, created: &str) -> Result<()> {
         validate_namespace_part(name, "vault")?;
         let transaction = self.connection.transaction()?;
         let exists = transaction
@@ -111,36 +104,17 @@ impl Repository {
             return Err(NtError::Message(format!("vault `{name}` already exists")));
         }
 
-        let vault = VaultMeta {
-            id: new_id(),
-            name: name.to_string(),
-            created: created.to_string(),
-        };
+        let vault_id = new_id();
         transaction.execute(
             "INSERT INTO vaults (id, name, created) VALUES (?1, ?2, ?3)",
-            params![vault.id, vault.name, vault.created],
+            params![vault_id, name, created],
         )?;
         transaction.execute(
             "INSERT INTO collections (id, vault_id, name, created) VALUES (?1, ?2, 'inbox', ?3)",
-            params![new_id(), vault.id, created],
+            params![new_id(), vault_id, created],
         )?;
         transaction.commit()?;
-        Ok(vault)
-    }
-
-    pub fn list_vaults(&self) -> Result<Vec<VaultMeta>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT id, name, created FROM vaults ORDER BY name")?;
-        let rows = statement.query_map([], |row| {
-            Ok(VaultMeta {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created: row.get(2)?,
-            })
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
+        Ok(())
     }
 
     pub fn list_collections(&self) -> Result<Vec<String>> {

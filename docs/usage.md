@@ -13,8 +13,8 @@ nt init personal
 ```
 
 This creates logical vault `personal` and `personal/inbox`. Add another logical
-namespace with `nt init work`. `nt config vault` lists all vaults; there is no
-active vault to switch.
+namespace with `nt init work`. There is no configuration or active vault to
+switch.
 
 ## Capture
 

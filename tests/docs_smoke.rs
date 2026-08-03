@@ -36,6 +36,7 @@ fn docs_do_not_restore_removed_storage_models() {
         for removed in [
             "NTYYYYMMDDTHHmmss",
             "$HOME/.nt/index.json",
+            "nt config",
             "config vault <vault-name>",
         ] {
             assert!(

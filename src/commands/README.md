@@ -17,4 +17,3 @@ handlers.
 | `list.rs` | `list` orchestration and link graph rendering. |
 | `agenda.rs` | `agenda` sections, selection, and ordering. |
 | `export_cmd.rs` | Portable Markdown snapshot export. |
-| `config.rs` | Database-path inspection and logical vault listing. |

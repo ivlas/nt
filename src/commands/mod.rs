@@ -8,7 +8,6 @@ use crate::repository::{NoteMeta, Repository};
 
 mod add;
 mod agenda;
-mod config;
 mod export_cmd;
 mod init;
 mod list;
@@ -30,7 +29,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Update { id, field, value }) => update::update(&id, field, &value),
         Some(Command::Agenda { view }) => agenda::agenda(view),
         Some(Command::Export { path, ids }) => export_cmd::export(&path, &ids),
-        Some(Command::Config { command }) => config::config(command),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic),
     }
 }

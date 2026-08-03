@@ -27,13 +27,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "export" => Ok(
             "nt export <path> [id...]\n\nExport portable Markdown snapshots with generated front matter.\n\nExamples:\n  nt export archive\n",
         ),
-        "config" => Ok(CONFIG),
-        "config show" => {
-            Ok("nt config show\n\nPrint the SQLite database path.\n\nExamples:\n  nt config show\n")
-        }
-        "config vault" => Ok(
-            "nt config vault\n\nList logical vault ids and names.\n\nExamples:\n  nt config vault\n",
-        ),
         "help" => Ok(
             "nt help [command...]\nnt help reference\n\nShow command help or the compact CLI reference.\n\nExamples:\n  nt help find\n  nt help reference\n",
         ),
@@ -69,8 +62,6 @@ Plan and organize:
 
 Maintenance:
   export <path> [id...]               export Markdown snapshots
-  config show                         print the database path
-  config vault                        list logical vaults
 
 Help:
   help [command...]                   show command help
@@ -80,7 +71,7 @@ Examples:
   nt init personal
   nt note home:personal/rust
   nt find tag:decision qemu
-  nt config vault
+  nt agenda week
 "#;
 
 const NOTE: &str = r#"nt note [metadata...]
@@ -163,16 +154,6 @@ Examples:
   nt agenda week
 "#;
 
-const CONFIG: &str = r#"nt config show
-nt config vault
-
-Inspect the database location or list logical vaults. There is no active vault.
-
-Examples:
-  nt config show
-  nt config vault
-"#;
-
 const REFERENCE: &str = r#"nt CLI reference
 
 Commands:
@@ -187,8 +168,6 @@ Commands:
   nt update <id> <field> <value>
   nt agenda [today|week|overdue|waiting|undated]
   nt export <path> [id...]
-  nt config show
-  nt config vault
   nt help [command...]
 
 Note metadata:
@@ -241,7 +220,7 @@ mod tests {
     fn all_commands_have_examples() {
         for topic in [
             "", "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
-            "export", "config", "help",
+            "export", "help",
         ] {
             assert!(topic_text(topic).unwrap().contains("Examples:"));
         }
