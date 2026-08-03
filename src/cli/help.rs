@@ -120,9 +120,12 @@ Examples:
 
 const FIND: &str = r#"nt find <expr...>
 
-Find notes with case-insensitive, AND-combined expressions. Fields are id, tag,
-title, day, since, before, kind, status, priority, scheduled, due, closed,
-collection, link, source, and body.
+Find notes with AND-combined expressions. Bare, title, and body values require
+all whole Unicode tokens in any order; punctuation separates terms, case is
+folded, supported Latin diacritics are removed, and prefixes are not expanded.
+Source uses a case-insensitive SQL substring. Fields are id, tag, title, day,
+since, before, kind, status, priority, scheduled, due, closed, collection, link,
+source, and body. Results are ordered by recency, not relevance.
 
 Examples:
   nt find kind:todo due:2026-06-30
@@ -188,7 +191,8 @@ List:
 Find:
   <word> #<tag> id:<prefix> tag:<tag> title:<term> body:<term>
   collection:<name> link:<id> source:<term> not:<expr>
-  Expressions are case-insensitive and AND-combined.
+  Expressions are AND-combined. Bare/title/body use whole Unicode tokens;
+  source remains a case-insensitive SQL substring.
 
 Update:
   single fields  kind status priority scheduled due; use - to clear

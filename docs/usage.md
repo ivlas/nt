@@ -56,12 +56,16 @@ per line, redirected `list` output is headerless and tab-separated, and `show`
 retrieves one exact body. Interactive `list` output includes aligned headers.
 Set-valued projections such as `tag` and `collection` remain one row per note
 and render their values comma-separated.
-Quoted multiword `body:` values match all terms, not an exact phrase. Body
-search reads the canonical text stored in SQLite.
+Bare, `title:`, and `body:` searches use whole Unicode tokens from the FTS5
+index. Punctuation separates terms, all terms are required in any order,
+Unicode case is folded, and `unicode61` removes supported Latin diacritics
+(`cafe` matches `café`). Shell quoting groups a multiword value but does not make
+it a phrase. Prefixes are not expanded, so `body:owner` does not match
+`ownership`. `source:` remains a case-insensitive SQL substring search.
 
 Candidate filtering and compact projection happen in SQLite. `find` retrieves
-only id, creation time, title, and tags for matching notes; body and relationship
-tables are consulted only for predicates that need them.
+only id, creation time, title, and tags for matching notes. Lexical predicates
+consult the derived index without loading note bodies into Rust.
 
 Normal shell composition remains available:
 

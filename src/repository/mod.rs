@@ -10,7 +10,7 @@ use crate::listing::{ListField, ListRow};
 use crate::note::new_id;
 use crate::query::{ListFilter, Query};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Clone, Debug)]
 pub struct NoteMeta {
@@ -689,10 +689,36 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
 
 fn configure_and_initialize(connection: &Connection) -> Result<()> {
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    let has_schema_version = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'schema_version'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if has_schema_version {
+        let version: Option<i64> = connection
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        if let Some(version) = version
+            && version != SCHEMA_VERSION
+        {
+            return Err(NtError::Message(format!(
+                "unsupported database schema version {version}"
+            )));
+        }
+    }
+
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
-         PRAGMA journal_mode = DELETE;
-         CREATE TABLE IF NOT EXISTS schema_version (
+         PRAGMA journal_mode = DELETE;",
+    )?;
+
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
              version INTEGER NOT NULL
          );
          CREATE TABLE IF NOT EXISTS vaults (
@@ -745,6 +771,38 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
              target_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
              PRIMARY KEY(note_id, target_id)
          );
+         CREATE TABLE IF NOT EXISTS note_search_rows (
+             search_id INTEGER PRIMARY KEY,
+             note_id TEXT NOT NULL UNIQUE REFERENCES notes(id) ON DELETE CASCADE
+         );
+         CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
+             title,
+             body,
+             content = '',
+             tokenize = 'unicode61 remove_diacritics 2'
+         );
+         CREATE TRIGGER IF NOT EXISTS notes_search_insert
+         AFTER INSERT ON notes BEGIN
+             INSERT INTO note_search_rows (note_id) VALUES (new.id);
+             INSERT INTO note_fts (rowid, title, body)
+             SELECT search_id, new.title, new.body
+             FROM note_search_rows WHERE note_id = new.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS notes_search_update
+         AFTER UPDATE OF title, body ON notes BEGIN
+             INSERT INTO note_fts (note_fts, rowid, title, body)
+             SELECT 'delete', search_id, old.title, old.body
+             FROM note_search_rows WHERE note_id = old.id;
+             INSERT INTO note_fts (rowid, title, body)
+             SELECT search_id, new.title, new.body
+             FROM note_search_rows WHERE note_id = new.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS notes_search_delete
+         BEFORE DELETE ON notes BEGIN
+             INSERT INTO note_fts (note_fts, rowid, title, body)
+             SELECT 'delete', search_id, old.title, old.body
+             FROM note_search_rows WHERE note_id = old.id;
+         END;
          CREATE INDEX IF NOT EXISTS notes_created ON notes(created DESC, id DESC);
          CREATE INDEX IF NOT EXISTS note_collections_collection ON note_collections(collection_id);
          CREATE INDEX IF NOT EXISTS note_tags_tag ON note_tags(tag);
@@ -763,11 +821,7 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
             )?;
         }
         Some(SCHEMA_VERSION) => {}
-        Some(version) => {
-            return Err(NtError::Message(format!(
-                "unsupported database schema version {version}"
-            )));
-        }
+        Some(_) => unreachable!("schema version checked before initialization"),
     }
     Ok(())
 }

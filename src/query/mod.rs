@@ -1,6 +1,4 @@
 use crate::error::{NtError, Result};
-#[cfg(test)]
-use crate::repository::NoteMeta;
 
 mod eval;
 mod parse;
@@ -102,17 +100,6 @@ impl Query {
         }
 
         Ok(parsed)
-    }
-
-    #[cfg(test)]
-    pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
-        for expr in &self.exprs {
-            if !expr.matches(note)? {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
     }
 
     pub(crate) fn sql(&self) -> SqlQuery {
@@ -248,7 +235,7 @@ impl QueryExpr {
                 );
                 parameters.push(value.clone());
             }
-            Self::Title(value) => push_contains_sql(sql, parameters, "n.title", value),
+            Self::Title(value) => push_fts_sql(sql, parameters, value, Some("title")),
             Self::Day(value) => {
                 sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) = ?");
                 parameters.push(value.clone());
@@ -311,59 +298,12 @@ impl QueryExpr {
                 push_contains_sql(sql, parameters, "filter_sources.source", value);
                 sql.push(')');
             }
-            Self::Body(value) => push_body_sql(sql, parameters, value),
+            Self::Body(value) => push_fts_sql(sql, parameters, value, Some("body")),
             Self::Not(expr) => {
                 sql.push_str("NOT (");
                 expr.push_sql(sql, parameters);
                 sql.push(')');
             }
-        }
-    }
-
-    #[cfg(test)]
-    fn matches(&self, note: &NoteMeta) -> Result<bool> {
-        match self {
-            Self::Bare(value) => {
-                if eval::matches_metadata(note, value) {
-                    Ok(true)
-                } else {
-                    eval::matches_body(note, value)
-                }
-            }
-            Self::Id(value) => Ok(parse::normalize(&note.id).starts_with(value)),
-            Self::Tag(value) => Ok(eval::contains_normalized(&note.tags, value)),
-            Self::Title(value) => Ok(parse::normalize(&note.title).contains(value)),
-            Self::Day(value) => Ok(note.created.get(0..10).is_some_and(|day| day == value)),
-            Self::Since(value) => Ok(note
-                .created
-                .get(0..10)
-                .is_some_and(|day| day >= value.as_str())),
-            Self::Before(value) => Ok(note
-                .created
-                .get(0..10)
-                .is_some_and(|day| day < value.as_str())),
-            Self::Kind(value) => Ok(parse::normalize(&note.kind) == *value),
-            Self::Status(value) => Ok(note
-                .status
-                .as_deref()
-                .is_some_and(|status| parse::normalize(status) == *value)),
-            Self::Priority(value) => Ok(note.priority.as_deref() == Some(value)),
-            Self::Scheduled(value) => Ok(note.scheduled.as_deref() == Some(value)),
-            Self::Due(value) => Ok(note.due.as_deref() == Some(value)),
-            Self::Closed(value) => {
-                Ok(note.closed.as_deref().and_then(|v| v.get(0..10)) == Some(value))
-            }
-            Self::Collection(value) => Ok(eval::contains_normalized(&note.collections, value)),
-            Self::Link(value) => Ok(note
-                .links
-                .iter()
-                .any(|link| parse::normalize(link) == *value)),
-            Self::Source(value) => Ok(note
-                .sources
-                .iter()
-                .any(|reference| parse::normalize(reference).contains(value))),
-            Self::Body(value) => eval::matches_body(note, value),
-            Self::Not(expr) => Ok(!expr.matches(note)?),
         }
     }
 }
@@ -372,7 +312,6 @@ fn push_bare_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str) {
     sql.push('(');
     for (index, column) in [
         "n.id",
-        "n.title",
         "n.kind",
         "n.status",
         "n.priority",
@@ -412,24 +351,31 @@ fn push_bare_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str) {
     );
     push_contains_sql(sql, parameters, "bare_v.name || '/' || bare_c.name", value);
     sql.push_str(") OR ");
-    push_body_sql(sql, parameters, value);
+    push_fts_sql(sql, parameters, value, None);
     sql.push(')');
 }
 
-fn push_body_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str) {
+fn push_fts_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str, column: Option<&str>) {
     let terms = eval::tokenize_text(value);
-    sql.push('(');
     if terms.is_empty() {
-        push_contains_sql(sql, parameters, "n.body", value);
-    } else {
-        for (index, term) in terms.iter().enumerate() {
-            if index > 0 {
-                sql.push_str(" AND ");
-            }
-            push_contains_sql(sql, parameters, "n.body", term);
-        }
+        sql.push('0');
+        return;
     }
-    sql.push(')');
+
+    sql.push_str(
+        "EXISTS (SELECT 1 FROM note_search_rows search_rows
+         JOIN note_fts ON note_fts.rowid = search_rows.search_id
+         WHERE search_rows.note_id = n.id AND note_fts MATCH ?)",
+    );
+    let terms = terms
+        .iter()
+        .map(|term| format!("\"{term}\""))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    parameters.push(match column {
+        Some(column) => format!("{column} : ({terms})"),
+        None => terms,
+    });
 }
 
 fn push_contains_sql(
@@ -458,22 +404,7 @@ fn push_case_sensitive_contains_sql(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use crate::repository::NoteMeta;
-
     use super::Query;
-
-    fn note(id: &str) -> NoteMeta {
-        NoteMeta::new_note(
-            id.to_string(),
-            "personal/inbox".to_string(),
-            "# Storage Decision\n\nMicroVM jailer notes.\n".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
-            "Storage Decision".to_string(),
-        )
-    }
 
     #[test]
     fn rejects_unknown_fields() {
@@ -528,7 +459,6 @@ mod tests {
         for value in [
             "018fbe0a",
             "bound-tag",
-            "bound-title",
             "2026-01-02",
             "2026-01-03",
             "2026-01-04",
@@ -549,169 +479,16 @@ mod tests {
                 compiled
                     .parameters
                     .iter()
-                    .any(|parameter| parameter == value)
+                    .any(|parameter| parameter.contains(value))
             );
         }
         assert!(compiled.parameters.iter().any(|parameter| parameter == "D"));
-    }
-
-    #[test]
-    fn matches_metadata_fields_with_and_semantics() {
-        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
-        note.kind = "todo".to_string();
-        note.status = Some("open".to_string());
-        note.collections = vec!["projects/nt".to_string()];
-        note.sources = vec!["https://example.com/spec".to_string()];
-
-        let query = Query::parse(&[
-            "kind:todo".to_string(),
-            "status:open".to_string(),
-            "collection:projects/nt".to_string(),
-            "source:example.com".to_string(),
-            "since:2026-05-01".to_string(),
-            "before:2026-06-01".to_string(),
-        ])
-        .unwrap();
-
-        assert!(query.matches(&note).unwrap());
-    }
-
-    #[test]
-    fn matches_link_direction() {
-        let mut from = note("018fbe0a-6c00-7000-8000-000000000001");
-        let to = note("018fbe0a-6c00-7000-8000-000000000002");
-        from.links = vec![to.id.clone()];
-
-        let link = Query::parse(&[format!("link:{}", to.id)]).unwrap();
-        assert!(link.matches(&from).unwrap());
-        assert!(!link.matches(&to).unwrap());
-    }
-
-    #[test]
-    fn negates_simple_expressions() {
-        let mut note = note("NT20260528T143012");
-        note.tags = vec!["draft".to_string()];
-
-        let query = Query::parse(&["not:tag:draft".to_string()]).unwrap();
-
-        assert!(!query.matches(&note).unwrap());
-    }
-
-    #[test]
-    fn matches_tag_shorthand_id_prefix_title_day_and_multiword_body() {
-        let dir = temp_dir("query-multiword-body");
-        let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Storage Decision\n\nMicroVM jailer notes.\n").unwrap();
-
-        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
-        note.body = fs::read_to_string(path).unwrap();
-        note.tags = vec!["QEMU".to_string()];
-
-        let query = Query::parse(&[
-            "#qemu".to_string(),
-            "id:018fbe0a".to_string(),
-            "title:storage".to_string(),
-            "day:2026-05-28".to_string(),
-            "body:microvm jailer".to_string(),
-        ])
-        .unwrap();
-
-        assert!(query.matches(&note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn multiword_body_values_match_all_terms_not_an_exact_phrase() {
-        let dir = temp_dir("query-body-terms");
-        let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Body\n\nThe jailer starts the microvm.\n").unwrap();
-
-        let mut note = note("NT20260528T143012");
-        note.body = fs::read_to_string(path).unwrap();
-
-        let all_terms = Query::parse(&["body:microvm jailer".to_string()]).unwrap();
-        assert!(all_terms.matches(&note).unwrap());
-
-        let missing_term = Query::parse(&["body:microvm jailer missing".to_string()]).unwrap();
-        assert!(!missing_term.matches(&note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn bare_words_fall_back_to_body_search() {
-        let dir = temp_dir("query-bare-body");
-        let path = dir.join("NT20260528T143012.md");
-        fs::write(
-            &path,
-            "# Storage Decision\n\nOnly the body has bodyonlyterm.\n",
-        )
-        .unwrap();
-
-        let mut note = note("NT20260528T143012");
-        note.body = fs::read_to_string(path).unwrap();
-
-        let query = Query::parse(&["bodyonlyterm".to_string()]).unwrap();
-
-        assert!(query.matches(&note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn body_search_reads_current_file_contents() {
-        let dir = temp_dir("query-fresh-body");
-        let path = dir.join("NT20260528T143012.md");
-        fs::write(&path, "# Body\n\nOld text.\n").unwrap();
-
-        let mut note = note("NT20260528T143012");
-        note.body = fs::read_to_string(&path).unwrap();
-
-        let query = Query::parse(&["body:fresh".to_string()]).unwrap();
-        assert!(!query.matches(&note).unwrap());
-
-        fs::write(&path, "# Body\n\nFresh text.\n").unwrap();
-        note.body = fs::read_to_string(&path).unwrap();
-        assert!(query.matches(&note).unwrap());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn body_search_handles_empty_stored_body() {
-        let note = note("NT20260528T143012");
-
-        let query = Query::parse(&["body:anything".to_string()]).unwrap();
-
-        let mut note = note;
-        note.body.clear();
-        assert!(!query.matches(&note).unwrap());
-    }
-
-    #[test]
-    fn date_filters_include_since_and_exclude_before() {
-        let note = note("NT20260528T143012");
-
-        let matching = Query::parse(&[
-            "since:2026-05-28".to_string(),
-            "before:2026-05-29".to_string(),
-        ])
-        .unwrap();
-        let too_late = Query::parse(&["before:2026-05-28".to_string()]).unwrap();
-
-        assert!(matching.matches(&note).unwrap());
-        assert!(!too_late.matches(&note).unwrap());
-    }
-
-    #[test]
-    fn date_filters_accept_valid_leap_days() {
-        let mut note = note("NT20240229T120000");
-        note.created = "2024-02-29T12:00:00Z".to_string();
-
-        let query = Query::parse(&["day:2024-02-29".to_string()]).unwrap();
-
-        assert!(query.matches(&note).unwrap());
+        assert!(
+            compiled
+                .parameters
+                .iter()
+                .any(|parameter| parameter == "title : (\"bound\" AND \"title\")")
+        );
     }
 
     #[test]
@@ -746,12 +523,5 @@ mod tests {
                 .to_string(),
             "invalid `link` note id `018fbe0a`; use a UUIDv7"
         );
-    }
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("nt-test-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
     }
 }

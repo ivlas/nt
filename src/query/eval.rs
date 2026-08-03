@@ -1,78 +1,14 @@
 use std::collections::BTreeSet;
 
-#[cfg(test)]
-use super::parse::normalize;
-#[cfg(test)]
-use crate::error::Result;
-#[cfg(test)]
-use crate::repository::NoteMeta;
-
-#[cfg(test)]
-pub(super) fn contains_normalized(values: &[String], needle: &str) -> bool {
-    values.iter().any(|value| normalize(value) == needle)
-}
-
-#[cfg(test)]
-pub(super) fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
-    note.id.to_ascii_lowercase().contains(needle)
-        || note.title.to_ascii_lowercase().contains(needle)
-        || note.kind.to_ascii_lowercase().contains(needle)
-        || note
-            .status
-            .as_deref()
-            .is_some_and(|status| status.to_ascii_lowercase().contains(needle))
-        || note
-            .priority
-            .as_deref()
-            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
-        || note
-            .scheduled
-            .as_deref()
-            .is_some_and(|value| value.contains(needle))
-        || note
-            .due
-            .as_deref()
-            .is_some_and(|value| value.contains(needle))
-        || note
-            .closed
-            .as_deref()
-            .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
-        || note
-            .tags
-            .iter()
-            .any(|tag| tag.to_ascii_lowercase().contains(needle))
-        || note
-            .collections
-            .iter()
-            .any(|collection| collection.to_ascii_lowercase().contains(needle))
-        || note
-            .links
-            .iter()
-            .any(|link| link.to_ascii_lowercase().contains(needle))
-        || note
-            .sources
-            .iter()
-            .any(|reference| reference.to_ascii_lowercase().contains(needle))
-}
-
-#[cfg(test)]
-pub(super) fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
-    let body = note.body.to_ascii_lowercase();
-    let terms = tokenize_text(needle);
-    if terms.is_empty() {
-        return Ok(body.contains(needle));
-    }
-
-    Ok(terms.iter().all(|term| body.contains(term)))
-}
-
 pub(super) fn tokenize_text(text: &str) -> BTreeSet<String> {
     let mut terms = BTreeSet::new();
     let mut term = String::new();
 
     for char in text.chars() {
         if char.is_alphanumeric() {
-            term.extend(char.to_lowercase());
+            term.push(char.to_ascii_lowercase());
+        } else if is_combining_mark(char) && !term.is_empty() {
+            term.push(char);
         } else if !term.is_empty() {
             terms.insert(std::mem::take(&mut term));
         }
@@ -83,6 +19,17 @@ pub(super) fn tokenize_text(text: &str) -> BTreeSet<String> {
     }
 
     terms
+}
+
+fn is_combining_mark(char: char) -> bool {
+    matches!(
+        char,
+        '\u{0300}'..='\u{036f}'
+            | '\u{1ab0}'..='\u{1aff}'
+            | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20ff}'
+            | '\u{fe20}'..='\u{fe2f}'
+    )
 }
 
 #[cfg(test)]
@@ -100,6 +47,10 @@ mod tests {
                 "qemu".to_string(),
                 "v1".to_string()
             ])
+        );
+        assert_eq!(
+            tokenize_text("RE\u{301}SUME\u{301}"),
+            BTreeSet::from(["re\u{301}sume\u{301}".to_string()])
         );
     }
 }

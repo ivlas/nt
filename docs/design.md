@@ -20,6 +20,7 @@ connection and mutations use transactions. The schema contains:
 - `notes`: UUIDv7 id, home collection, CommonMark body, scalar metadata
 - `note_collections`: many-to-many collection memberships
 - `note_tags`, `note_sources`, and `note_links`: note-associated values and links
+- `note_search_rows` and `note_fts`: derived title/body lexical index
 - `schema_version`: current schema-version gate
 
 A deferred composite foreign key requires every `notes.home_collection_id` pair
@@ -48,14 +49,16 @@ before deleting any note.
 retrieves one exact body. This staged interface lets agents bound context and
 avoid emitting every body. Exact-note commands use id-scoped repository reads.
 `list`, `find`, and `agenda` push their filters and compact projections into
-SQL. `find` selects only id, creation time, title, and output tags; bodies and
-other relationships are read by SQLite only when a predicate requires them.
-Query values remain bound parameters, and body matching uses ordinary SQL
-rather than a full-text index.
+SQL. `find` selects only id, creation time, title, and output tags; note bodies
+are never decoded into Rust during candidate retrieval. Structured predicates
+and source substrings use ordinary bound SQL. Bare, title, and body terms use a
+contentless FTS5 index maintained by SQLite triggers in the same transaction as
+note insertion, title/body editing, and deletion.
 
-Body search reads SQLite text and remains unranked, case-insensitive, and
-AND-combined. Quoted multiword `body:` values match all terms, not an exact
-phrase.
+Lexical search uses complete Unicode tokens with Unicode case folding,
+`unicode61` Latin-diacritic removal, AND-combined terms, and no prefix expansion.
+Quoted multiword values match all terms, not an exact phrase. Results remain
+unranked and ordered by note recency.
 
 There is no scoring, vector database, embeddings, semantic search, hidden
 retrieval, daemon, or RAG system. These are not required for the implemented
@@ -95,6 +98,10 @@ Long-term derived memory nodes and context-budget commands need a separate,
 explicit behavioral design before they become public schema or CLI surface.
 
 ## Development And Release
+
+Schema version 2 introduces the FTS5 index. There is no general migration
+framework yet; recreate version 1 development databases before running this
+version.
 
 Run before release:
 

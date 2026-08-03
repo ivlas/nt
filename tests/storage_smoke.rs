@@ -49,6 +49,18 @@ fn init_creates_logical_vault_and_inbox_in_one_database() {
         .unwrap();
     assert_uuid_v7(&collection_id);
     assert_eq!(collection_name, "inbox");
+    let schema_version: i64 = connection
+        .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version, 2);
+    let search_table: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name = 'note_fts'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(search_table.contains("fts5"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -82,6 +94,41 @@ fn init_refuses_to_modify_an_existing_unrelated_database() {
         .unwrap();
     assert_eq!(nt_tables, 0);
 
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn older_development_schema_requires_recreation_without_partial_upgrade() {
+    let root = temp_dir("old-schema-recreate");
+    let home = root.join("home");
+    let nt_home = home.join(".nt");
+    fs::create_dir_all(&nt_home).unwrap();
+    let database = nt_home.join("nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version VALUES (1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    assert_failed(
+        &home,
+        &["find", "body:anything"],
+        "",
+        "unsupported database schema version 1",
+    );
+
+    let connection = Connection::open(database).unwrap();
+    let fts_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'note_fts'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(fts_count, 0);
     let _ = fs::remove_dir_all(root);
 }
 
@@ -522,7 +569,219 @@ fn structured_find_does_not_materialize_bodies_or_unqueried_relationships() {
 }
 
 #[test]
-fn mixed_find_queries_preserve_and_text_matching_semantics() {
+fn fts_find_defines_lexical_semantics_and_preserves_recency_order() {
+    let root = temp_dir("find-fts-semantics");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let older = run_nt_with_stdin(
+        &home,
+        &["note", "tag:first", "tag:shared"],
+        "# Storage Decision\n\nThe MicroVM/jailer shares a lexical token.\n",
+    );
+    let older_id = older.trim().strip_prefix("saved ").unwrap().to_string();
+    let newer = run_nt_with_stdin(
+        &home,
+        &["note", "tag:second", "tag:shared"],
+        "# Storage Alternative\n\nA jailer starts another microvm token.\n",
+    );
+    let newer_id = newer.trim().strip_prefix("saved ").unwrap().to_string();
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    connection
+        .execute(
+            "UPDATE notes SET created = '2026-01-01T00:00:00Z' WHERE id = ?1",
+            [&older_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE notes SET created = '2026-01-02T00:00:00Z' WHERE id = ?1",
+            [&newer_id],
+        )
+        .unwrap();
+    assert_search_index_consistent(&connection);
+    drop(connection);
+
+    for expression in [
+        "body:microvm jailer",
+        "body:\"jailer microvm\"",
+        "body:MICROVM/jailer",
+    ] {
+        assert_eq!(
+            summary_ids(&run_nt(&home, &["find", expression])),
+            vec![newer_id.as_str(), older_id.as_str()]
+        );
+    }
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "title:storage decision"])),
+        vec![older_id.as_str()]
+    );
+    assert!(run_nt(&home, &["find", "title:microvm"]).is_empty());
+    assert!(run_nt(&home, &["find", "body:micro"]).is_empty());
+    assert!(run_nt(&home, &["find", "body:micro*"]).is_empty());
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "microvm"])),
+        vec![newer_id.as_str(), older_id.as_str()]
+    );
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "storage jailer"])),
+        vec![newer_id.as_str(), older_id.as_str()]
+    );
+    assert!(run_nt(&home, &["find", "not:body:microvm"]).is_empty());
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "not:body:absent"])),
+        vec![newer_id.as_str(), older_id.as_str()]
+    );
+    assert!(run_nt(&home, &["find", "body:microvm OR absent"]).is_empty());
+    assert!(run_nt(&home, &["find", "body:---"]).is_empty());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fts_index_tracks_insert_edit_and_delete_transactionally() {
+    let root = temp_dir("find-fts-lifecycle");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(
+        &home,
+        &["note"],
+        "# Legacy Heading\n\nAn obsoleteword remains here.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "title:legacy"])),
+        vec![id]
+    );
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:obsoleteword"])),
+        vec![id]
+    );
+    let database = home.join(".nt/nt.sqlite3");
+    let mut connection = Connection::open(&database).unwrap();
+    assert_search_index_consistent(&connection);
+    let transaction = connection.transaction().unwrap();
+    transaction
+        .execute(
+            "UPDATE notes SET title = 'Rolled Back', body = 'rollbackword' WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+    transaction.rollback().unwrap();
+    assert_search_index_consistent(&connection);
+    drop(connection);
+    assert!(run_nt(&home, &["find", "body:rollbackword"]).is_empty());
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:obsoleteword"])),
+        vec![id]
+    );
+
+    let editor = root.join("replace-editor.sh");
+    fs::write(
+        &editor,
+        "#!/bin/sh\nprintf '%s\\n' '# Fresh Heading' '' 'A replacementword lives here.' > \"$1\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(nt_bin())
+        .env("HOME", &home)
+        .env("EDITOR", &editor)
+        .args(["open", id])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "nt open failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(run_nt(&home, &["find", "title:legacy"]).is_empty());
+    assert!(run_nt(&home, &["find", "body:obsoleteword"]).is_empty());
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "title:fresh"])),
+        vec![id]
+    );
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", "body:replacementword"])),
+        vec![id]
+    );
+    let connection = Connection::open(&database).unwrap();
+    assert_search_index_consistent(&connection);
+    drop(connection);
+
+    run_nt(&home, &["rm", id]);
+    assert!(run_nt(&home, &["find", "replacementword"]).is_empty());
+    let connection = Connection::open(database).unwrap();
+    assert_search_index_consistent(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fts_search_normalizes_unicode_case_and_latin_diacritics() {
+    let root = temp_dir("find-fts-unicode");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(
+        &home,
+        &["note"],
+        "# Café Škoda \n\nA NAÏVE café visitor studies 東京 and re\u{301}sume\u{301}.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    for expression in ["title:CAFÉ", "title:škoda", "body:naïve", "body:東京"] {
+        assert_eq!(
+            summary_ids(&run_nt(&home, &["find", expression])),
+            vec![id],
+            "Unicode query failed for {expression:?}"
+        );
+    }
+    for expression in [
+        "body:cafe",
+        "body:naive",
+        "body:resume",
+        "body:re\u{301}sume\u{301}",
+    ] {
+        assert_eq!(
+            summary_ids(&run_nt(&home, &["find", expression])),
+            vec![id],
+            "diacritic-insensitive query failed for {expression:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fts_results_do_not_materialize_matching_bodies() {
+    let root = temp_dir("find-fts-body-projection");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(
+        &home,
+        &["note"],
+        "# Indexed body\n\nA uniquestaletoken is indexed.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER notes_search_update")
+        .unwrap();
+    connection
+        .execute("UPDATE notes SET body = x'80' WHERE id = ?1", [id])
+        .unwrap();
+    drop(connection);
+
+    assert_eq!(
+        summary_ids(&run_nt(
+            &home,
+            &["find", "kind:note", "body:uniquestaletoken"]
+        )),
+        vec![id]
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn fts_find_combines_structured_and_text_filters() {
     let root = temp_dir("find-mixed-query");
     let home = root.join("home");
     run_nt(&home, &["init", "personal"]);
@@ -885,6 +1144,37 @@ fn assert_foreign_keys(connection: &Connection) {
         })
         .unwrap();
     assert_eq!(count, 0);
+}
+
+fn assert_search_index_consistent(connection: &Connection) {
+    let note_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
+        .unwrap();
+    let search_row_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM note_search_rows", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let fts_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM note_fts", [], |row| row.get(0))
+        .unwrap();
+    let orphan_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM note_fts
+             LEFT JOIN note_search_rows ON note_search_rows.search_id = note_fts.rowid
+             WHERE note_search_rows.search_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!((search_row_count, fts_count), (note_count, note_count));
+    assert_eq!(orphan_count, 0);
+    connection
+        .execute(
+            "INSERT INTO note_fts(note_fts) VALUES('integrity-check')",
+            [],
+        )
+        .unwrap();
 }
 
 fn assert_uuid_v7(value: &str) {

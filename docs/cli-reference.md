@@ -83,8 +83,7 @@ tab-separated rows, one per note. Set-valued fields are comma-separated. `list`
 accepts AND-combined structured metadata filters only; bare words and `title:`,
 `source:`, and `body:` filters require `find`.
 
-`find` field names are lowercase. Matching values are case-insensitive and
-expressions are AND-combined:
+`find` field names are lowercase and expressions are AND-combined:
 
 ```text
 <word> #<tag> id:<prefix> tag:<tag> title:<term>
@@ -93,9 +92,23 @@ priority:<priority> scheduled:<date> due:<date> closed:<date>
 collection:<vault>/<collection> link:<id> source:<term> body:<term> not:<expr>
 ```
 
-Body search reads body text from SQLite. Quoted multiword `body:` values match
-all terms, not an exact phrase. Retrieval is deterministic and unranked; there
-is no scoring, fuzzy search, embeddings, or semantic search.
+Bare, `title:`, and `body:` values use the FTS5 `unicode61` tokenizer. `nt`
+splits each value into unique Unicode letter-or-digit runs; punctuation,
+including quotes, hyphens, slashes, and `*`, separates terms. Every term must
+match a complete token, but terms may occur in any order. Shell-quoted
+multiword values are therefore AND searches, not phrase searches. Bare terms
+may match across title and body. Unicode case is folded and diacritics are
+removed from Latin characters where supported by `unicode61`, so `cafe` matches
+`café`. Prefix matching is not enabled: `stor` and `stor*` do not match
+`storage`. A `title:` or `body:` value containing only punctuation matches
+nothing.
+
+Bare values also retain ASCII case-insensitive literal substring matching over
+non-text metadata, including sources. `source:` remains an ordinary SQL
+substring predicate rather than an FTS field. Structured metadata filters use
+ordinary SQL predicates and their existing ASCII normalization. Retrieval is
+deterministic, ordered by creation time and id rather than relevance, and
+unranked; there is no scoring, fuzzy search, embeddings, or semantic search.
 
 ## Show And Open
 
