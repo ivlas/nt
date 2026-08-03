@@ -47,9 +47,10 @@ any vault. The home is always also a membership. For capture:
 - With exactly one vault and no collection metadata, `<vault>/inbox` is home.
 - With multiple vaults, capture requires an explicit home or collection.
 
-Unknown collections are created when their vault exists. Unknown vaults are
-errors. Move home with `nt update <id> home <vault>/<collection>`. The old home
-remains a reference until removed with a collection update.
+Capture, home movement, and `collection +...` create an unknown collection when
+its vault exists. Reads never create collections, and unknown vaults are errors.
+Move home with `nt update <id> home <vault>/<collection>`. The old home remains a
+reference until removed with a collection update.
 
 ## Capture
 
@@ -80,14 +81,17 @@ nt list titles
 nt list tags [tag]
 nt list collections [collection]
 nt list sources [source]
-nt list links [filter...]
+nt list links [from:<id>] [to:<id>] [filter...]
 ```
 
 Fields are `id`, `home`, `created`, `updated`, `title`, `kind`, `status`,
 `priority`, `scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and
-`source`. Redirected projections are headerless tab-separated rows.
+`source`. Redirected projections are headerless tab-separated rows. `list`
+accepts structured metadata filters only; bare words and `title:`, `source:`,
+and `body:` filters require `find`.
 
-`find` expressions are case-insensitive and AND-combined:
+`find` field names are lowercase. Matching values are case-insensitive and
+expressions are AND-combined:
 
 ```text
 <word> #<tag> id:<prefix> tag:<tag> title:<term>
@@ -105,14 +109,17 @@ is no scoring, fuzzy search, embeddings, or semantic search.
 `show` prints id, title, home, timestamps, kind-specific metadata, then the exact
 body. Note output omits the todo-only `status`, `priority`, `scheduled`, `due`,
 and `closed` fields. `open` copies the body to a temporary file for `$EDITOR`,
-validates it, detects a concurrent update by timestamp, and commits the body and
-derived title back to SQLite.
+without holding a database transaction open. Saving atomically requires the
+original update timestamp and body; otherwise `open` reports that the note
+changed during editing. The body, derived title, timestamp, and body-derived
+sources are committed in one transaction.
 
 ## Update
 
-Single fields `kind`, `status`, `priority`, `scheduled`, and `due` take a value;
-use `-` to clear. `home` takes a qualified collection. Set fields `tag`,
-`collection`, `link`, and `source` require `+value` or `-value`.
+`kind` takes `note` or `todo`; `kind -` resets it to `note`. `status`,
+`priority`, `scheduled`, and `due` use `-` to clear. `home` takes a qualified
+collection. Set fields `tag`, `collection`, `link`, and `source` require
+`+value` or `-value`.
 
 ```sh
 nt update <id> home work/project_a
@@ -126,11 +133,16 @@ the `closed` timestamp.
 ## Agenda, Remove, And Export
 
 `agenda` includes open and waiting todos and supports `today`, `week`, `overdue`,
-`waiting`, and `undated`. `rm` validates all ids and removes notes and dependent
-relationships transactionally.
+`waiting`, and `undated`. `rm` rejects duplicate ids and verifies that every
+requested note exists inside one transaction before deleting anything. A
+missing id leaves every note unchanged. Cascades remove memberships, tags,
+sources, and incoming and outgoing links.
 
 `export <path> [id...]` writes portable `<id>.md` snapshots with generated front
-matter. Exported Markdown is not canonical storage.
+matter. `<path>` is a directory and is created if necessary. Omitting ids
+exports all notes; explicit ids are validated and deduplicated before any
+snapshot is written. Each file is atomically replaced, but a multi-file export
+is not transactional. Exported Markdown is not canonical storage.
 
 ## Config
 
@@ -139,7 +151,8 @@ name rows. There is no command to select a vault.
 
 ## Operation
 
-SQLite transactions provide atomic mutations and foreign-key consistency.
-The CLI supports one user-directed writer at a time; SQLite serializes writes,
-and commands use a busy timeout. Agents use the same visible interface and
-should obtain user approval before mutations.
+SQLite transactions provide atomic database mutations and foreign-key
+consistency. There is no application-level writer lock: SQLite serializes
+writes, and commands use a five-second busy timeout. One user-directed writer at
+a time remains the recommended workflow. Agents use the same visible interface
+and should obtain user approval before mutations.

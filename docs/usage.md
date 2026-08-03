@@ -39,7 +39,7 @@ references, including collections owned by other vaults.
 
 ## Find And Read
 
-Use cheap projections before loading full bodies into an agent context:
+Use compact projections before loading full bodies into an agent context:
 
 ```sh
 nt list id,title,home
@@ -51,10 +51,15 @@ nt find body:'ownership borrow'
 nt show <id>
 ```
 
-This supports bounded context construction: list and find return compact,
-deterministic one-record-per-line candidates, while show retrieves one exact
-body. Quoted multiword `body:` values match all terms, not an exact phrase.
-Body search reads the canonical text stored in SQLite.
+This supports bounded context construction: `find` returns one compact summary
+per line, redirected `list` output is headerless and tab-separated, and `show`
+retrieves one exact body. Interactive `list` output includes aligned headers.
+Quoted multiword `body:` values match all terms, not an exact phrase. Body
+search reads the canonical text stored in SQLite.
+
+Candidate filtering and projection currently happen in Rust after a consistent
+SQLite read. Compact output bounds agent context; SQL filter and projection
+pushdown is future work.
 
 Normal shell composition remains available:
 
@@ -93,8 +98,12 @@ nt export archive <id>
 ```
 
 `open` uses a temporary Markdown file only as the `$EDITOR` interface; the
-committed body lives in SQLite. `rm` removes dependent memberships and links in
-one transaction. `export` creates portable Markdown snapshots.
+committed body lives in SQLite. It does not hold a transaction while the editor
+runs and rejects a save if the stored timestamp or body changed. `rm` validates
+all requested ids before deleting and removes dependent memberships, tags,
+sources, and links in one transaction. `export` creates portable Markdown
+snapshots; each file is replaced atomically, but a multi-file export is not one
+transaction.
 
 ## User-Directed Agent Use
 
