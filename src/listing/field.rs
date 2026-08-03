@@ -41,8 +41,7 @@ pub(super) const DEFAULT_FIELDS: &[ListField] = &[
     ListField::Id,
     ListField::Title,
     ListField::Kind,
-    ListField::Status,
-    ListField::Due,
+    ListField::Collection,
     ListField::Tag,
 ];
 

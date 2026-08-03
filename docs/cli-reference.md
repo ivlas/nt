@@ -78,7 +78,8 @@ nt list <field>[,<field>...] [filter...]
 
 Fields are `id`, `home`, `created`, `updated`, `title`, `kind`, `status`,
 `priority`, `scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and
-`source`; `all` selects every field. Redirected projections are headerless
+`source`; plain `nt list` selects `id,title,kind,collection,tag`, and `all`
+selects every field. Redirected projections are headerless
 tab-separated rows, one per note. Set-valued fields are comma-separated. `list`
 accepts AND-combined structured metadata filters only; bare words and `title:`,
 `source:`, and `body:` filters require `find`.

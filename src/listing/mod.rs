@@ -82,8 +82,7 @@ mod tests {
                 ListField::Id,
                 ListField::Title,
                 ListField::Kind,
-                ListField::Status,
-                ListField::Due,
+                ListField::Collection,
                 ListField::Tag,
             ]
         );
@@ -95,8 +94,7 @@ mod tests {
                 ListField::Id,
                 ListField::Title,
                 ListField::Kind,
-                ListField::Status,
-                ListField::Due,
+                ListField::Collection,
                 ListField::Tag,
             ]
         );
