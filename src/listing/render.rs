@@ -1,28 +1,17 @@
-use crate::repository::NoteMeta;
+use super::{ListField, ListRow};
 
-use super::field::ListField;
-
-pub fn render_row(note: &NoteMeta, fields: &[ListField]) -> String {
-    fields
-        .iter()
-        .map(|field| field.render(note))
-        .collect::<Vec<_>>()
-        .join("\t")
+pub fn render_row(row: &ListRow) -> String {
+    row.values.join("\t")
 }
 
-pub fn render_table(notes: &[&NoteMeta], fields: &[ListField]) -> Vec<String> {
+pub fn render_table(rows: &[ListRow], fields: &[ListField]) -> Vec<String> {
     let headers = fields
         .iter()
         .map(|field| field.name().to_ascii_uppercase())
         .collect::<Vec<_>>();
-    let rows = notes
+    let rows = rows
         .iter()
-        .map(|note| {
-            fields
-                .iter()
-                .map(|field| field.render(note))
-                .collect::<Vec<_>>()
-        })
+        .map(|row| row.values.clone())
         .collect::<Vec<_>>();
     render_columns(headers, rows)
 }
@@ -65,33 +54,28 @@ fn format_columns(values: impl Iterator<Item = String>, widths: &[usize]) -> Str
 
 #[cfg(test)]
 mod tests {
-    use crate::repository::NoteMeta;
-
     use super::render_table;
-    use crate::listing::ListField;
+    use crate::listing::{ListField, ListRow};
 
     #[test]
     fn table_has_headers_and_aligned_columns() {
-        let mut short = NoteMeta::new_note(
-            "018fbe0a-6c00-7000-8000-000000000001".to_string(),
-            "personal/inbox".to_string(),
-            "# Short\n".to_string(),
-            "2026-06-21T10:00:00Z".to_string(),
-            "2026-06-21T10:00:00Z".to_string(),
-            "Short".to_string(),
-        );
-        short.status = Some("open".to_string());
-        let long = NoteMeta::new_note(
-            "018fbe0a-6c00-7000-8000-000000000002".to_string(),
-            "personal/inbox".to_string(),
-            "# Long\n".to_string(),
-            "2026-06-21T11:00:00Z".to_string(),
-            "2026-06-21T11:00:00Z".to_string(),
-            "A much longer title".to_string(),
-        );
+        let short = ListRow {
+            values: vec![
+                "018fbe0a-6c00-7000-8000-000000000001".to_string(),
+                "Short".to_string(),
+                "open".to_string(),
+            ],
+        };
+        let long = ListRow {
+            values: vec![
+                "018fbe0a-6c00-7000-8000-000000000002".to_string(),
+                "A much longer title".to_string(),
+                "-".to_string(),
+            ],
+        };
 
         let lines = render_table(
-            &[&short, &long],
+            &[short, long],
             &[ListField::Id, ListField::Title, ListField::Status],
         );
 

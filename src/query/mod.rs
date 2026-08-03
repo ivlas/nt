@@ -11,6 +11,24 @@ pub struct Query {
 }
 
 #[derive(Debug)]
+pub(crate) enum ListFilter {
+    Id(String),
+    Tag(String),
+    Day(String),
+    Since(String),
+    Before(String),
+    Kind(String),
+    Status(String),
+    Priority(String),
+    Scheduled(String),
+    Due(String),
+    Closed(String),
+    Collection(String),
+    Link(String),
+    Not(Box<ListFilter>),
+}
+
+#[derive(Debug)]
 enum QueryExpr {
     Bare(String),
     Id(String),
@@ -65,7 +83,7 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub fn parse_list(exprs: &[String]) -> Result<Self> {
+    pub(crate) fn parse_list_filters(exprs: &[String]) -> Result<Vec<ListFilter>> {
         let mut parsed = Vec::new();
         for expr in exprs {
             let parsed_expr = QueryExpr::parse(expr)?;
@@ -74,10 +92,10 @@ impl Query {
                     "search expression `{expr}` is not supported by `nt list`; use `nt find`"
                 )));
             }
-            parsed.push(parsed_expr);
+            parsed.push(parsed_expr.into_list_filter());
         }
 
-        Ok(Self { exprs: parsed })
+        Ok(parsed)
     }
 
     pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
@@ -172,6 +190,28 @@ impl QueryExpr {
         }
     }
 
+    fn into_list_filter(self) -> ListFilter {
+        match self {
+            Self::Id(value) => ListFilter::Id(value),
+            Self::Tag(value) => ListFilter::Tag(value),
+            Self::Day(value) => ListFilter::Day(value),
+            Self::Since(value) => ListFilter::Since(value),
+            Self::Before(value) => ListFilter::Before(value),
+            Self::Kind(value) => ListFilter::Kind(value),
+            Self::Status(value) => ListFilter::Status(value),
+            Self::Priority(value) => ListFilter::Priority(value),
+            Self::Scheduled(value) => ListFilter::Scheduled(value),
+            Self::Due(value) => ListFilter::Due(value),
+            Self::Closed(value) => ListFilter::Closed(value),
+            Self::Collection(value) => ListFilter::Collection(value),
+            Self::Link(value) => ListFilter::Link(value),
+            Self::Not(expr) => ListFilter::Not(Box::new(expr.into_list_filter())),
+            Self::Bare(_) | Self::Title(_) | Self::Source(_) | Self::Body(_) => {
+                unreachable!("unstructured list filter")
+            }
+        }
+    }
+
     fn matches(&self, note: &NoteMeta) -> Result<bool> {
         match self {
             Self::Bare(value) => {
@@ -249,11 +289,12 @@ mod tests {
 
     #[test]
     fn list_queries_accept_only_structured_filters() {
-        Query::parse_list(&["status:open".to_string(), "not:tag:draft".to_string()]).unwrap();
-        Query::parse_list(&[]).unwrap();
+        Query::parse_list_filters(&["status:open".to_string(), "not:tag:draft".to_string()])
+            .unwrap();
+        Query::parse_list_filters(&[]).unwrap();
 
         for expression in ["storage", "title:storage", "source:example", "body:storage"] {
-            let error = Query::parse_list(&[expression.to_string()]).unwrap_err();
+            let error = Query::parse_list_filters(&[expression.to_string()]).unwrap_err();
             assert!(error.to_string().contains("use `nt find`"));
         }
     }

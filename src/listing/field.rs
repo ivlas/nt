@@ -1,6 +1,4 @@
-use crate::display::joined_or_dash;
 use crate::error::{NtError, Result};
-use crate::repository::NoteMeta;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ListField {
@@ -88,26 +86,6 @@ impl ListField {
         }
     }
 
-    pub(super) fn render(self, note: &NoteMeta) -> String {
-        match self {
-            Self::Id => note.id.clone(),
-            Self::Home => note.home_collection.clone(),
-            Self::Created => note.created.clone(),
-            Self::Updated => note.updated.clone(),
-            Self::Title => note.title.clone(),
-            Self::Kind => note.kind.clone(),
-            Self::Status => optional(&note.status),
-            Self::Priority => optional(&note.priority),
-            Self::Scheduled => optional(&note.scheduled),
-            Self::Due => optional(&note.due),
-            Self::Closed => optional(&note.closed),
-            Self::Tag => joined_or_dash(&note.tags),
-            Self::Collection => joined_or_dash(&note.collections),
-            Self::Link => joined_or_dash(&note.links),
-            Self::Source => joined_or_dash(&note.sources),
-        }
-    }
-
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Id => "id",
@@ -127,8 +105,4 @@ impl ListField {
             Self::Source => "source",
         }
     }
-}
-
-fn optional(value: &Option<String>) -> String {
-    value.clone().unwrap_or_else(|| "-".to_string())
 }

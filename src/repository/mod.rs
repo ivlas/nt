@@ -6,7 +6,9 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
+use crate::listing::{ListField, ListRow};
 use crate::note::new_id;
+use crate::query::ListFilter;
 
 const SCHEMA_VERSION: i64 = 1;
 
@@ -261,6 +263,36 @@ impl Repository {
         Ok(notes)
     }
 
+    pub fn list_rows(&self, fields: &[ListField], filters: &[ListFilter]) -> Result<Vec<ListRow>> {
+        let projection = fields
+            .iter()
+            .map(|field| list_field_sql(*field))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!("SELECT {projection} FROM notes n");
+        let mut parameters = Vec::new();
+        if !filters.is_empty() {
+            sql.push_str(" WHERE ");
+            for (index, filter) in filters.iter().enumerate() {
+                if index > 0 {
+                    sql.push_str(" AND ");
+                }
+                push_list_filter_sql(&mut sql, &mut parameters, filter);
+            }
+        }
+        sql.push_str(" ORDER BY n.created DESC, n.id DESC");
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(rusqlite::params_from_iter(parameters.iter()), |row| {
+            let values = (0..fields.len())
+                .map(|column| row.get(column))
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(ListRow { values })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     pub fn agenda_notes(&self, through: &str) -> Result<Vec<AgendaNote>> {
         let mut statement = self.connection.prepare(
             "SELECT id, priority, scheduled, due, created, title
@@ -485,6 +517,126 @@ fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+fn list_field_sql(field: ListField) -> &'static str {
+    match field {
+        ListField::Id => "n.id",
+        ListField::Home => {
+            "(SELECT v.name || '/' || c.name
+              FROM collections c JOIN vaults v ON v.id = c.vault_id
+              WHERE c.id = n.home_collection_id)"
+        }
+        ListField::Created => "n.created",
+        ListField::Updated => "n.updated",
+        ListField::Title => "n.title",
+        ListField::Kind => "n.kind",
+        ListField::Status => "COALESCE(n.status, '-')",
+        ListField::Priority => "COALESCE(n.priority, '-')",
+        ListField::Scheduled => "COALESCE(n.scheduled, '-')",
+        ListField::Due => "COALESCE(n.due, '-')",
+        ListField::Closed => "COALESCE(n.closed, '-')",
+        ListField::Tag => {
+            "COALESCE((SELECT group_concat(value, ',') FROM (
+                 SELECT tag AS value FROM note_tags
+                 WHERE note_id = n.id ORDER BY tag
+             )), '-')"
+        }
+        ListField::Collection => {
+            "COALESCE((SELECT group_concat(value, ',') FROM (
+                 SELECT v.name || '/' || c.name AS value
+                 FROM note_collections nc
+                 JOIN collections c ON c.id = nc.collection_id
+                 JOIN vaults v ON v.id = c.vault_id
+                 WHERE nc.note_id = n.id ORDER BY v.name, c.name
+             )), '-')"
+        }
+        ListField::Link => {
+            "COALESCE((SELECT group_concat(value, ',') FROM (
+                 SELECT target_id AS value FROM note_links
+                 WHERE note_id = n.id ORDER BY target_id
+             )), '-')"
+        }
+        ListField::Source => {
+            "COALESCE((SELECT group_concat(value, ',') FROM (
+                 SELECT source AS value FROM note_sources
+                 WHERE note_id = n.id ORDER BY source
+             )), '-')"
+        }
+    }
+}
+
+fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: &ListFilter) {
+    match filter {
+        ListFilter::Id(value) => {
+            sql.push_str("LOWER(n.id) LIKE ?");
+            parameters.push(format!("{value}%"));
+        }
+        ListFilter::Tag(value) => {
+            sql.push_str(
+                "EXISTS (SELECT 1 FROM note_tags nt
+                 WHERE nt.note_id = n.id AND LOWER(nt.tag) = ?)",
+            );
+            parameters.push(value.clone());
+        }
+        ListFilter::Day(value) => {
+            sql.push_str("substr(n.created, 1, 10) = ?");
+            parameters.push(value.clone());
+        }
+        ListFilter::Since(value) => {
+            sql.push_str("substr(n.created, 1, 10) >= ?");
+            parameters.push(value.clone());
+        }
+        ListFilter::Before(value) => {
+            sql.push_str("substr(n.created, 1, 10) < ?");
+            parameters.push(value.clone());
+        }
+        ListFilter::Kind(value) => {
+            sql.push_str("LOWER(n.kind) = ?");
+            parameters.push(value.clone());
+        }
+        ListFilter::Status(value) => {
+            sql.push_str("COALESCE(LOWER(n.status) = ?, 0)");
+            parameters.push(value.clone());
+        }
+        ListFilter::Priority(value) => {
+            sql.push_str("COALESCE(n.priority = ?, 0)");
+            parameters.push(value.clone());
+        }
+        ListFilter::Scheduled(value) => {
+            sql.push_str("COALESCE(n.scheduled = ?, 0)");
+            parameters.push(value.clone());
+        }
+        ListFilter::Due(value) => {
+            sql.push_str("COALESCE(n.due = ?, 0)");
+            parameters.push(value.clone());
+        }
+        ListFilter::Closed(value) => {
+            sql.push_str("COALESCE(substr(n.closed, 1, 10) = ?, 0)");
+            parameters.push(value.clone());
+        }
+        ListFilter::Collection(value) => {
+            sql.push_str(
+                "EXISTS (SELECT 1 FROM note_collections nc
+                 JOIN collections c ON c.id = nc.collection_id
+                 JOIN vaults v ON v.id = c.vault_id
+                 WHERE nc.note_id = n.id AND LOWER(v.name || '/' || c.name) = ?)",
+            );
+            parameters.push(value.clone());
+        }
+        ListFilter::Link(value) => {
+            sql.push_str(
+                "EXISTS (SELECT 1 FROM note_links nl
+                 WHERE nl.note_id = n.id AND LOWER(nl.target_id) = ?)",
+            );
+            parameters.push(value.clone());
+        }
+        ListFilter::Not(filter) => {
+            sql.push_str("NOT (");
+            push_list_filter_sql(sql, parameters, filter);
+            sql.push(')');
+        }
+    }
 }
 
 fn configure_and_initialize(connection: &Connection) -> Result<()> {

@@ -1,5 +1,5 @@
 use crate::error::{NtError, Result};
-use crate::query::Query;
+use crate::query::{ListFilter, Query};
 
 mod field;
 mod render;
@@ -8,9 +8,14 @@ pub use field::ListField;
 pub use render::{render_row, render_table};
 
 #[derive(Debug)]
+pub struct ListRow {
+    pub values: Vec<String>,
+}
+
+#[derive(Debug)]
 pub struct ListRequest {
     pub fields: Vec<ListField>,
-    pub query: Query,
+    pub filters: Vec<ListFilter>,
 }
 
 impl ListRequest {
@@ -42,7 +47,7 @@ impl ListRequest {
     fn notes(fields: Vec<ListField>, filters: &[String]) -> Result<Self> {
         Ok(Self {
             fields,
-            query: Query::parse_list(filters)?,
+            filters: Query::parse_list_filters(filters)?,
         })
     }
 }
