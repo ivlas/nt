@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command as ProcessCommand;
 
-use crate::display::{joined_or_dash, summary_line};
+use crate::display::{find_summary_line, joined_or_dash};
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
 use crate::note::{title_from_body, validate_id};
@@ -128,10 +128,8 @@ pub(super) fn find(exprs: &[String]) -> Result<()> {
     let query = Query::parse(exprs)?;
     let repository = Repository::open()?;
 
-    for note in repository.list_notes()? {
-        if query.matches(&note)? {
-            println!("{}", summary_line(&note));
-        }
+    for note in repository.find_rows(&query)? {
+        println!("{}", find_summary_line(&note));
     }
 
     Ok(())

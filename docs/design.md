@@ -47,10 +47,11 @@ before deleting any note.
 `list` produces compact metadata projections; `find` narrows candidates; `show`
 retrieves one exact body. This staged interface lets agents bound context and
 avoid emitting every body. Exact-note commands use id-scoped repository reads.
-`list`, `find`, and `agenda` currently materialize note candidates and their
-relationships in one read transaction, then filter and project in Rust. Their
-compact output bounds stdout and agent context, not database reads. SQL filter
-and projection pushdown remains future work.
+`list`, `find`, and `agenda` push their filters and compact projections into
+SQL. `find` selects only id, creation time, title, and output tags; bodies and
+other relationships are read by SQLite only when a predicate requires them.
+Query values remain bound parameters, and body matching uses ordinary SQL
+rather than a full-text index.
 
 Body search reads SQLite text and remains unranked, case-insensitive, and
 AND-combined. Quoted multiword `body:` values match all terms, not an exact

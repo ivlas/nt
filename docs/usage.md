@@ -59,9 +59,9 @@ and render their values comma-separated.
 Quoted multiword `body:` values match all terms, not an exact phrase. Body
 search reads the canonical text stored in SQLite.
 
-Candidate filtering and projection currently happen in Rust after a consistent
-SQLite read. Compact output bounds agent context; SQL filter and projection
-pushdown is future work.
+Candidate filtering and compact projection happen in SQLite. `find` retrieves
+only id, creation time, title, and tags for matching notes; body and relationship
+tables are consulted only for predicates that need them.
 
 Normal shell composition remains available:
 

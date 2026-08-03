@@ -8,7 +8,7 @@ use crate::error::{NtError, Result};
 use crate::fs::database_path;
 use crate::listing::{ListField, ListRow};
 use crate::note::new_id;
-use crate::query::ListFilter;
+use crate::query::{ListFilter, Query};
 
 const SCHEMA_VERSION: i64 = 1;
 
@@ -40,6 +40,14 @@ pub struct AgendaNote {
     pub due: Option<String>,
     pub created: String,
     pub title: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct FindRow {
+    pub id: String,
+    pub created: String,
+    pub title: String,
+    pub tags: Vec<String>,
 }
 
 impl NoteMeta {
@@ -291,6 +299,46 @@ impl Repository {
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    pub fn find_rows(&self, query: &Query) -> Result<Vec<FindRow>> {
+        let query = query.sql();
+        let mut sql = String::from(
+            "SELECT n.id, n.created, n.title, output_tags.tag
+             FROM notes n
+             LEFT JOIN note_tags output_tags ON output_tags.note_id = n.id
+             WHERE ",
+        );
+        sql.push_str(&query.predicate);
+        sql.push_str(" ORDER BY n.created DESC, n.id DESC, output_tags.tag");
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows =
+            statement.query_map(rusqlite::params_from_iter(query.parameters.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+        let mut found: Vec<FindRow> = Vec::new();
+        for row in rows {
+            let (id, created, title, tag) = row?;
+            if let Some(current) = found.last_mut().filter(|current| current.id == id) {
+                if let Some(tag) = tag {
+                    current.tags.push(tag);
+                }
+            } else {
+                found.push(FindRow {
+                    id,
+                    created,
+                    title,
+                    tags: tag.into_iter().collect(),
+                });
+            }
+        }
+        Ok(found)
     }
 
     pub fn agenda_notes(&self, through: &str) -> Result<Vec<AgendaNote>> {

@@ -1,4 +1,5 @@
 use crate::error::{NtError, Result};
+#[cfg(test)]
 use crate::repository::NoteMeta;
 
 mod eval;
@@ -8,6 +9,11 @@ mod suggest;
 #[derive(Debug)]
 pub struct Query {
     exprs: Vec<QueryExpr>,
+}
+
+pub(crate) struct SqlQuery {
+    pub predicate: String,
+    pub parameters: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -98,6 +104,7 @@ impl Query {
         Ok(parsed)
     }
 
+    #[cfg(test)]
     pub fn matches(&self, note: &NoteMeta) -> Result<bool> {
         for expr in &self.exprs {
             if !expr.matches(note)? {
@@ -106,6 +113,21 @@ impl Query {
         }
 
         Ok(true)
+    }
+
+    pub(crate) fn sql(&self) -> SqlQuery {
+        let mut predicate = String::new();
+        let mut parameters = Vec::new();
+        for (index, expr) in self.exprs.iter().enumerate() {
+            if index > 0 {
+                predicate.push_str(" AND ");
+            }
+            expr.push_sql(&mut predicate, &mut parameters);
+        }
+        SqlQuery {
+            predicate,
+            parameters,
+        }
     }
 }
 
@@ -212,6 +234,93 @@ impl QueryExpr {
         }
     }
 
+    fn push_sql(&self, sql: &mut String, parameters: &mut Vec<String>) {
+        match self {
+            Self::Bare(value) => push_bare_sql(sql, parameters, value),
+            Self::Id(value) => {
+                sql.push_str("instr(lower(n.id), ?) = 1");
+                parameters.push(value.clone());
+            }
+            Self::Tag(value) => {
+                sql.push_str(
+                    "EXISTS (SELECT 1 FROM note_tags filter_tags
+                     WHERE filter_tags.note_id = n.id AND lower(filter_tags.tag) = ?)",
+                );
+                parameters.push(value.clone());
+            }
+            Self::Title(value) => push_contains_sql(sql, parameters, "n.title", value),
+            Self::Day(value) => {
+                sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) = ?");
+                parameters.push(value.clone());
+            }
+            Self::Since(value) => {
+                sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) >= ?");
+                parameters.push(value.clone());
+            }
+            Self::Before(value) => {
+                sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) < ?");
+                parameters.push(value.clone());
+            }
+            Self::Kind(value) => {
+                sql.push_str("lower(n.kind) = ?");
+                parameters.push(value.clone());
+            }
+            Self::Status(value) => {
+                sql.push_str("coalesce(lower(n.status) = ?, 0)");
+                parameters.push(value.clone());
+            }
+            Self::Priority(value) => {
+                sql.push_str("coalesce(n.priority = ?, 0)");
+                parameters.push(value.clone());
+            }
+            Self::Scheduled(value) => {
+                sql.push_str("coalesce(n.scheduled = ?, 0)");
+                parameters.push(value.clone());
+            }
+            Self::Due(value) => {
+                sql.push_str("coalesce(n.due = ?, 0)");
+                parameters.push(value.clone());
+            }
+            Self::Closed(value) => {
+                sql.push_str("coalesce(substr(n.closed, 1, 10) = ?, 0)");
+                parameters.push(value.clone());
+            }
+            Self::Collection(value) => {
+                sql.push_str(
+                    "EXISTS (SELECT 1 FROM note_collections filter_nc
+                     JOIN collections filter_c ON filter_c.id = filter_nc.collection_id
+                     JOIN vaults filter_v ON filter_v.id = filter_c.vault_id
+                     WHERE filter_nc.note_id = n.id
+                       AND lower(filter_v.name || '/' || filter_c.name) = ?)",
+                );
+                parameters.push(value.clone());
+            }
+            Self::Link(value) => {
+                sql.push_str(
+                    "EXISTS (SELECT 1 FROM note_links filter_links
+                     WHERE filter_links.note_id = n.id
+                       AND lower(filter_links.target_id) = ?)",
+                );
+                parameters.push(value.clone());
+            }
+            Self::Source(value) => {
+                sql.push_str(
+                    "EXISTS (SELECT 1 FROM note_sources filter_sources
+                     WHERE filter_sources.note_id = n.id AND ",
+                );
+                push_contains_sql(sql, parameters, "filter_sources.source", value);
+                sql.push(')');
+            }
+            Self::Body(value) => push_body_sql(sql, parameters, value),
+            Self::Not(expr) => {
+                sql.push_str("NOT (");
+                expr.push_sql(sql, parameters);
+                sql.push(')');
+            }
+        }
+    }
+
+    #[cfg(test)]
     fn matches(&self, note: &NoteMeta) -> Result<bool> {
         match self {
             Self::Bare(value) => {
@@ -259,6 +368,94 @@ impl QueryExpr {
     }
 }
 
+fn push_bare_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str) {
+    sql.push('(');
+    for (index, column) in [
+        "n.id",
+        "n.title",
+        "n.kind",
+        "n.status",
+        "n.priority",
+        "n.scheduled",
+        "n.due",
+        "n.closed",
+    ]
+    .iter()
+    .enumerate()
+    {
+        if index > 0 {
+            sql.push_str(" OR ");
+        }
+        if matches!(*column, "n.scheduled" | "n.due") {
+            push_case_sensitive_contains_sql(sql, parameters, column, value);
+        } else {
+            push_contains_sql(sql, parameters, column, value);
+        }
+    }
+    for (table, column) in [
+        ("note_tags", "tag"),
+        ("note_links", "target_id"),
+        ("note_sources", "source"),
+    ] {
+        sql.push_str(&format!(
+            " OR EXISTS (SELECT 1 FROM {table} bare_values
+             WHERE bare_values.note_id = n.id AND "
+        ));
+        push_contains_sql(sql, parameters, &format!("bare_values.{column}"), value);
+        sql.push(')');
+    }
+    sql.push_str(
+        " OR EXISTS (SELECT 1 FROM note_collections bare_nc
+         JOIN collections bare_c ON bare_c.id = bare_nc.collection_id
+         JOIN vaults bare_v ON bare_v.id = bare_c.vault_id
+         WHERE bare_nc.note_id = n.id AND ",
+    );
+    push_contains_sql(sql, parameters, "bare_v.name || '/' || bare_c.name", value);
+    sql.push_str(") OR ");
+    push_body_sql(sql, parameters, value);
+    sql.push(')');
+}
+
+fn push_body_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str) {
+    let terms = eval::tokenize_text(value);
+    sql.push('(');
+    if terms.is_empty() {
+        push_contains_sql(sql, parameters, "n.body", value);
+    } else {
+        for (index, term) in terms.iter().enumerate() {
+            if index > 0 {
+                sql.push_str(" AND ");
+            }
+            push_contains_sql(sql, parameters, "n.body", term);
+        }
+    }
+    sql.push(')');
+}
+
+fn push_contains_sql(
+    sql: &mut String,
+    parameters: &mut Vec<String>,
+    expression: &str,
+    value: &str,
+) {
+    sql.push_str("instr(lower(");
+    sql.push_str(expression);
+    sql.push_str("), ?) > 0");
+    parameters.push(value.to_string());
+}
+
+fn push_case_sensitive_contains_sql(
+    sql: &mut String,
+    parameters: &mut Vec<String>,
+    expression: &str,
+    value: &str,
+) {
+    sql.push_str("instr(");
+    sql.push_str(expression);
+    sql.push_str(", ?) > 0");
+    parameters.push(value.to_string());
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -297,6 +494,65 @@ mod tests {
             let error = Query::parse_list_filters(&[expression.to_string()]).unwrap_err();
             assert!(error.to_string().contains("use `nt find`"));
         }
+    }
+
+    #[test]
+    fn search_sql_binds_every_query_value() {
+        let query = Query::parse(&[
+            "id:018fbe0a".to_string(),
+            "tag:bound-tag".to_string(),
+            "title:bound-title".to_string(),
+            "day:2026-01-02".to_string(),
+            "since:2026-01-03".to_string(),
+            "before:2026-01-04".to_string(),
+            "kind:bound-kind".to_string(),
+            "status:bound-status".to_string(),
+            "priority:d".to_string(),
+            "scheduled:2026-01-05".to_string(),
+            "due:2026-01-06".to_string(),
+            "closed:2026-01-07".to_string(),
+            "collection:bound/collection".to_string(),
+            "link:018fbe0a-6c00-7000-8000-000000000001".to_string(),
+            "source:bound-source".to_string(),
+            "body:boundbody".to_string(),
+            "boundbare".to_string(),
+            "not:tag:bound-negated".to_string(),
+        ])
+        .unwrap();
+
+        let compiled = query.sql();
+        assert_eq!(
+            compiled.predicate.matches('?').count(),
+            compiled.parameters.len()
+        );
+        for value in [
+            "018fbe0a",
+            "bound-tag",
+            "bound-title",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-01-04",
+            "bound-kind",
+            "bound-status",
+            "2026-01-05",
+            "2026-01-06",
+            "2026-01-07",
+            "bound/collection",
+            "018fbe0a-6c00-7000-8000-000000000001",
+            "bound-source",
+            "boundbody",
+            "boundbare",
+            "bound-negated",
+        ] {
+            assert!(!compiled.predicate.contains(value));
+            assert!(
+                compiled
+                    .parameters
+                    .iter()
+                    .any(|parameter| parameter == value)
+            );
+        }
+        assert!(compiled.parameters.iter().any(|parameter| parameter == "D"));
     }
 
     #[test]

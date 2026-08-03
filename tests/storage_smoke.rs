@@ -473,6 +473,124 @@ fn list_does_not_materialize_unrequested_bodies_or_relationships() {
 }
 
 #[test]
+fn structured_find_does_not_materialize_bodies_or_unqueried_relationships() {
+    let root = temp_dir("find-structured-pushdown");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let target = run_nt_with_stdin(&home, &["note"], "# Target\n");
+    let target_id = target.trim().strip_prefix("saved ").unwrap();
+    let subject = run_nt_with_stdin(
+        &home,
+        &[
+            "note",
+            "tag:project",
+            "collection:personal/archive",
+            "source:https://example.com/spec",
+            &format!("link:{target_id}"),
+        ],
+        "# Subject\n",
+    );
+    let subject_id = subject.trim().strip_prefix("saved ").unwrap();
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys = OFF")
+        .unwrap();
+    connection
+        .execute("UPDATE notes SET body = x'80'", [])
+        .unwrap();
+    connection
+        .execute("UPDATE note_sources SET source = x'80'", [])
+        .unwrap();
+    connection
+        .execute("UPDATE note_links SET target_id = x'80'", [])
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE collections SET name = x'80' WHERE name = 'archive'",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let found = run_nt(&home, &["find", "kind:note"]);
+    let ids = summary_ids(&found);
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&target_id));
+    assert!(ids.contains(&subject_id));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn mixed_find_queries_preserve_and_text_matching_semantics() {
+    let root = temp_dir("find-mixed-query");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let matching = run_nt_with_stdin(
+        &home,
+        &["todo", "tag:rust", "source:https://Example.COM/spec"],
+        "# Storage Decision\n\nThe JAILER starts a MicroVM.\n",
+    );
+    let matching_id = matching.trim().strip_prefix("saved ").unwrap();
+    run_nt_with_stdin(
+        &home,
+        &["todo", "tag:rust", "source:https://example.com/spec"],
+        "# Storage Alternative\n\nThe jailer starts a process.\n",
+    );
+    run_nt_with_stdin(
+        &home,
+        &[
+            "todo",
+            "status:waiting",
+            "tag:rust",
+            "source:https://example.com/spec",
+        ],
+        "# Storage Decision\n\nThe jailer starts a microvm.\n",
+    );
+
+    let found = run_nt(
+        &home,
+        &[
+            "find",
+            "kind:todo",
+            "tag:RUST",
+            "not:status:waiting",
+            "title:STORAGE",
+            "source:EXAMPLE.COM",
+            "body:microvm jailer",
+            "decision",
+        ],
+    );
+    assert_eq!(summary_ids(&found), vec![matching_id]);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn find_binds_filter_values_as_sql_parameters() {
+    let root = temp_dir("find-parameterized-filter");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let tagged = run_nt_with_stdin(&home, &["note"], "# Tagged\n");
+    let tagged_id = tagged.trim().strip_prefix("saved ").unwrap();
+    run_nt_with_stdin(&home, &["note"], "# Untagged\n");
+    let value = "x' OR 1=1 --";
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    connection
+        .execute(
+            "INSERT INTO note_tags (note_id, tag) VALUES (?1, ?2)",
+            [tagged_id, value],
+        )
+        .unwrap();
+    drop(connection);
+
+    assert_eq!(
+        summary_ids(&run_nt(&home, &["find", &format!("tag:{value}")])),
+        vec![tagged_id]
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn list_structured_filters_match_find_semantics() {
     let root = temp_dir("list-filter-parity");
     let home = root.join("home");

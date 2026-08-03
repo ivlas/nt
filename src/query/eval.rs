@@ -1,13 +1,18 @@
-use crate::error::Result;
-use crate::repository::NoteMeta;
 use std::collections::BTreeSet;
 
+#[cfg(test)]
 use super::parse::normalize;
+#[cfg(test)]
+use crate::error::Result;
+#[cfg(test)]
+use crate::repository::NoteMeta;
 
+#[cfg(test)]
 pub(super) fn contains_normalized(values: &[String], needle: &str) -> bool {
     values.iter().any(|value| normalize(value) == needle)
 }
 
+#[cfg(test)]
 pub(super) fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
     note.id.to_ascii_lowercase().contains(needle)
         || note.title.to_ascii_lowercase().contains(needle)
@@ -50,6 +55,7 @@ pub(super) fn matches_metadata(note: &NoteMeta, needle: &str) -> bool {
             .any(|reference| reference.to_ascii_lowercase().contains(needle))
 }
 
+#[cfg(test)]
 pub(super) fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
     let body = note.body.to_ascii_lowercase();
     let terms = tokenize_text(needle);
@@ -60,7 +66,7 @@ pub(super) fn matches_body(note: &NoteMeta, needle: &str) -> Result<bool> {
     Ok(terms.iter().all(|term| body.contains(term)))
 }
 
-fn tokenize_text(text: &str) -> BTreeSet<String> {
+pub(super) fn tokenize_text(text: &str) -> BTreeSet<String> {
     let mut terms = BTreeSet::new();
     let mut term = String::new();
 

@@ -1,21 +1,39 @@
-use crate::repository::{AgendaNote, NoteMeta};
+#[cfg(test)]
+use crate::repository::NoteMeta;
+use crate::repository::{AgendaNote, FindRow};
 use crate::terminal::{Style, paint};
 
+#[cfg(test)]
 pub(crate) fn summary_line(note: &NoteMeta) -> String {
     summary_line_for_display(note, false)
 }
 
+#[cfg(test)]
 pub(crate) fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
-    let day = note.created.get(0..10).unwrap_or("unknown");
-    let tags = joined_or_dash(&note.tags);
+    summary_line_values(&note.id, &note.created, &note.title, &note.tags, color)
+}
+
+pub(crate) fn find_summary_line(note: &FindRow) -> String {
+    summary_line_values(&note.id, &note.created, &note.title, &note.tags, false)
+}
+
+fn summary_line_values(
+    id: &str,
+    created: &str,
+    title: &str,
+    tags: &[String],
+    color: bool,
+) -> String {
+    let day = created.get(0..10).unwrap_or("unknown");
+    let tags = joined_or_dash(tags);
     let padded_tags = format!("{tags:<12}");
 
     format!(
         "{}  {}  {}  {}",
-        paint(&note.id, Style::BrightCyan, color),
+        paint(id, Style::BrightCyan, color),
         paint(day, Style::Dim, color),
         paint(&padded_tags, Style::Green, color),
-        note.title
+        title
     )
 }
 
