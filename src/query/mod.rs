@@ -225,13 +225,13 @@ impl QueryExpr {
         match self {
             Self::Bare(value) => push_bare_sql(sql, parameters, value),
             Self::Id(value) => {
-                sql.push_str("instr(lower(n.id), ?) = 1");
-                parameters.push(value.clone());
+                sql.push_str("n.id LIKE ?");
+                parameters.push(format!("{value}%"));
             }
             Self::Tag(value) => {
                 sql.push_str(
-                    "EXISTS (SELECT 1 FROM note_tags filter_tags
-                     WHERE filter_tags.note_id = n.id AND lower(filter_tags.tag) = ?)",
+                    "n.id IN (SELECT filter_tags.note_id FROM note_tags filter_tags
+                     WHERE lower(filter_tags.tag) = ?)",
                 );
                 parameters.push(value.clone());
             }
@@ -253,7 +253,7 @@ impl QueryExpr {
                 parameters.push(value.clone());
             }
             Self::Status(value) => {
-                sql.push_str("coalesce(lower(n.status) = ?, 0)");
+                sql.push_str("(n.status IS NOT NULL AND lower(n.status) = ?)");
                 parameters.push(value.clone());
             }
             Self::Priority(value) => {
@@ -363,9 +363,9 @@ fn push_fts_sql(sql: &mut String, parameters: &mut Vec<String>, value: &str, col
     }
 
     sql.push_str(
-        "EXISTS (SELECT 1 FROM note_search_rows search_rows
-         JOIN note_fts ON note_fts.rowid = search_rows.search_id
-         WHERE search_rows.note_id = n.id AND note_fts MATCH ?)",
+        "n.id IN (SELECT search_rows.note_id FROM note_fts
+         JOIN note_search_rows search_rows ON search_rows.search_id = note_fts.rowid
+         WHERE note_fts MATCH ?)",
     );
     let terms = terms
         .iter()
