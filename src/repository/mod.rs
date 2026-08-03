@@ -84,12 +84,31 @@ impl Repository {
         Self::open_path(&path)
     }
 
+    pub fn open_for_init() -> Result<Self> {
+        let path = database_path()?;
+        let existed = path.exists();
+        let repository = Self::open_path_uninitialized(&path)?;
+        if existed && !is_nt_database(&repository.connection)? {
+            return Err(NtError::Message(format!(
+                "database already exists at {}; refusing to overwrite it",
+                path.display()
+            )));
+        }
+        configure_and_initialize(&repository.connection)?;
+        Ok(repository)
+    }
+
     fn open_path(path: &Path) -> Result<Self> {
+        let repository = Self::open_path_uninitialized(path)?;
+        configure_and_initialize(&repository.connection)?;
+        Ok(repository)
+    }
+
+    fn open_path_uninitialized(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let connection = Connection::open(path)?;
-        configure_and_initialize(&connection)?;
         Ok(Self { connection })
     }
 
@@ -529,6 +548,46 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn is_nt_database(connection: &Connection) -> Result<bool> {
+    let has_schema_version = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'schema_version'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_schema_version {
+        return Ok(false);
+    }
+
+    let version: Option<i64> = connection
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    match version {
+        Some(SCHEMA_VERSION) => {}
+        Some(version) => {
+            return Err(NtError::Message(format!(
+                "unsupported database schema version {version}"
+            )));
+        }
+        None => return Ok(false),
+    }
+
+    let table_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema
+         WHERE type = 'table' AND name IN (
+             'schema_version', 'vaults', 'collections', 'notes',
+             'note_collections', 'note_tags', 'note_sources', 'note_links'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(table_count == 8)
 }
 
 fn ensure_collection(

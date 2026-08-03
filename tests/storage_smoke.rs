@@ -54,6 +54,38 @@ fn init_creates_logical_vault_and_inbox_in_one_database() {
 }
 
 #[test]
+fn init_refuses_to_modify_an_existing_unrelated_database() {
+    let root = temp_dir("init-existing-database");
+    let home = root.join("home");
+    let nt_home = home.join(".nt");
+    fs::create_dir_all(&nt_home).unwrap();
+    let database = nt_home.join("nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch("CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES ('kept');")
+        .unwrap();
+    drop(connection);
+
+    assert_failed(&home, &["init", "personal"], "", "refusing to overwrite it");
+
+    let connection = Connection::open(database).unwrap();
+    let sentinel: String = connection
+        .query_row("SELECT value FROM sentinel", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(sentinel, "kept");
+    let nt_tables: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'vaults'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(nt_tables, 0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn note_body_and_metadata_are_canonical_in_sqlite() {
     let root = temp_dir("sqlite-body");
     let home = root.join("home");
