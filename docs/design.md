@@ -12,8 +12,9 @@ direct SQL persistence, and row materialization. Query evaluation remains
 explicit and deterministic. `$EDITOR` integration uses temporary files, but
 canonical bodies remain in SQLite.
 
-The database is `$HOME/.nt/nt.sqlite3`. Foreign keys are enabled on every
-connection and mutations use transactions. The schema contains:
+The database is `$HOME/.nt/nt.sqlite3`. Every connection enables foreign keys,
+uses WAL journaling, and has a five-second busy timeout. Mutations use
+transactions. The schema contains:
 
 - `vaults`: UUIDv7 id, unique logical name, creation time
 - `collections`: UUIDv7 id, one owning vault, name, creation time
@@ -82,10 +83,13 @@ Core workflows remain positional and compose with stdin, stdout, pipes, and
 are stable, tab-separated, and one record per line.
 
 Agents and humans use the same interface. The user directs writes; there is no
-agent-only command or hidden mutation path. There is no application-level
-writer lock. SQLite provides process-level write serialization, rollback, and a
-five-second busy timeout; one user-directed writer at a time remains the
-recommended workflow.
+agent-only command or hidden mutation path. WAL permits readers to continue from
+the last committed snapshot while a write is in progress. Independent commands
+may write concurrently, but SQLite still permits only one active writer;
+contending writers wait up to five seconds and then receive a retryable error.
+Mutations use short transactions, and `nt` does not hold a write transaction
+open while reading note content from stdin or waiting for `$EDITOR`. Optimistic
+checks reject an editor save if the note changed while it was open.
 
 ## Decision Status
 

@@ -157,7 +157,10 @@ is not transactional. Exported Markdown is not canonical storage.
 ## Operation
 
 SQLite transactions provide atomic database mutations and foreign-key
-consistency. There is no application-level writer lock: SQLite serializes
-writes, and commands use a five-second busy timeout. One user-directed writer at
-a time remains the recommended workflow. Agents use the same visible interface
-and should obtain user approval before mutations.
+consistency. WAL mode lets readers continue from the last committed snapshot
+while another connection writes. Independent commands may write concurrently,
+but SQLite remains a single-writer database: a contending writer waits for the
+five-second busy timeout and then reports a retryable error. Transactions are
+short and never remain open while `nt` reads note content from stdin or waits for
+`$EDITOR`; stale editor saves are rejected. Agents use the same visible
+interface and should obtain user approval before mutations.
