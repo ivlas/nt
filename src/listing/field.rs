@@ -1,6 +1,6 @@
 use crate::display::joined_or_dash;
 use crate::error::{NtError, Result};
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ListField {

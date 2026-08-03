@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
 use crate::fs::nt_home;
-use crate::index::{Index, NoteMeta};
+use crate::repository::{NoteMeta, Repository};
 
 mod add;
 mod agenda;
@@ -35,22 +35,12 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn note_mut<'a>(index: &'a mut Index, id: &str) -> Result<&'a mut NoteMeta> {
-    index
-        .notes
-        .get_mut(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
-}
-
-fn note_ref<'a>(index: &'a Index, id: &str) -> Result<&'a NoteMeta> {
-    index
-        .notes
-        .get(id)
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
-}
-
-fn ensure_note_exists(index: &Index, id: &str) -> Result<()> {
-    note_ref(index, id).map(|_| ())
+fn ensure_note_exists(repository: &Repository, id: &str) -> Result<()> {
+    if repository.note_exists(id)? {
+        Ok(())
+    } else {
+        Err(NtError::NoteNotFound(id.to_string()))
+    }
 }
 
 fn push_unique_sorted(values: &mut Vec<String>, value: String) {
@@ -98,7 +88,7 @@ fn validate_lowercase_name(value: &str, kind: &str) -> Result<()> {
 }
 
 fn validate_collection(collection: &str) -> Result<()> {
-    crate::index::parse_collection_name(collection).map(|_| ())
+    crate::repository::parse_collection_name(collection).map(|_| ())
 }
 
 fn validate_tag(tag: &str) -> Result<()> {
@@ -150,7 +140,7 @@ fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod test_helpers {
-    use crate::index::{Index, NoteMeta};
+    use crate::repository::NoteMeta;
 
     pub fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -163,12 +153,14 @@ mod test_helpers {
         )
     }
 
-    pub fn active_index(notes: Vec<NoteMeta>) -> Index {
-        let mut index = Index::default();
-        for note in notes {
-            index.upsert_note(note);
-        }
-        index
+    pub fn active_notes(mut notes: Vec<NoteMeta>) -> Vec<NoteMeta> {
+        notes.sort_by(|left, right| {
+            right
+                .created
+                .cmp(&left.created)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        notes
     }
 
     pub fn todo(

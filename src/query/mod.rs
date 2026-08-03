@@ -1,5 +1,5 @@
 use crate::error::{NtError, Result};
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 
 mod eval;
 mod parse;
@@ -223,7 +223,7 @@ impl QueryExpr {
 mod tests {
     use std::fs;
 
-    use crate::index::NoteMeta;
+    use crate::repository::NoteMeta;
 
     use super::Query;
 

@@ -1,4 +1,4 @@
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 use crate::terminal::{Style, paint};
 
 pub(crate) fn summary_line(note: &NoteMeta) -> String {
@@ -41,7 +41,7 @@ pub(crate) fn agenda_line(note: &NoteMeta) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::index::NoteMeta;
+    use crate::repository::NoteMeta;
 
     use super::{summary_line, summary_line_for_display};
 

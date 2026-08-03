@@ -1,7 +1,7 @@
 use crate::cli::AgendaView;
 use crate::display::agenda_line;
 use crate::error::Result;
-use crate::index::{Index, NoteMeta};
+use crate::repository::{NoteMeta, Repository};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgendaSection {
@@ -13,9 +13,10 @@ enum AgendaSection {
 }
 
 pub(super) fn agenda(view: Option<AgendaView>) -> Result<()> {
-    let index = Index::load()?;
+    let repository = Repository::open()?;
+    let notes = repository.list_notes()?;
     let today = crate::note::local_day_now();
-    let sections = select_agenda(&index, &today, view)?;
+    let sections = select_agenda(&notes, &today, view)?;
     let show_headers = view.is_none();
     for (section, notes) in sections {
         if notes.is_empty() {
@@ -32,7 +33,7 @@ pub(super) fn agenda(view: Option<AgendaView>) -> Result<()> {
 }
 
 fn select_agenda<'a>(
-    index: &'a Index,
+    notes: &'a [NoteMeta],
     today: &str,
     view: Option<AgendaView>,
 ) -> Result<Vec<(AgendaSection, Vec<&'a NoteMeta>)>> {
@@ -45,7 +46,7 @@ fn select_agenda<'a>(
         (AgendaSection::Waiting, Vec::new()),
         (AgendaSection::Undated, Vec::new()),
     ];
-    for note in index.all_notes() {
+    for note in notes {
         if note.kind != "todo" || !matches!(note.status.as_deref(), Some("open" | "waiting")) {
             continue;
         }
@@ -147,7 +148,7 @@ fn section_name(section: AgendaSection) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::cli::AgendaView;
-    use crate::commands::test_helpers::{active_index, todo};
+    use crate::commands::test_helpers::{active_notes, todo};
 
     use super::{AgendaSection, select_agenda};
 
@@ -192,8 +193,8 @@ mod tests {
                 Some("2026-05-20"),
             ),
         ];
-        let index = active_index(notes);
-        let sections = select_agenda(&index, "2026-05-28", None).unwrap();
+        let notes = active_notes(notes);
+        let sections = select_agenda(&notes, "2026-05-28", None).unwrap();
 
         assert_eq!(sections[0].0, AgendaSection::Overdue);
         assert_eq!(
@@ -241,10 +242,10 @@ mod tests {
             6
         );
 
-        let week = select_agenda(&index, "2026-05-28", Some(AgendaView::Week)).unwrap();
+        let week = select_agenda(&notes, "2026-05-28", Some(AgendaView::Week)).unwrap();
         assert_eq!(week.iter().map(|(_, notes)| notes.len()).sum::<usize>(), 4);
 
-        let today = select_agenda(&index, "2026-05-28", Some(AgendaView::Today)).unwrap();
+        let today = select_agenda(&notes, "2026-05-28", Some(AgendaView::Today)).unwrap();
         assert_eq!(
             today
                 .iter()
@@ -274,8 +275,8 @@ mod tests {
                 )
             })
             .collect();
-        let index = active_index(notes);
-        let sections = select_agenda(&index, "2026-05-28", Some(AgendaView::Undated)).unwrap();
+        let notes = active_notes(notes);
+        let sections = select_agenda(&notes, "2026-05-28", Some(AgendaView::Undated)).unwrap();
         let priorities: Vec<Option<&str>> = sections[4]
             .1
             .iter()
@@ -290,8 +291,8 @@ mod tests {
         newer.created = "2026-06-02T00:00:00Z".to_string();
         let mut older = todo("NT20260521T000001", "open", Some("A"), None, None);
         older.created = "2026-06-01T00:00:00Z".to_string();
-        let index = active_index(vec![older, newer]);
-        let sections = select_agenda(&index, "2026-05-28", Some(AgendaView::Undated)).unwrap();
+        let notes = active_notes(vec![older, newer]);
+        let sections = select_agenda(&notes, "2026-05-28", Some(AgendaView::Undated)).unwrap();
         assert_eq!(
             sections[4]
                 .1
@@ -310,7 +311,7 @@ mod tests {
         statusless.status = None;
         let mut non_todo = todo("NT20260523T000001", "open", Some("C"), None, None);
         non_todo.kind = "note".to_string();
-        let index = active_index(vec![done, dropped, statusless, non_todo]);
+        let notes = active_notes(vec![done, dropped, statusless, non_todo]);
 
         for view in [
             None,
@@ -320,7 +321,7 @@ mod tests {
             Some(AgendaView::Waiting),
             Some(AgendaView::Undated),
         ] {
-            let sections = select_agenda(&index, "2026-05-28", view).unwrap();
+            let sections = select_agenda(&notes, "2026-05-28", view).unwrap();
             assert!(sections.iter().all(|(_, notes)| notes.is_empty()));
         }
     }

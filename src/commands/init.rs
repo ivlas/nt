@@ -1,11 +1,10 @@
 use crate::error::Result;
-use crate::index::Index;
+use crate::repository::Repository;
 
 pub(super) fn init(vault: &str) -> Result<()> {
-    let mut index = Index::load()?;
+    let mut repository = Repository::open()?;
     let now = crate::note::timestamp_now().iso;
-    index.create_vault(vault, &now)?;
-    index.save()?;
+    repository.create_vault(vault, &now)?;
     println!("initialized {vault}");
     Ok(())
 }

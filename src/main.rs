@@ -4,10 +4,10 @@ mod display;
 mod error;
 mod export;
 mod fs;
-mod index;
 mod listing;
 mod note;
 mod query;
+mod repository;
 mod terminal;
 
 use clap::Parser;

@@ -1,4 +1,4 @@
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 
 use super::field::ListField;
 
@@ -90,7 +90,7 @@ fn format_columns(values: impl Iterator<Item = String>, widths: &[usize]) -> Str
 
 #[cfg(test)]
 mod tests {
-    use crate::index::NoteMeta;
+    use crate::repository::NoteMeta;
 
     use super::render_table;
     use crate::listing::ListField;

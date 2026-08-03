@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -229,6 +230,280 @@ fn remove_is_transactional_and_cleans_relationships() {
     assert_eq!((note_count, link_count), (1, 0));
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn inserting_a_note_does_not_rewrite_existing_rows() {
+    let root = temp_dir("targeted-insert");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let first = run_nt_with_stdin(
+        &home,
+        &[
+            "note",
+            "tag:first",
+            "collection:personal/archive",
+            "source:https://example.com/first",
+        ],
+        "# First\n\nStable body.\n",
+    );
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let database = home.join(".nt/nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    let before = note_snapshot(&connection, first_id);
+    install_note_audit(&connection, first_id);
+    drop(connection);
+
+    run_nt_with_stdin(&home, &["note", "tag:second"], "# Second\n");
+
+    let connection = Connection::open(database).unwrap();
+    assert_eq!(note_snapshot(&connection, first_id), before);
+    assert_eq!(audit_count(&connection), 0);
+    assert_foreign_keys(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn updating_a_note_does_not_rewrite_unrelated_rows() {
+    let root = temp_dir("targeted-update");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let first = run_nt_with_stdin(
+        &home,
+        &["note", "tag:first", "source:https://example.com/first"],
+        "# First\n",
+    );
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["note", "tag:second"], "# Second\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+    let database = home.join(".nt/nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    let before = note_snapshot(&connection, first_id);
+    install_note_audit(&connection, first_id);
+    drop(connection);
+
+    run_nt(&home, &["update", second_id, "tag", "+changed"]);
+
+    let connection = Connection::open(database).unwrap();
+    assert_eq!(note_snapshot(&connection, first_id), before);
+    assert_eq!(audit_count(&connection), 0);
+    assert_foreign_keys(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn removing_valid_and_missing_ids_deletes_nothing() {
+    let root = temp_dir("transactional-delete");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let first = run_nt_with_stdin(&home, &["note", "tag:keep"], "# Keep first\n");
+    let first_id = first.trim().strip_prefix("saved ").unwrap();
+    let second = run_nt_with_stdin(&home, &["note"], "# Keep second\n");
+    let second_id = second.trim().strip_prefix("saved ").unwrap();
+    let missing = Uuid::now_v7().to_string();
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    let first_before = note_snapshot(&connection, first_id);
+    let second_before = note_snapshot(&connection, second_id);
+    drop(connection);
+
+    assert_failed(&home, &["rm", first_id, &missing], "", "note not found");
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    assert_eq!(note_snapshot(&connection, first_id), first_before);
+    assert_eq!(note_snapshot(&connection, second_id), second_before);
+    assert_foreign_keys(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn open_rejects_a_stale_editor_update() {
+    let root = temp_dir("concurrent-open");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(&home, &["note"], "# Concurrent edit\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let editor = root.join("concurrent-editor.sh");
+    fs::write(
+        &editor,
+        "#!/bin/sh\nsleep 1\n\"$NT_BIN\" update \"$NOTE_ID\" tag +concurrent >/dev/null\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = Command::new(nt_bin())
+        .env("HOME", &home)
+        .env("EDITOR", &editor)
+        .env("NT_BIN", nt_bin())
+        .env("NOTE_ID", id)
+        .args(["open", id])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("note changed during edit; please retry")
+    );
+    assert!(run_nt(&home, &["show", id]).contains("tags concurrent"));
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    assert_foreign_keys(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn direct_mutations_preserve_cross_vault_memberships_and_foreign_keys() {
+    let root = temp_dir("direct-fk-integrity");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    run_nt(&home, &["init", "work"]);
+    let target = run_nt_with_stdin(&home, &["note", "home:personal/inbox"], "# Link target\n");
+    let target_id = target.trim().strip_prefix("saved ").unwrap();
+    let note = run_nt_with_stdin(
+        &home,
+        &[
+            "note",
+            "home:personal/projects",
+            "collection:work/shared",
+            &format!("link:{target_id}"),
+            "tag:shared",
+            "source:https://example.com/shared",
+        ],
+        "# Cross vault\n",
+    );
+    let id = note.trim().strip_prefix("saved ").unwrap();
+    let database = home.join(".nt/nt.sqlite3");
+    assert_foreign_keys(&Connection::open(&database).unwrap());
+
+    run_nt(&home, &["update", id, "home", "work/shared"]);
+    run_nt(&home, &["update", id, "collection", "-personal/projects"]);
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains("home work/shared"));
+    assert!(shown.contains("collections work/shared"));
+    assert_foreign_keys(&Connection::open(&database).unwrap());
+
+    run_nt(&home, &["rm", target_id]);
+    assert!(run_nt(&home, &["show", id]).contains("links -"));
+    assert_foreign_keys(&Connection::open(&database).unwrap());
+    run_nt(&home, &["rm", id]);
+    assert_foreign_keys(&Connection::open(database).unwrap());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[derive(Debug, PartialEq)]
+struct NoteSnapshot {
+    row: StoredNoteRow,
+    collections: Vec<String>,
+    tags: Vec<String>,
+    sources: Vec<String>,
+    links: Vec<String>,
+}
+
+#[derive(Debug, PartialEq)]
+struct StoredNoteRow {
+    id: String,
+    home_collection_id: String,
+    body: String,
+    created: String,
+    updated: String,
+    title: String,
+    status: Option<String>,
+    priority: Option<String>,
+    scheduled: Option<String>,
+    due: Option<String>,
+    closed: Option<String>,
+}
+
+fn note_snapshot(connection: &Connection, id: &str) -> NoteSnapshot {
+    let row = connection
+        .query_row(
+            "SELECT n.id, n.home_collection_id, n.body, n.created, n.updated, n.title,
+                    n.status, n.priority, n.scheduled, n.due, n.closed
+             FROM notes n WHERE n.id = ?1",
+            [id],
+            |row| {
+                Ok(StoredNoteRow {
+                    id: row.get(0)?,
+                    home_collection_id: row.get(1)?,
+                    body: row.get(2)?,
+                    created: row.get(3)?,
+                    updated: row.get(4)?,
+                    title: row.get(5)?,
+                    status: row.get(6)?,
+                    priority: row.get(7)?,
+                    scheduled: row.get(8)?,
+                    due: row.get(9)?,
+                    closed: row.get(10)?,
+                })
+            },
+        )
+        .unwrap();
+    NoteSnapshot {
+        row,
+        collections: query_values(
+            connection,
+            "SELECT collection_id FROM note_collections WHERE note_id = ?1 ORDER BY collection_id",
+            id,
+        ),
+        tags: query_values(
+            connection,
+            "SELECT tag FROM note_tags WHERE note_id = ?1 ORDER BY tag",
+            id,
+        ),
+        sources: query_values(
+            connection,
+            "SELECT source FROM note_sources WHERE note_id = ?1 ORDER BY source",
+            id,
+        ),
+        links: query_values(
+            connection,
+            "SELECT target_id FROM note_links WHERE note_id = ?1 ORDER BY target_id",
+            id,
+        ),
+    }
+}
+
+fn query_values(connection: &Connection, sql: &str, id: &str) -> Vec<String> {
+    connection
+        .prepare(sql)
+        .unwrap()
+        .query_map([id], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+fn install_note_audit(connection: &Connection, id: &str) {
+    connection
+        .execute_batch(&format!(
+            "CREATE TABLE mutation_audit (event TEXT NOT NULL);
+             CREATE TRIGGER audit_note_update AFTER UPDATE ON notes
+                 WHEN OLD.id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('note update'); END;
+             CREATE TRIGGER audit_note_delete AFTER DELETE ON notes
+                 WHEN OLD.id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('note delete'); END;
+             CREATE TRIGGER audit_collection_delete AFTER DELETE ON note_collections
+                 WHEN OLD.note_id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('collection delete'); END;
+             CREATE TRIGGER audit_tag_delete AFTER DELETE ON note_tags
+                 WHEN OLD.note_id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('tag delete'); END;
+             CREATE TRIGGER audit_source_delete AFTER DELETE ON note_sources
+                 WHEN OLD.note_id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('source delete'); END;
+             CREATE TRIGGER audit_link_delete AFTER DELETE ON note_links
+                 WHEN OLD.note_id = '{id}' BEGIN INSERT INTO mutation_audit VALUES ('link delete'); END;"
+        ))
+        .unwrap();
+}
+
+fn audit_count(connection: &Connection) -> i64 {
+    connection
+        .query_row("SELECT COUNT(*) FROM mutation_audit", [], |row| row.get(0))
+        .unwrap()
+}
+
+fn assert_foreign_keys(connection: &Connection) {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 0);
 }
 
 fn assert_uuid_v7(value: &str) {

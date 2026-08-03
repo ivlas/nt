@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 use std::collections::BTreeSet;
 
 use super::parse::normalize;

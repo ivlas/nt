@@ -1,10 +1,10 @@
 use crate::cli::UpdateField;
 use crate::error::{NtError, Result};
-use crate::index::{Index, NoteMeta};
+use crate::repository::{NoteChange, Repository};
 
 use super::{
-    apply_status_transition, ensure_note_exists, note_mut, push_unique_sorted, validate_collection,
-    validate_kind, validate_priority, validate_status, validate_tag,
+    ensure_note_exists, validate_collection, validate_kind, validate_priority, validate_status,
+    validate_tag,
 };
 
 #[derive(Debug)]
@@ -23,7 +23,7 @@ enum UpdateOperation {
 }
 
 impl UpdateOperation {
-    fn parse(field: UpdateField, raw: &str, index: &Index) -> Result<Self> {
+    fn parse(field: UpdateField, raw: &str, repository: &Repository) -> Result<Self> {
         match field {
             UpdateField::Kind => {
                 if raw != "-" {
@@ -83,7 +83,7 @@ impl UpdateOperation {
                     UpdateField::Collection => validate_collection(value)?,
                     UpdateField::Link => {
                         crate::note::validate_id(value)?;
-                        ensure_note_exists(index, value)?;
+                        ensure_note_exists(repository, value)?;
                     }
                     UpdateField::Source => {}
                     _ => unreachable!(),
@@ -97,64 +97,22 @@ impl UpdateOperation {
         }
     }
 
-    fn apply(self, note: &mut NoteMeta, now: &str) {
+    fn into_change(self) -> NoteChange {
         match self {
-            Self::Kind(value) => {
-                note.kind = value.unwrap_or_else(|| "note".to_string());
-                if note.kind == "note" {
-                    note.status = None;
-                    note.priority = None;
-                    note.scheduled = None;
-                    note.due = None;
-                    note.closed = None;
-                }
-            }
-            Self::Status(value) => apply_status_transition(note, value, now),
-            Self::Priority(value) => note.priority = value,
-            Self::Scheduled(value) => note.scheduled = value,
-            Self::Due(value) => note.due = value,
-            Self::Home(value) => {
-                note.home_collection = value.clone();
-                push_unique_sorted(&mut note.collections, value);
-            }
-            Self::Set { field, add, value } => {
-                let values = match field {
-                    UpdateField::Tag => &mut note.tags,
-                    UpdateField::Collection => &mut note.collections,
-                    UpdateField::Link => &mut note.links,
-                    UpdateField::Source => &mut note.sources,
-                    _ => unreachable!(),
-                };
-                if add {
-                    push_unique_sorted(values, value);
-                } else {
-                    values.retain(|item| item != &value);
-                }
-            }
+            Self::Kind(value) => NoteChange::Kind(value.unwrap_or_else(|| "note".to_string())),
+            Self::Status(value) => NoteChange::Status(value),
+            Self::Priority(value) => NoteChange::Priority(value),
+            Self::Scheduled(value) => NoteChange::Scheduled(value),
+            Self::Due(value) => NoteChange::Due(value),
+            Self::Home(value) => NoteChange::Home(value),
+            Self::Set { field, add, value } => match field {
+                UpdateField::Tag => NoteChange::Tag { add, value },
+                UpdateField::Collection => NoteChange::Collection { add, value },
+                UpdateField::Link => NoteChange::Link { add, value },
+                UpdateField::Source => NoteChange::Source { add, value },
+                _ => unreachable!(),
+            },
         }
-    }
-
-    fn validate_for_note(&self, note: &NoteMeta) -> Result<()> {
-        let field = match self {
-            Self::Status(Some(_)) => Some("status"),
-            Self::Priority(Some(_)) => Some("priority"),
-            Self::Scheduled(Some(_)) => Some("scheduled"),
-            Self::Due(Some(_)) => Some("due"),
-            Self::Status(None) | Self::Priority(None) | Self::Scheduled(None) | Self::Due(None) => {
-                None
-            }
-            Self::Kind(_) | Self::Home(_) | Self::Set { .. } => None,
-        };
-
-        if let Some(field) = field
-            && note.kind != "todo"
-        {
-            return Err(NtError::Message(format!(
-                "`{field}` metadata is only valid for todo notes"
-            )));
-        }
-
-        Ok(())
     }
 }
 
@@ -175,33 +133,11 @@ fn field_name(field: UpdateField) -> &'static str {
 
 pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
     crate::note::validate_id(id)?;
-    let mut index = Index::load()?;
-    super::ensure_note_exists(&index, id)?;
-    let operation = UpdateOperation::parse(field, value, &index)?;
+    let mut repository = Repository::open()?;
+    super::ensure_note_exists(&repository, id)?;
+    let operation = UpdateOperation::parse(field, value, &repository)?;
     let now = crate::note::timestamp_now().iso;
-    match &operation {
-        UpdateOperation::Home(collection)
-        | UpdateOperation::Set {
-            field: UpdateField::Collection,
-            add: true,
-            value: collection,
-        } => index.ensure_collection(collection, &now)?,
-        UpdateOperation::Set {
-            field: UpdateField::Collection,
-            add: false,
-            value: collection,
-        } if index.notes[id].home_collection == *collection => {
-            return Err(NtError::Message(format!(
-                "cannot remove home collection `{collection}`; move home first"
-            )));
-        }
-        _ => {}
-    }
-    let note = note_mut(&mut index, id)?;
-    operation.validate_for_note(note)?;
-    operation.apply(note, &now);
-    note.updated = now;
-    index.save()?;
+    repository.update_note(id, &operation.into_change(), &now)?;
     println!("updated {id} {} {value}", field_name(field));
     Ok(())
 }

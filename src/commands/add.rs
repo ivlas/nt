@@ -5,8 +5,8 @@ use std::process::Command as ProcessCommand;
 
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::index::{Index, NoteMeta};
 use crate::note::{new_id, title_from_body, validate_id};
+use crate::repository::{NoteMeta, Repository};
 
 use super::{
     add_body_sources, apply_status_transition, editor_temp_path, ensure_note_exists,
@@ -24,20 +24,15 @@ pub(super) fn todo(metadata: &[String]) -> Result<()> {
 fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     let body = read_note_body_for_create()?;
     let title = title_from_body(&body)?;
-    let mut index = Index::load()?;
-    let metadata = CreationMetadata::parse(kind, metadata, &index)?;
+    let mut repository = Repository::open()?;
+    let metadata = CreationMetadata::parse(kind, metadata, &repository)?;
     let timestamp = crate::note::timestamp_now().iso;
     let home = metadata
         .home
         .clone()
         .or_else(|| metadata.collections.first().cloned())
         .map(Ok)
-        .unwrap_or_else(|| index.default_home_collection())?;
-
-    index.ensure_collection(&home, &timestamp)?;
-    for collection in &metadata.collections {
-        index.ensure_collection(collection, &timestamp)?;
-    }
+        .unwrap_or_else(|| repository.default_home_collection())?;
 
     let id = new_id();
     let mut note = NoteMeta::new_note(
@@ -50,8 +45,7 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     );
     metadata.apply(kind, &mut note, &timestamp);
     add_body_sources(&mut note, &body);
-    index.upsert_note(note);
-    index.save()?;
+    repository.insert_note(&note)?;
 
     println!("saved {id}");
     Ok(())
@@ -71,15 +65,20 @@ struct CreationMetadata {
 }
 
 impl CreationMetadata {
-    fn parse(kind: CreationKind, exprs: &[String], index: &Index) -> Result<Self> {
+    fn parse(kind: CreationKind, exprs: &[String], repository: &Repository) -> Result<Self> {
         let mut metadata = Self::default();
         for expr in exprs {
-            metadata.parse_expr(kind, expr, index)?;
+            metadata.parse_expr(kind, expr, repository)?;
         }
         Ok(metadata)
     }
 
-    fn parse_expr(&mut self, kind: CreationKind, expr: &str, index: &Index) -> Result<()> {
+    fn parse_expr(
+        &mut self,
+        kind: CreationKind,
+        expr: &str,
+        repository: &Repository,
+    ) -> Result<()> {
         let Some((field, value)) = expr.split_once(':') else {
             return Err(NtError::Message(format!(
                 "unknown {kind} metadata `{expr}`"
@@ -104,7 +103,7 @@ impl CreationMetadata {
             "link" => {
                 for link in split_metadata_values(field, value)? {
                     validate_id(&link)?;
-                    ensure_note_exists(index, &link)?;
+                    ensure_note_exists(repository, &link)?;
                     push_unique_sorted(&mut self.links, link);
                 }
                 Ok(())

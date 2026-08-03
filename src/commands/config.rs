@@ -1,7 +1,7 @@
 use crate::cli::ConfigCommand;
 use crate::error::Result;
 use crate::fs::{database_path, relative_to_cwd};
-use crate::index::Index;
+use crate::repository::Repository;
 
 pub(super) fn config(command: ConfigCommand) -> Result<()> {
     match command {
@@ -10,8 +10,8 @@ pub(super) fn config(command: ConfigCommand) -> Result<()> {
             Ok(())
         }
         ConfigCommand::Vault => {
-            let index = Index::load()?;
-            for vault in index.vaults.values() {
+            let repository = Repository::open()?;
+            for vault in repository.list_vaults()? {
                 println!("{}\t{}", vault.id, vault.name);
             }
             Ok(())

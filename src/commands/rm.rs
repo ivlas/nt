@@ -1,26 +1,20 @@
 use crate::error::{NtError, Result};
-use crate::index::Index;
 use crate::note::validate_id;
+use crate::repository::Repository;
 use std::collections::BTreeSet;
 
-use super::note_ref;
-
 pub(super) fn rm(ids: &[String]) -> Result<()> {
-    let mut index = Index::load()?;
     let mut seen = BTreeSet::new();
-    let mut notes = Vec::with_capacity(ids.len());
 
     for id in ids {
         validate_id(id)?;
         if !seen.insert(id.as_str()) {
             return Err(NtError::Message(format!("duplicate note id: {id}")));
         }
-
-        notes.push(note_ref(&index, id)?.clone());
     }
 
-    index.remove_notes(ids.iter().map(String::as_str));
-    index.save()?;
+    let mut repository = Repository::open()?;
+    repository.delete_notes(ids)?;
 
     for id in ids {
         println!("removed {id}");

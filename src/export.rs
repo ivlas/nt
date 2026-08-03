@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::index::NoteMeta;
+use crate::repository::NoteMeta;
 
 pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
     let mut text = String::new();
@@ -51,7 +51,7 @@ fn json_list(values: &[String]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::index::NoteMeta;
+    use crate::repository::NoteMeta;
 
     use super::export_markdown;
 

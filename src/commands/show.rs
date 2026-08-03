@@ -4,12 +4,12 @@ use std::process::Command as ProcessCommand;
 use crate::display::{joined_or_dash, summary_line};
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::index::Index;
 use crate::note::{title_from_body, validate_id};
 use crate::query::Query;
+use crate::repository::Repository;
 use crate::terminal::{Style, paint};
 
-use super::{add_body_sources, editor_temp_path, note_ref};
+use super::editor_temp_path;
 
 pub(super) fn show(id: &str) -> Result<()> {
     let text = show_text_for_display(id, crate::terminal::stdout_color_enabled())?;
@@ -24,8 +24,8 @@ pub(super) fn show(id: &str) -> Result<()> {
 
 fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     validate_id(id)?;
-    let index = Index::load()?;
-    let note = note_ref(&index, id)?;
+    let repository = Repository::open()?;
+    let note = repository.get_note(id)?;
 
     let mut text = String::new();
     text.push_str(&format!(
@@ -82,11 +82,10 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
 
 pub(super) fn open(id: &str) -> Result<()> {
     validate_id(id)?;
-    let index = Index::load()?;
-    let note = note_ref(&index, id)?.clone();
+    let mut repository = Repository::open()?;
+    let note = repository.get_note(id)?;
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let body = note.body.clone();
-    let original_body = body.clone();
     let original_updated = note.updated.clone();
     let open_path = open_temp_path(id)?;
     atomic_write(&open_path, body.as_bytes())?;
@@ -111,35 +110,27 @@ pub(super) fn open(id: &str) -> Result<()> {
     };
     let _ = fs::remove_file(&open_path);
 
-    let mut index = Index::load()?;
-    let note = note_ref(&index, id)?.clone();
-    if note.updated != original_updated || note.body != original_body {
-        return Err(NtError::Message(
-            "note changed during edit; please retry".to_string(),
-        ));
-    }
-
     let timestamp = crate::note::timestamp_now();
-    let mut updated = note;
-    updated.updated = timestamp.iso;
-    updated.title = title;
-    updated.body = body.clone();
-    add_body_sources(&mut updated, &body);
-
-    index.upsert_note(updated);
-    index.save()?;
+    repository.update_edited_note(
+        id,
+        &original_updated,
+        &note.body,
+        &body,
+        &title,
+        &timestamp.iso,
+    )?;
 
     println!("saved {id}");
     Ok(())
 }
 
 pub(super) fn find(exprs: &[String]) -> Result<()> {
-    let index = Index::load()?;
     let query = Query::parse(exprs)?;
+    let repository = Repository::open()?;
 
-    for note in index.all_notes() {
-        if query.matches(note)? {
-            println!("{}", summary_line(note));
+    for note in repository.list_notes()? {
+        if query.matches(&note)? {
+            println!("{}", summary_line(&note));
         }
     }
 
