@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
@@ -141,7 +141,9 @@ impl Repository {
 
     pub fn create_vault(&mut self, name: &str, created: &str) -> Result<()> {
         validate_namespace_part(name, "vault")?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let exists = transaction
             .query_row("SELECT 1 FROM vaults WHERE name = ?1", [name], |_| Ok(()))
             .optional()?
@@ -188,7 +190,9 @@ impl Repository {
     }
 
     pub fn insert_note(&mut self, note: &NoteMeta) -> Result<()> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("PRAGMA defer_foreign_keys = ON")?;
 
         let mut collection_ids = Vec::new();
@@ -340,7 +344,9 @@ impl Repository {
     }
 
     pub fn update_note(&mut self, id: &str, change: &NoteChange, now: &str) -> Result<()> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (kind, status, closed, home) = transaction
             .query_row(
                 "SELECT n.kind, n.status, n.closed, v.name || '/' || c.name
@@ -479,7 +485,9 @@ impl Repository {
         updated: &str,
     ) -> Result<()> {
         let body_sources = crate::note::sources_from_body(body);
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let changed = transaction.execute(
             "UPDATE notes SET body = ?1, title = ?2, updated = ?3
              WHERE id = ?4 AND updated = ?5 AND body = ?6",
@@ -502,7 +510,9 @@ impl Repository {
     }
 
     pub fn delete_notes(&mut self, ids: &[String]) -> Result<()> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         for id in ids {
             if !note_exists(&transaction, id)? {
                 return Err(NtError::NoteNotFound(id.clone()));
@@ -706,8 +716,8 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
         )
         .optional()?
         .is_some();
-    if has_schema_version {
-        let version: Option<i64> = connection
+    let version = if has_schema_version {
+        let version = connection
             .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
                 row.get(0)
             })
@@ -719,12 +729,19 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
                 "unsupported database schema version {version}"
             )));
         }
-    }
+        version
+    } else {
+        None
+    };
 
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
-         PRAGMA journal_mode = DELETE;",
+         PRAGMA journal_mode = WAL;",
     )?;
+
+    if matches!(version, Some(SCHEMA_VERSION)) {
+        return Ok(());
+    }
 
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
@@ -828,21 +845,10 @@ fn configure_and_initialize(connection: &Connection) -> Result<()> {
              ON note_tags(LOWER(tag), note_id);
          CREATE INDEX IF NOT EXISTS note_links_target ON note_links(target_id);",
     )?;
-    let version: Option<i64> = connection
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
-            row.get(0)
-        })
-        .optional()?;
-    match version {
-        None => {
-            connection.execute(
-                "INSERT INTO schema_version (version) VALUES (?1)",
-                [SCHEMA_VERSION],
-            )?;
-        }
-        Some(SCHEMA_VERSION) => {}
-        Some(_) => unreachable!("schema version checked before initialization"),
-    }
+    connection.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        [SCHEMA_VERSION],
+    )?;
     Ok(())
 }
 

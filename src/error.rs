@@ -9,7 +9,9 @@ pub enum NtError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(rusqlite::Error),
+    #[error("database is busy; retry the command")]
+    DatabaseBusy,
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run `nt init <vault>` first")]
@@ -24,6 +26,21 @@ pub enum NtError {
     InvalidTitle,
     #[error("editor failed: {0}")]
     EditorFailed(String),
+}
+
+impl From<rusqlite::Error> for NtError {
+    fn from(error: rusqlite::Error) -> Self {
+        if let rusqlite::Error::SqliteFailure(sqlite_error, _) = &error
+            && matches!(
+                sqlite_error.code,
+                rusqlite::ffi::ErrorCode::DatabaseBusy | rusqlite::ffi::ErrorCode::DatabaseLocked
+            )
+        {
+            Self::DatabaseBusy
+        } else {
+            Self::Database(error)
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, NtError>;
