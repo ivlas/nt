@@ -15,7 +15,7 @@ pub(crate) struct SqlQuery {
 }
 
 #[derive(Debug)]
-pub(crate) enum ListFilter {
+pub enum ListFilter {
     Id(String),
     Tag(String),
     Day(String),
@@ -87,7 +87,7 @@ impl Query {
         Ok(Self { exprs: parsed })
     }
 
-    pub(crate) fn parse_list_filters(exprs: &[String]) -> Result<Vec<ListFilter>> {
+    pub fn parse_list_filters(exprs: &[String]) -> Result<Vec<ListFilter>> {
         let mut parsed = Vec::new();
         for expr in exprs {
             let parsed_expr = QueryExpr::parse(expr)?;

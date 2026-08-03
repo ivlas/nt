@@ -1,16 +1,5 @@
-mod cli;
-mod commands;
-mod display;
-mod error;
-mod export;
-mod fs;
-mod listing;
-mod note;
-mod query;
-mod repository;
-mod terminal;
-
 use clap::Parser;
+use nt::{cli, commands, terminal};
 
 fn main() {
     let cli = cli::Cli::parse();
