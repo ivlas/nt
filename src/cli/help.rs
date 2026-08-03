@@ -58,7 +58,7 @@ Read and edit:
 
 Plan and organize:
   update <id> <field> <value>         update one metadata field
-  agenda [today|week|overdue|waiting|undated]  show actionable todos
+  agenda [week]                       show dated open todos
 
 Maintenance:
   export <path> [id...]               export Markdown snapshots
@@ -141,9 +141,11 @@ Examples:
   nt update 018fbe0a-6c00-7000-8000-000000000001 tag +decision
 "#;
 
-const AGENDA: &str = r#"nt agenda [today|week|overdue|waiting|undated]
+const AGENDA: &str = r#"nt agenda [week]
 
-Print actionable todo records ordered by date, priority, and recency.
+Print open todos that need attention by date. The default includes overdue and
+today; week also includes the next six days. Waiting, undated, done, and dropped
+todos are excluded. Rows contain id, priority, scheduled, due, and title.
 
 Examples:
   nt agenda
@@ -162,7 +164,7 @@ Commands:
   nt open <id>
   nt rm <id...>
   nt update <id> <field> <value>
-  nt agenda [today|week|overdue|waiting|undated]
+  nt agenda [week]
   nt export <path> [id...]
   nt help [command...]
 

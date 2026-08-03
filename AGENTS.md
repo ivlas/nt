@@ -43,7 +43,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt open <id>`
 - `nt rm <id...>`
 - `nt update <id> <field> <value>`
-- `nt agenda [today|week|overdue|waiting|undated]`
+- `nt agenda [week]`
 - `nt export <path> [id...]`
 - `nt help [command...]`
 

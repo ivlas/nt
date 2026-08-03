@@ -29,9 +29,8 @@ pub(crate) fn joined_or_dash(values: &[String]) -> String {
 
 pub(crate) fn agenda_line(note: &NoteMeta) -> String {
     format!(
-        "{}\t{}\t{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}",
         note.id,
-        note.status.as_deref().unwrap_or("-"),
         note.priority.as_deref().unwrap_or("-"),
         note.scheduled.as_deref().unwrap_or("-"),
         note.due.as_deref().unwrap_or("-"),
@@ -43,7 +42,7 @@ pub(crate) fn agenda_line(note: &NoteMeta) -> String {
 mod tests {
     use crate::repository::NoteMeta;
 
-    use super::{summary_line, summary_line_for_display};
+    use super::{agenda_line, summary_line, summary_line_for_display};
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
@@ -88,5 +87,18 @@ mod tests {
         assert!(line.contains("\x1b[2m2026-05-28\x1b[0m"));
         assert!(line.contains("\x1b[32mdesign"));
         assert!(line.ends_with("Storage shape"));
+    }
+
+    #[test]
+    fn agenda_line_omits_redundant_open_status() {
+        let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
+        note.priority = Some("A".to_string());
+        note.scheduled = Some("2026-05-28".to_string());
+        note.due = Some("2026-05-30".to_string());
+
+        assert_eq!(
+            agenda_line(&note),
+            "018fbe0a-6c00-7000-8000-000000000001\tA\t2026-05-28\t2026-05-30\tStorage shape"
+        );
     }
 }

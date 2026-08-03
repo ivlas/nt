@@ -15,7 +15,7 @@ nt show <id>
 nt open <id>
 nt rm <id...>
 nt update <id> <field> <value>
-nt agenda [today|week|overdue|waiting|undated]
+nt agenda [week]
 nt export <path> [id...]
 nt help [command...]
 ```
@@ -125,11 +125,15 @@ the `closed` timestamp.
 
 ## Agenda, Remove, And Export
 
-`agenda` includes open and waiting todos and supports `today`, `week`, `overdue`,
-`waiting`, and `undated`. `rm` rejects duplicate ids and verifies that every
-requested note exists inside one transaction before deleting anything. A
-missing id leaves every note unchanged. Cascades remove memberships, tags,
-sources, and incoming and outgoing links.
+`agenda` is a date-focused view of open todos. By default it includes overdue
+todos and todos due today or scheduled today or earlier. `agenda week` also
+includes todos scheduled or due in the next six days. Waiting, undated, done,
+and dropped todos are excluded. Rows contain tab-separated `id`, `priority`,
+`scheduled`, `due`, and `title` fields and are ordered by date, priority, and
+recency. `rm` rejects duplicate ids and verifies that every requested note
+exists inside one transaction before deleting anything. A missing id leaves
+every note unchanged. Cascades remove memberships, tags, sources, and incoming
+and outgoing links.
 
 `export <path> [id...]` writes portable `<id>.md` snapshots with generated front
 matter. `<path>` is a directory and is created if necessary. Omitting ids

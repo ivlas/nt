@@ -88,8 +88,15 @@ home as a reference until explicitly removed.
 ```sh
 printf '%s\n' '# Release' | nt todo home:work/project_a priority:A
 nt update <id> due 2026-08-15
+nt agenda
 nt agenda week
+nt list id,title,priority,tag,home kind:todo status:open
+nt list id,title,tag,home kind:todo status:waiting
 ```
+
+`agenda` is date-focused: the default shows overdue and today, while `week` adds
+the next six days. Use ordinary `list` projections for open todos, waiting
+items, inbox collections, and `tag:someday` items.
 
 ## Edit, Remove, And Export
 

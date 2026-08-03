@@ -84,11 +84,7 @@ pub enum UpdateField {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum AgendaView {
-    Today,
     Week,
-    Overdue,
-    Waiting,
-    Undated,
 }
 
 #[cfg(test)]
@@ -147,6 +143,9 @@ mod tests {
         assert!(Cli::try_parse_from(["nt", "config", "show"]).is_err());
         assert!(Cli::try_parse_from(["nt", "config", "vault"]).is_err());
         assert!(Cli::try_parse_from(["nt", "rm"]).is_err());
+        for removed in ["today", "overdue", "waiting", "undated"] {
+            assert!(Cli::try_parse_from(["nt", "agenda", removed]).is_err());
+        }
         assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
         assert!(Cli::parse_from(["nt"]).command.is_none());
     }
