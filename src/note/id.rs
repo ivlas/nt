@@ -46,26 +46,26 @@ pub fn new_id() -> String {
     Uuid::now_v7().to_string()
 }
 
-pub fn validate_id(id: &str) -> Result<()> {
-    id.parse::<NoteId>().map(|_| ())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{NoteId, new_id, validate_id};
+    use super::{NoteId, new_id};
 
     #[test]
     fn generates_canonical_uuid_v7_ids() {
         let id = NoteId::generate();
-        validate_id(id.as_str()).unwrap();
+        id.as_str().parse::<NoteId>().unwrap();
         assert_eq!(id.as_str().len(), 36);
         assert_eq!(id.as_str().as_bytes()[14], b'7');
-        validate_id(&new_id()).unwrap();
+        new_id().parse::<NoteId>().unwrap();
     }
 
     #[test]
     fn rejects_legacy_and_non_v7_ids() {
-        assert!(validate_id("NT20260528T143012").is_err());
-        assert!(validate_id("550e8400-e29b-41d4-a716-446655440000").is_err());
+        assert!("NT20260528T143012".parse::<NoteId>().is_err());
+        assert!(
+            "550e8400-e29b-41d4-a716-446655440000"
+                .parse::<NoteId>()
+                .is_err()
+        );
     }
 }

@@ -9,4 +9,4 @@ pub use collection::QualifiedCollection;
 pub(crate) use collection::validate_namespace_part;
 pub use date::{Date, Timestamp, add_days, local_day_now, timestamp_now};
 pub use domain::{NoteKind, Priority, Status};
-pub use id::{NoteId, new_id, validate_id};
+pub use id::{NoteId, new_id};

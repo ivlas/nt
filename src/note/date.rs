@@ -46,10 +46,6 @@ impl Timestamp {
     pub fn as_str(&self) -> &str {
         &self.iso
     }
-
-    pub fn day(&self) -> &Date {
-        &self.day
-    }
 }
 
 impl AsRef<str> for Timestamp {
@@ -230,7 +226,7 @@ mod tests {
     fn formats_unix_epoch_timestamp() {
         let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
         assert_eq!(timestamp.as_str(), "1970-01-01T00:00:00Z");
-        assert_eq!(timestamp.day().as_str(), "1970-01-01");
+        assert_eq!(timestamp.day.as_str(), "1970-01-01");
     }
 
     #[test]
@@ -244,7 +240,7 @@ mod tests {
     fn timestamp_parses_only_canonical_utc_values() {
         let timestamp: Timestamp = "2026-05-28T14:30:12Z".parse().unwrap();
         assert_eq!(timestamp.as_str(), "2026-05-28T14:30:12Z");
-        assert_eq!(timestamp.day().as_str(), "2026-05-28");
+        assert_eq!(timestamp.day.as_str(), "2026-05-28");
         assert!("2026-02-29T14:30:12Z".parse::<Timestamp>().is_err());
         assert!("2026-05-28T24:00:00Z".parse::<Timestamp>().is_err());
         assert!("2026-05-28T14:30:12+00:00".parse::<Timestamp>().is_err());
