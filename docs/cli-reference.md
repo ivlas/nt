@@ -13,6 +13,7 @@ nt list [projection] [filter...]
 nt find <expr...>
 nt show <id>
 nt rm <id...>
+nt update <id> body
 nt update <id> <field> <value>
 nt agenda [week]
 nt export <path> [id...]
@@ -118,12 +119,18 @@ and `closed` fields.
 
 ## Update
 
-`kind` takes `note` or `todo`; `kind -` resets it to `note`. `status`,
-`priority`, `scheduled`, and `due` use `-` to clear. `home` takes a qualified
-collection. Set fields `tag`, `collection`, `link`, and `source` require
-`+value` or `-value`.
+`body` replaces the complete CommonMark document from stdin or `$EDITOR`. The
+body must begin with `# Title`; the derived title, update timestamp, search
+index, and sources discovered in the new body are updated in one transaction.
+An interactive edit is rejected if the note changed after the editor opened.
+
+`kind` takes `note` or `todo`; `kind -` resets it to `note`. `status`, `priority`,
+`scheduled`, and `due` use `-` to clear. `home` takes a qualified collection.
+Set fields `tag`, `collection`, `link`, and `source` require `+value` or
+`-value`.
 
 ```sh
+printf '%s\n' '# Updated title' '' 'Replacement body.' | nt update <id> body
 nt update <id> home work/project_a
 nt update <id> collection +personal/rust
 nt update <id> tag +decision

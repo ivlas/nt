@@ -41,6 +41,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt find <expr...>`
 - `nt show <id>`
 - `nt rm <id...>`
+- `nt update <id> body`
 - `nt update <id> <field> <value>`
 - `nt agenda [week]`
 - `nt export <path> [id...]`

@@ -25,7 +25,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Find { expr }) => show::find(&expr),
         Some(Command::Show { id }) => show::show(&id),
         Some(Command::Rm { ids }) => rm::rm(&ids),
-        Some(Command::Update { id, field, value }) => update::update(&id, field, &value),
+        Some(Command::Update { id, field, value }) => update::update(&id, field, value.as_deref()),
         Some(Command::Agenda { view }) => agenda::agenda(view),
         Some(Command::Export { path, ids }) => export_cmd::export(&path, &ids),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic),

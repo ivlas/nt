@@ -174,6 +174,59 @@ fn updating_a_note_does_not_rewrite_unrelated_rows() {
 }
 
 #[test]
+fn body_update_replaces_commonmark_and_derived_title_atomically() {
+    let root = temp_dir("body-update");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(
+        &home,
+        &["note", "tag:apples"],
+        "# Facts About Apples\n\n1. Apples float in air.\n2. Keep this.\n3. Remove this.\n",
+    );
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let replacement =
+        "# Updated Apple Facts\n\n1. Apples float in water.\n2. Keep this.\n4. Add this.\n";
+
+    let output = run_nt_with_stdin(&home, &["update", id, "body"], replacement);
+    assert_eq!(output, format!("updated {id} body\n"));
+    let shown = run_nt(&home, &["show", id]);
+    assert!(shown.contains("Updated Apple Facts"));
+    assert!(shown.contains(replacement));
+    assert!(!shown.contains("Remove this."));
+    assert!(shown.contains("tags apples"));
+
+    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    assert_search_index_consistent(&connection);
+    assert_foreign_keys(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn invalid_body_update_leaves_the_note_unchanged() {
+    let root = temp_dir("invalid-body-update");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let saved = run_nt_with_stdin(&home, &["note"], "# Original\n\nStable body.\n");
+    let id = saved.trim().strip_prefix("saved ").unwrap();
+    let database = home.join(".nt/nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    let before = note_snapshot(&connection, id);
+    drop(connection);
+
+    assert_failed(
+        &home,
+        &["update", id, "body"],
+        "not a heading\n",
+        "note must start",
+    );
+
+    let connection = Connection::open(database).unwrap();
+    assert_eq!(note_snapshot(&connection, id), before);
+    assert_search_index_consistent(&connection);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn removing_valid_and_missing_ids_deletes_nothing() {
     let root = temp_dir("transactional-delete");
     let home = root.join("home");

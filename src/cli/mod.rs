@@ -50,7 +50,7 @@ pub enum Command {
         id: String,
         field: UpdateField,
         #[arg(allow_hyphen_values = true)]
-        value: String,
+        value: Option<String>,
     },
     Agenda {
         view: Option<AgendaView>,
@@ -67,6 +67,7 @@ pub enum Command {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum UpdateField {
+    Body,
     Kind,
     Status,
     Priority,
@@ -121,7 +122,13 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(Command::Update { id, field: UpdateField::Home, value })
-                if id == ID && value == "work/project_a"
+                if id == ID && value.as_deref() == Some("work/project_a")
+        ));
+
+        let cli = Cli::parse_from(["nt", "update", ID, "body"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update { id, field: UpdateField::Body, value: None }) if id == ID
         ));
 
         let cli = Cli::parse_from(["nt", "agenda", "week"]);

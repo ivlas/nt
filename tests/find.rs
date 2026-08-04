@@ -161,14 +161,11 @@ fn fts_index_tracks_insert_update_and_delete_transactionally() {
         vec![id]
     );
 
-    let connection = Connection::open(&database).unwrap();
-    connection
-        .execute(
-            "UPDATE notes SET title = 'Fresh Heading', body = 'A replacementword lives here.' WHERE id = ?1",
-            [id],
-        )
-        .unwrap();
-    drop(connection);
+    run_nt_with_stdin(
+        &home,
+        &["update", id, "body"],
+        "# Fresh Heading\n\nA replacementword lives here.\n",
+    );
 
     assert!(run_nt(&home, &["find", "title:legacy"]).is_empty());
     assert!(run_nt(&home, &["find", "body:obsoleteword"]).is_empty());

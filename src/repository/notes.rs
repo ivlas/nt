@@ -279,6 +279,40 @@ impl Repository {
         Ok(())
     }
 
+    pub fn update_note_body(
+        &mut self,
+        id: &str,
+        expected_updated: &str,
+        expected_body: &str,
+        body: &str,
+        title: &str,
+        updated: &str,
+    ) -> Result<()> {
+        let body_sources = crate::note::sources_from_body(body);
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE notes SET body = ?1, title = ?2, updated = ?3
+             WHERE id = ?4 AND updated = ?5 AND body = ?6",
+            params![body, title, updated, id, expected_updated, expected_body],
+        )?;
+        if changed == 0 {
+            return Err(NtError::Message(
+                "note changed during edit; please retry".to_string(),
+            ));
+        }
+        for source in &body_sources {
+            transaction.execute(
+                "INSERT INTO note_sources (note_id, source) VALUES (?1, ?2)
+                 ON CONFLICT DO NOTHING",
+                params![id, source],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn delete_notes(&mut self, ids: &[String]) -> Result<()> {
         let transaction = self
             .connection

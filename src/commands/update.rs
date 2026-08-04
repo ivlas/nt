@@ -1,10 +1,15 @@
+use std::fs;
+use std::io::{self, IsTerminal, Read};
+use std::process::Command as ProcessCommand;
+
 use crate::cli::UpdateField;
 use crate::error::{NtError, Result};
+use crate::fs::atomic_write;
 use crate::repository::{NoteChange, Repository};
 
 use super::{
-    ensure_note_exists, validate_collection, validate_kind, validate_priority, validate_status,
-    validate_tag,
+    editor_temp_path, ensure_note_exists, validate_collection, validate_kind, validate_priority,
+    validate_status, validate_tag,
 };
 
 #[derive(Debug)]
@@ -25,6 +30,7 @@ enum UpdateOperation {
 impl UpdateOperation {
     fn parse(field: UpdateField, raw: &str, repository: &Repository) -> Result<Self> {
         match field {
+            UpdateField::Body => unreachable!(),
             UpdateField::Kind => {
                 if raw != "-" {
                     validate_kind(raw)?;
@@ -118,6 +124,7 @@ impl UpdateOperation {
 
 fn field_name(field: UpdateField) -> &'static str {
     match field {
+        UpdateField::Body => "body",
         UpdateField::Kind => "kind",
         UpdateField::Status => "status",
         UpdateField::Priority => "priority",
@@ -131,13 +138,57 @@ fn field_name(field: UpdateField) -> &'static str {
     }
 }
 
-pub(super) fn update(id: &str, field: UpdateField, value: &str) -> Result<()> {
+pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Result<()> {
     crate::note::validate_id(id)?;
     let mut repository = Repository::open()?;
+
+    if matches!(field, UpdateField::Body) {
+        if value.is_some() {
+            return Err(NtError::Message(
+                "`body` update reads CommonMark from stdin or $EDITOR".to_string(),
+            ));
+        }
+        let note = repository.get_note(id)?;
+        let body = read_body(&note.body, id)?;
+        let title = crate::note::title_from_body(&body)?;
+        let now = crate::note::timestamp_now().iso;
+        repository.update_note_body(id, &note.updated, &note.body, &body, &title, &now)?;
+        println!("updated {id} body");
+        return Ok(());
+    }
+
     super::ensure_note_exists(&repository, id)?;
+    let value = value.ok_or_else(|| {
+        NtError::Message(format!("`{}` update requires a value", field_name(field)))
+    })?;
     let operation = UpdateOperation::parse(field, value, &repository)?;
     let now = crate::note::timestamp_now().iso;
     repository.update_note(id, &operation.into_change(), &now)?;
     println!("updated {id} {} {value}", field_name(field));
     Ok(())
+}
+
+fn read_body(current: &str, id: &str) -> Result<String> {
+    let mut body = String::new();
+    if !io::stdin().is_terminal() {
+        io::stdin().read_to_string(&mut body)?;
+    } else {
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        let path = editor_temp_path("update-body", Some(id))?;
+        atomic_write(&path, current.as_bytes())?;
+        let status = ProcessCommand::new(&editor).arg(&path).status()?;
+        if !status.success() {
+            let _ = fs::remove_file(&path);
+            return Err(NtError::EditorFailed(editor));
+        }
+        body = fs::read_to_string(&path)?;
+        fs::remove_file(&path)?;
+    }
+    if body.trim().is_empty() {
+        return Err(NtError::EmptyNote);
+    }
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    Ok(body)
 }

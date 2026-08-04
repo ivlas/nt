@@ -78,6 +78,7 @@ nt list id | fzf --multi | xargs -n1 nt show
 ## Organize
 
 ```sh
+printf '%s\n' '# Updated title' '' 'Replacement body.' | nt update <id> body
 nt update <id> home work/project_a
 nt update <id> collection +personal/rust
 nt update <id> collection -personal/inbox
@@ -85,7 +86,9 @@ nt update <id> tag +storage
 ```
 
 Home is canonical and always remains a membership. Moving home preserves the old
-home as a reference until explicitly removed.
+home as a reference until explicitly removed. A body update replaces the whole
+CommonMark document and rederives its title. Without piped stdin, it opens the
+current body in `$EDITOR`.
 
 ## Todos
 

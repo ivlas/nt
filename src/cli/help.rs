@@ -53,6 +53,7 @@ Read and remove:
   rm <id...>                          remove one or more notes
 
 Plan and organize:
+  update <id> body                    replace CommonMark from stdin or $EDITOR
   update <id> <field> <value>         update one metadata field
   agenda [week]                       show dated open todos
 
@@ -128,14 +129,17 @@ Examples:
   nt find collection:personal/rust body:'ownership borrow'
 "#;
 
-const UPDATE: &str = r#"nt update <id> <field> <value>
+const UPDATE: &str = r#"nt update <id> body
+nt update <id> <field> <value>
 
-Single fields kind, status, priority, scheduled, and due use a value or -.
-Home takes a fully qualified collection. Set fields tag, collection, link, and
-source require +value or -value. A home membership cannot be removed until home
-is moved.
+Body replaces the complete CommonMark document from stdin or $EDITOR and
+rederives the title. Single metadata fields kind, status, priority, scheduled,
+and due use a value or -. Home takes a fully qualified collection. Set fields
+tag, collection, link, and source require +value or -value. A home membership
+cannot be removed until home is moved.
 
 Examples:
+  printf '%s\n' '# Updated' '' 'Replacement body.' | nt update 018fbe0a-6c00-7000-8000-000000000001 body
   nt update 018fbe0a-6c00-7000-8000-000000000001 home work/project_a
   nt update 018fbe0a-6c00-7000-8000-000000000001 tag +decision
 "#;
@@ -161,6 +165,7 @@ Commands:
   nt find <expr...>
   nt show <id>
   nt rm <id...>
+  nt update <id> body
   nt update <id> <field> <value>
   nt agenda [week]
   nt export <path> [id...]
@@ -190,6 +195,7 @@ Find:
   source remains a case-insensitive SQL substring.
 
 Update:
+  body           replace CommonMark from stdin or $EDITOR
   single fields  kind status priority scheduled due; use - to clear
   home field     fully qualified collection
   set fields     tag collection link source; use +<value> or -<value>
