@@ -3,7 +3,7 @@ use std::io::{self, IsTerminal, Read};
 use std::process::Command as ProcessCommand;
 
 use crate::cli::UpdateField;
-use crate::error::{NtError, Result};
+use crate::error::{MetadataErrorKind, NtError, Result};
 use crate::fs::atomic_write;
 use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status};
 use crate::repository::{NoteChange, Repository};
@@ -62,17 +62,19 @@ impl UpdateOperation {
                     .strip_prefix('+')
                     .map(|value| (true, value))
                     .or_else(|| raw.strip_prefix('-').map(|value| (false, value)))
-                    .ok_or_else(|| {
-                        NtError::Message(format!(
-                            "`{}` update requires +value or -value",
-                            field_name(field)
-                        ))
+                    .ok_or_else(|| NtError::InvalidMetadata {
+                        command: "update",
+                        field: Some(field_name(field).to_string()),
+                        value: Some(raw.to_string()),
+                        kind: MetadataErrorKind::RequiresSignedValue,
                     })?;
                 if value.is_empty() {
-                    return Err(NtError::Message(format!(
-                        "empty `{}` update value",
-                        field_name(field)
-                    )));
+                    return Err(NtError::InvalidMetadata {
+                        command: "update",
+                        field: Some(field_name(field).to_string()),
+                        value: Some(raw.to_string()),
+                        kind: MetadataErrorKind::EmptyValue,
+                    });
                 }
                 Ok(match field {
                     UpdateField::Tag => {
@@ -153,8 +155,11 @@ pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Resul
     }
 
     super::ensure_note_exists(&repository, &id)?;
-    let value = value.ok_or_else(|| {
-        NtError::Message(format!("`{}` update requires a value", field_name(field)))
+    let value = value.ok_or_else(|| NtError::InvalidMetadata {
+        command: "update",
+        field: Some(field_name(field).to_string()),
+        value: None,
+        kind: MetadataErrorKind::RequiresValue,
     })?;
     let operation = UpdateOperation::parse(field, value, &repository)?;
     let now = crate::note::timestamp_now();

@@ -2,6 +2,25 @@ use thiserror::Error;
 
 use std::path::PathBuf;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MetadataErrorKind {
+    UnknownExpression,
+    UnknownField,
+    TodoOnly,
+    EmptyValue,
+    MultipleValues,
+    DuplicateField,
+    RequiresValue,
+    RequiresSignedValue,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionErrorKind {
+    MissingQualifier,
+    InvalidVault,
+    InvalidName,
+}
+
 #[derive(Debug, Error)]
 pub enum NtError {
     #[error("{0}")]
@@ -14,6 +33,19 @@ pub enum NtError {
     Database(rusqlite::Error),
     #[error("database is busy; retry the command")]
     DatabaseBusy,
+    #[error("invalid metadata")]
+    InvalidMetadata {
+        command: &'static str,
+        field: Option<String>,
+        value: Option<String>,
+        kind: MetadataErrorKind,
+    },
+    #[error("invalid collection")]
+    InvalidCollection {
+        value: String,
+        component: Option<String>,
+        kind: CollectionErrorKind,
+    },
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run `nt init <vault>` first")]
@@ -39,6 +71,15 @@ pub enum NtError {
     InvalidTitle,
     #[error("editor failed: {0}")]
     EditorFailed(String),
+    #[error("note changed during edit")]
+    ConcurrentEdit { note_id: String },
+    #[error("export failed")]
+    ExportFailure {
+        path: PathBuf,
+        note_id: Option<String>,
+        #[source]
+        source: Box<NtError>,
+    },
 }
 
 impl From<rusqlite::Error> for NtError {

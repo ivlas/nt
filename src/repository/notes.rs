@@ -316,9 +316,9 @@ impl Repository {
             ],
         )?;
         if changed == 0 {
-            return Err(NtError::Message(
-                "note changed during edit; please retry".to_string(),
-            ));
+            return Err(NtError::ConcurrentEdit {
+                note_id: id.to_string(),
+            });
         }
         for source in &body_sources {
             transaction.execute(
@@ -589,7 +589,7 @@ mod tests {
     use rusqlite::params;
 
     use crate::error::NtError;
-    use crate::repository::{Repository, schema::configure_and_initialize};
+    use crate::repository::{NoteMeta, Repository, schema::configure_and_initialize};
 
     #[test]
     fn loading_rejects_non_uuid_note_ids_persisted_as_text() {
@@ -633,6 +633,40 @@ mod tests {
         assert!(matches!(
             repository.list_notes().unwrap_err(),
             NtError::Database(rusqlite::Error::FromSqlConversionFailure(0, _, _))
+        ));
+    }
+
+    #[test]
+    fn stale_body_update_returns_concurrent_edit_context() {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        configure_and_initialize(&mut connection).unwrap();
+        let mut repository = Repository { connection };
+        let created = "2026-05-28T14:30:12Z".parse().unwrap();
+        repository.create_vault("personal", &created).unwrap();
+        let note = NoteMeta::new_note(
+            "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap(),
+            "personal/inbox".parse().unwrap(),
+            "# Original\n".to_string(),
+            created.clone(),
+            created,
+            "Original".to_string(),
+        );
+        repository.insert_note(&note).unwrap();
+
+        let error = repository
+            .update_note_body(
+                &note.id,
+                &"2026-05-28T14:31:00Z".parse().unwrap(),
+                &note.body,
+                "# Changed\n",
+                "Changed",
+                &"2026-05-28T14:32:00Z".parse().unwrap(),
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            NtError::ConcurrentEdit { note_id } if note_id == note.id.as_str()
         ));
     }
 }

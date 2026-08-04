@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{NtError, Result};
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, relative_to_cwd};
 use crate::note::NoteId;
@@ -10,9 +10,13 @@ use crate::repository::Repository;
 
 pub(super) fn export(path: &Path, ids: &[String]) -> Result<()> {
     let repository = Repository::open()?;
-    let export_dir = absolute_path(path)?;
-    fs::create_dir_all(&export_dir)?;
-    let export_dir = fs::canonicalize(&export_dir)?;
+    let export_dir = absolute_path(path).map_err(|source| export_failure(path, None, source))?;
+    fs::create_dir_all(&export_dir)
+        .map_err(NtError::from)
+        .map_err(|source| export_failure(&export_dir, None, source))?;
+    let export_dir = fs::canonicalize(&export_dir)
+        .map_err(NtError::from)
+        .map_err(|source| export_failure(&export_dir, None, source))?;
 
     let notes = if ids.is_empty() {
         repository.list_notes()?
@@ -26,7 +30,10 @@ pub(super) fn export(path: &Path, ids: &[String]) -> Result<()> {
     for note in notes {
         let id = &note.id;
         let path = export_dir.join(format!("{id}.md"));
-        atomic_write(&path, export_markdown(&note, &note.body)?.as_bytes())?;
+        let markdown = export_markdown(&note, &note.body)
+            .map_err(|source| export_failure(&path, Some(id.as_str()), source))?;
+        atomic_write(&path, markdown.as_bytes())
+            .map_err(|source| export_failure(&path, Some(id.as_str()), source))?;
         println!("exported {id} {}", relative_to_cwd(&path).display());
     }
 
@@ -47,4 +54,12 @@ fn export_ids(repository: &Repository, ids: &[String]) -> Result<Vec<NoteId>> {
     }
 
     Ok(export_ids)
+}
+
+fn export_failure(path: &Path, note_id: Option<&str>, source: NtError) -> NtError {
+    NtError::ExportFailure {
+        path: path.to_path_buf(),
+        note_id: note_id.map(str::to_string),
+        source: Box::new(source),
+    }
 }

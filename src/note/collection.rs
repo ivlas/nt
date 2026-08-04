@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::error::{NtError, Result};
+use crate::error::{CollectionErrorKind, NtError, Result};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct QualifiedCollection(String);
@@ -43,24 +43,31 @@ impl FromStr for QualifiedCollection {
 
     fn from_str(value: &str) -> Result<Self> {
         let Some((vault, collection)) = value.split_once('/') else {
-            return Err(NtError::Message(format!(
-                "invalid collection `{value}`; use <vault>/<collection>"
-            )));
+            return Err(NtError::InvalidCollection {
+                value: value.to_string(),
+                component: None,
+                kind: CollectionErrorKind::MissingQualifier,
+            });
         };
-        validate_namespace_part(vault, "vault")?;
-        validate_namespace_part(collection, "collection")?;
+        validate_collection_part(value, vault, CollectionErrorKind::InvalidVault)?;
+        validate_collection_part(value, collection, CollectionErrorKind::InvalidName)?;
         Ok(Self(value.to_string()))
     }
 }
 
+fn validate_collection_part(value: &str, component: &str, kind: CollectionErrorKind) -> Result<()> {
+    if namespace_part_is_invalid(component) {
+        return Err(NtError::InvalidCollection {
+            value: value.to_string(),
+            component: Some(component.to_string()),
+            kind,
+        });
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
-    if value.is_empty()
-        || value.starts_with('/')
-        || value.ends_with('/')
-        || value
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || matches!(ch, ',' | '/'))
-    {
+    if namespace_part_is_invalid(value) {
         return Err(NtError::Message(format!(
             "invalid {kind} `{value}`; use lowercase names without slashes, spaces, or commas"
         )));
@@ -68,8 +75,19 @@ pub(crate) fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
     Ok(())
 }
 
+fn namespace_part_is_invalid(value: &str) -> bool {
+    value.is_empty()
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || matches!(ch, ',' | '/'))
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::error::{CollectionErrorKind, NtError};
+
     use super::QualifiedCollection;
 
     #[test]
@@ -78,7 +96,14 @@ mod tests {
         assert_eq!(collection.vault(), "personal");
         assert_eq!(collection.collection(), "rust");
         assert_eq!(collection.as_str(), "personal/rust");
-        assert!("rust".parse::<QualifiedCollection>().is_err());
+        assert!(matches!(
+            "rust".parse::<QualifiedCollection>().unwrap_err(),
+            NtError::InvalidCollection {
+                value,
+                component: None,
+                kind: CollectionErrorKind::MissingQualifier,
+            } if value == "rust"
+        ));
         assert!("Personal/rust".parse::<QualifiedCollection>().is_err());
         assert!(
             "personal/rust/notes"
@@ -86,5 +111,29 @@ mod tests {
                 .is_err()
         );
         assert!("personal//rust".parse::<QualifiedCollection>().is_err());
+    }
+
+    #[test]
+    fn collection_errors_identify_the_invalid_component() {
+        assert!(matches!(
+            "Personal/inbox"
+                .parse::<QualifiedCollection>()
+                .unwrap_err(),
+            NtError::InvalidCollection {
+                value,
+                component: Some(component),
+                kind: CollectionErrorKind::InvalidVault,
+            } if value == "Personal/inbox" && component == "Personal"
+        ));
+        assert!(matches!(
+            "personal/Rust"
+                .parse::<QualifiedCollection>()
+                .unwrap_err(),
+            NtError::InvalidCollection {
+                component: Some(component),
+                kind: CollectionErrorKind::InvalidName,
+                ..
+            } if component == "Rust"
+        ));
     }
 }

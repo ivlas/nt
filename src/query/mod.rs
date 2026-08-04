@@ -386,6 +386,8 @@ fn push_case_sensitive_contains_sql(
 
 #[cfg(test)]
 mod tests {
+    use crate::error::{CollectionErrorKind, NtError};
+
     use super::Query;
 
     #[test]
@@ -523,11 +525,13 @@ mod tests {
                 .to_string(),
             "invalid `link` note id `018fbe0a`; use a UUIDv7"
         );
-        assert_eq!(
-            Query::parse(&["collection:inbox".to_string()])
-                .unwrap_err()
-                .to_string(),
-            "invalid collection `inbox`; use <vault>/<collection>"
-        );
+        assert!(matches!(
+            Query::parse(&["collection:inbox".to_string()]).unwrap_err(),
+            NtError::InvalidCollection {
+                value,
+                component: None,
+                kind: CollectionErrorKind::MissingQualifier,
+            } if value == "inbox"
+        ));
     }
 }

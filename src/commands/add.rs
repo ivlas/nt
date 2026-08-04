@@ -3,7 +3,7 @@ use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
-use crate::error::{NtError, Result};
+use crate::error::{MetadataErrorKind, NtError, Result};
 use crate::fs::atomic_write;
 use crate::note::{
     Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, Timestamp, title_from_body,
@@ -82,9 +82,12 @@ impl CreationMetadata {
         repository: &Repository,
     ) -> Result<()> {
         let Some((field, value)) = expr.split_once(':') else {
-            return Err(NtError::Message(format!(
-                "unknown {kind} metadata `{expr}`"
-            )));
+            return Err(invalid_metadata(
+                kind,
+                None,
+                Some(expr),
+                MetadataErrorKind::UnknownExpression,
+            ));
         };
         match field {
             "home" => set_typed_metadata(&mut self.home, field, value),
@@ -123,9 +126,12 @@ impl CreationMetadata {
                 kind.ensure_todo_field(field)?;
                 set_typed_metadata(&mut self.due, field, value)
             }
-            _ => Err(NtError::Message(format!(
-                "unknown {kind} metadata field `{field}`"
-            ))),
+            _ => Err(invalid_metadata(
+                kind,
+                Some(field),
+                None,
+                MetadataErrorKind::UnknownField,
+            )),
         }
     }
 
@@ -162,19 +168,40 @@ impl CreationKind {
         if self == Self::Todo {
             Ok(())
         } else {
-            Err(NtError::Message(format!(
-                "`{field}` metadata is only valid for `nt todo`"
-            )))
+            Err(invalid_metadata(
+                self,
+                Some(field),
+                None,
+                MetadataErrorKind::TodoOnly,
+            ))
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Note => "note",
+            Self::Todo => "todo",
         }
     }
 }
 
 impl std::fmt::Display for CreationKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::Note => "note",
-            Self::Todo => "todo",
-        })
+        formatter.write_str(self.as_str())
+    }
+}
+
+fn invalid_metadata(
+    command: CreationKind,
+    field: Option<&str>,
+    value: Option<&str>,
+    kind: MetadataErrorKind,
+) -> NtError {
+    NtError::InvalidMetadata {
+        command: command.as_str(),
+        field: field.map(str::to_string),
+        value: value.map(str::to_string),
+        kind,
     }
 }
 
@@ -191,9 +218,12 @@ fn push_value_list(values: &mut Vec<String>, field: &str, raw: &str) -> Result<(
 fn push_single_value(values: &mut Vec<String>, field: &str, raw: &str) -> Result<()> {
     let value = raw.trim();
     if value.is_empty() {
-        return Err(NtError::Message(format!(
-            "empty add metadata value for `{field}`"
-        )));
+        return Err(NtError::InvalidMetadata {
+            command: "add",
+            field: Some(field.to_string()),
+            value: Some(raw.to_string()),
+            kind: MetadataErrorKind::EmptyValue,
+        });
     }
     push_unique_sorted(values, value.to_string());
     Ok(())
@@ -205,15 +235,21 @@ where
 {
     let values = split_metadata_values(field, raw)?;
     if values.len() != 1 {
-        return Err(NtError::Message(format!(
-            "`{field}` metadata accepts one value"
-        )));
+        return Err(NtError::InvalidMetadata {
+            command: "add",
+            field: Some(field.to_string()),
+            value: Some(raw.to_string()),
+            kind: MetadataErrorKind::MultipleValues,
+        });
     }
     let value = values[0].parse()?;
     if target.replace(value).is_some() {
-        return Err(NtError::Message(format!(
-            "`{field}` metadata can be set only once"
-        )));
+        return Err(NtError::InvalidMetadata {
+            command: "add",
+            field: Some(field.to_string()),
+            value: Some(raw.to_string()),
+            kind: MetadataErrorKind::DuplicateField,
+        });
     }
     Ok(())
 }
@@ -226,9 +262,12 @@ fn split_metadata_values(field: &str, raw: &str) -> Result<Vec<String>> {
         .map(str::to_string)
         .collect();
     if values.is_empty() {
-        return Err(NtError::Message(format!(
-            "empty add metadata value for `{field}`"
-        )));
+        return Err(NtError::InvalidMetadata {
+            command: "add",
+            field: Some(field.to_string()),
+            value: Some(raw.to_string()),
+            kind: MetadataErrorKind::EmptyValue,
+        });
     }
     Ok(values)
 }
@@ -265,4 +304,24 @@ fn read_from_editor() -> Result<String> {
 
 fn add_temp_path() -> Result<PathBuf> {
     editor_temp_path("note", None)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::error::{MetadataErrorKind, NtError};
+
+    use super::split_metadata_values;
+
+    #[test]
+    fn empty_metadata_value_has_structured_context() {
+        assert!(matches!(
+            split_metadata_values("tag", " , ").unwrap_err(),
+            NtError::InvalidMetadata {
+                command: "add",
+                field: Some(field),
+                value: Some(value),
+                kind: MetadataErrorKind::EmptyValue,
+            } if field == "tag" && value == " , "
+        ));
+    }
 }
