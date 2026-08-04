@@ -88,8 +88,7 @@ the last committed snapshot while a write is in progress. Independent commands
 may write concurrently, but SQLite still permits only one active writer;
 contending writers wait up to five seconds and then receive a retryable error.
 Mutations use short transactions, and `nt` does not hold a write transaction
-open while reading note content from stdin or waiting for `$EDITOR`. Optimistic
-checks reject an editor save if the note changed while it was open.
+open while reading note content from stdin or waiting for `$EDITOR`.
 
 ## Decision Status
 

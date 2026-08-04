@@ -20,7 +20,6 @@ nt find example
 
 ```sh
 nt show <id>
-nt open <id>
 nt list
 nt agenda
 ```

@@ -24,7 +24,6 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::List { args }) => list::list(&args),
         Some(Command::Find { expr }) => show::find(&expr),
         Some(Command::Show { id }) => show::show(&id),
-        Some(Command::Open { id }) => show::open(&id),
         Some(Command::Rm { ids }) => rm::rm(&ids),
         Some(Command::Update { id, field, value }) => update::update(&id, field, &value),
         Some(Command::Agenda { view }) => agenda::agenda(view),

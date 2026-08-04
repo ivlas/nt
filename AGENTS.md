@@ -40,7 +40,6 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt list [projection] [filter...]`
 - `nt find <expr...>`
 - `nt show <id>`
-- `nt open <id>`
 - `nt rm <id...>`
 - `nt update <id> <field> <value>`
 - `nt agenda [week]`

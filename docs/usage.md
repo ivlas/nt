@@ -102,21 +102,17 @@ nt list id,title,tag,home kind:todo status:waiting
 the next six days. Use ordinary `list` projections for open todos, waiting
 items, inbox collections, and `tag:someday` items.
 
-## Edit, Remove, And Export
+## Remove And Export
 
 ```sh
-nt open <id>
 nt rm <id>
 nt export archive <id>
 ```
 
-`open` uses a temporary Markdown file only as the `$EDITOR` interface; the
-committed body lives in SQLite. It does not hold a transaction while the editor
-runs and rejects a save if the stored timestamp or body changed. `rm` validates
-all requested ids before deleting and removes dependent memberships, tags,
-sources, and links in one transaction. `export` creates portable Markdown
-snapshots; each file is replaced atomically, but a multi-file export is not one
-transaction.
+`rm` validates all requested ids before deleting and removes dependent
+memberships, tags, sources, and links in one transaction. `export` creates
+portable Markdown snapshots; each file is replaced atomically, but a multi-file
+export is not one transaction.
 
 ## User-Directed Agent Use
 

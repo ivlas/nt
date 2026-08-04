@@ -1,12 +1,8 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::process::Command;
 
-use common::{
-    assert_search_index_consistent, nt_bin, run_nt, run_nt_with_stdin, summary_ids, temp_dir,
-};
+use common::{assert_search_index_consistent, run_nt, run_nt_with_stdin, summary_ids, temp_dir};
 use rusqlite::Connection;
 
 #[test]
@@ -128,7 +124,7 @@ fn fts_find_defines_lexical_semantics_and_preserves_recency_order() {
 }
 
 #[test]
-fn fts_index_tracks_insert_edit_and_delete_transactionally() {
+fn fts_index_tracks_insert_update_and_delete_transactionally() {
     let root = temp_dir("find-fts-lifecycle");
     let home = root.join("home");
     run_nt(&home, &["init", "personal"]);
@@ -165,24 +161,14 @@ fn fts_index_tracks_insert_edit_and_delete_transactionally() {
         vec![id]
     );
 
-    let editor = root.join("replace-editor.sh");
-    fs::write(
-        &editor,
-        "#!/bin/sh\nprintf '%s\\n' '# Fresh Heading' '' 'A replacementword lives here.' > \"$1\"\n",
-    )
-    .unwrap();
-    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
-    let output = Command::new(nt_bin())
-        .env("HOME", &home)
-        .env("EDITOR", &editor)
-        .args(["open", id])
-        .output()
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE notes SET title = 'Fresh Heading', body = 'A replacementword lives here.' WHERE id = ?1",
+            [id],
+        )
         .unwrap();
-    assert!(
-        output.status.success(),
-        "nt open failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    drop(connection);
 
     assert!(run_nt(&home, &["find", "title:legacy"]).is_empty());
     assert!(run_nt(&home, &["find", "body:obsoleteword"]).is_empty());

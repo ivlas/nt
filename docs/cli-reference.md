@@ -12,7 +12,6 @@ nt todo [metadata...]
 nt list [projection] [filter...]
 nt find <expr...>
 nt show <id>
-nt open <id>
 nt rm <id...>
 nt update <id> <field> <value>
 nt agenda [week]
@@ -111,15 +110,11 @@ ordinary SQL predicates and their existing ASCII normalization. Retrieval is
 deterministic, ordered by creation time and id rather than relevance, and
 unranked; there is no scoring, fuzzy search, embeddings, or semantic search.
 
-## Show And Open
+## Show
 
 `show` prints id, title, home, timestamps, kind-specific metadata, then the exact
 body. Note output omits the todo-only `status`, `priority`, `scheduled`, `due`,
-and `closed` fields. `open` copies the body to a temporary file for `$EDITOR`,
-without holding a database transaction open. Saving atomically requires the
-original update timestamp and body; otherwise `open` reports that the note
-changed during editing. The body, derived title, timestamp, and body-derived
-sources are committed in one transaction.
+and `closed` fields.
 
 ## Update
 
@@ -163,5 +158,5 @@ while another connection writes. Independent commands may write concurrently,
 but SQLite remains a single-writer database: a contending writer waits for the
 five-second busy timeout and then reports a retryable error. Transactions are
 short and never remain open while `nt` reads note content from stdin or waits for
-`$EDITOR`; stale editor saves are rejected. Agents use the same visible
-interface and should obtain user approval before mutations.
+`$EDITOR`. Agents use the same visible interface and should obtain user approval
+before mutations.

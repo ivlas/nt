@@ -42,9 +42,6 @@ pub enum Command {
     Show {
         id: String,
     },
-    Open {
-        id: String,
-    },
     Rm {
         #[arg(required = true)]
         ids: Vec<String>,
@@ -104,7 +101,6 @@ mod tests {
             &["nt", "list", "id,title,home"],
             &["nt", "find", "body:ownership"],
             &["nt", "show", ID],
-            &["nt", "open", ID],
             &["nt", "rm", ID],
             &["nt", "update", ID, "home", "work/project_a"],
             &["nt", "agenda", "week"],
@@ -142,6 +138,7 @@ mod tests {
         assert!(Cli::try_parse_from(["nt", "config"]).is_err());
         assert!(Cli::try_parse_from(["nt", "config", "show"]).is_err());
         assert!(Cli::try_parse_from(["nt", "config", "vault"]).is_err());
+        assert!(Cli::try_parse_from(["nt", "open", ID]).is_err());
         assert!(Cli::try_parse_from(["nt", "rm"]).is_err());
         for removed in ["today", "overdue", "waiting", "undated"] {
             assert!(Cli::try_parse_from(["nt", "agenda", removed]).is_err());
@@ -160,8 +157,8 @@ mod tests {
         assert_eq!(
             commands,
             [
-                "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
-                "export", "help",
+                "init", "note", "todo", "list", "find", "show", "rm", "update", "agenda", "export",
+                "help",
             ]
         );
     }

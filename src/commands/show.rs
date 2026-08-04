@@ -1,15 +1,9 @@
-use std::fs;
-use std::process::Command as ProcessCommand;
-
 use crate::display::{find_summary_line, joined_or_dash};
-use crate::error::{NtError, Result};
-use crate::fs::atomic_write;
-use crate::note::{title_from_body, validate_id};
+use crate::error::Result;
+use crate::note::validate_id;
 use crate::query::Query;
 use crate::repository::Repository;
 use crate::terminal::{Style, paint};
-
-use super::editor_temp_path;
 
 pub(super) fn show(id: &str) -> Result<()> {
     let text = show_text_for_display(id, crate::terminal::stdout_color_enabled())?;
@@ -80,50 +74,6 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     Ok(text)
 }
 
-pub(super) fn open(id: &str) -> Result<()> {
-    validate_id(id)?;
-    let mut repository = Repository::open()?;
-    let note = repository.get_note(id)?;
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    let body = note.body.clone();
-    let original_updated = note.updated.clone();
-    let open_path = open_temp_path(id)?;
-    atomic_write(&open_path, body.as_bytes())?;
-
-    let status = ProcessCommand::new(&editor).arg(&open_path).status()?;
-    if !status.success() {
-        let _ = fs::remove_file(&open_path);
-        return Err(NtError::EditorFailed(editor));
-    }
-
-    let body = fs::read_to_string(&open_path)?;
-    if body.trim().is_empty() {
-        let _ = fs::remove_file(&open_path);
-        return Err(NtError::EmptyNote);
-    }
-    let title = match title_from_body(&body) {
-        Ok(title) => title,
-        Err(err) => {
-            let _ = fs::remove_file(&open_path);
-            return Err(err);
-        }
-    };
-    let _ = fs::remove_file(&open_path);
-
-    let timestamp = crate::note::timestamp_now();
-    repository.update_edited_note(
-        id,
-        &original_updated,
-        &note.body,
-        &body,
-        &title,
-        &timestamp.iso,
-    )?;
-
-    println!("saved {id}");
-    Ok(())
-}
-
 pub(super) fn find(exprs: &[String]) -> Result<()> {
     let query = Query::parse(exprs)?;
     let repository = Repository::open()?;
@@ -133,8 +83,4 @@ pub(super) fn find(exprs: &[String]) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn open_temp_path(id: &str) -> Result<std::path::PathBuf> {
-    editor_temp_path("open", Some(id))
 }

@@ -1,7 +1,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -12,41 +11,6 @@ use common::{
     run_nt_with_stdin, summary_ids, temp_dir,
 };
 use rusqlite::{Connection, TransactionBehavior};
-
-#[test]
-fn open_rejects_a_stale_editor_update() {
-    let root = temp_dir("concurrent-open");
-    let home = root.join("home");
-    run_nt(&home, &["init", "personal"]);
-    let saved = run_nt_with_stdin(&home, &["note"], "# Concurrent edit\n");
-    let id = saved.trim().strip_prefix("saved ").unwrap();
-    let editor = root.join("concurrent-editor.sh");
-    fs::write(
-        &editor,
-        "#!/bin/sh\nsleep 1\n\"$NT_BIN\" update \"$NOTE_ID\" tag +concurrent >/dev/null\n",
-    )
-    .unwrap();
-    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
-
-    let output = Command::new(nt_bin())
-        .env("HOME", &home)
-        .env("EDITOR", &editor)
-        .env("NT_BIN", nt_bin())
-        .env("NOTE_ID", id)
-        .args(["open", id])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("note changed during edit; please retry")
-    );
-    assert!(run_nt(&home, &["show", id]).contains("tags concurrent"));
-
-    let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
-    assert_foreign_keys(&connection);
-    assert_search_index_consistent(&connection);
-    let _ = fs::remove_dir_all(root);
-}
 
 #[test]
 fn readers_continue_on_the_committed_snapshot_while_a_writer_is_active() {

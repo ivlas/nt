@@ -18,9 +18,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "show" => Ok(
             "nt show <id>\n\nPrint kind-specific metadata and the CommonMark body.\n\nExamples:\n  nt show 018fbe0a-6c00-7000-8000-000000000001\n",
         ),
-        "open" => Ok(
-            "nt open <id>\n\nEdit one database-backed note with $EDITOR.\n\nExamples:\n  nt open 018fbe0a-6c00-7000-8000-000000000001\n",
-        ),
         "rm" => Ok(RM),
         "update" => Ok(UPDATE),
         "agenda" => Ok(AGENDA),
@@ -51,9 +48,8 @@ Getting started:
   list [projection] [filter...]       list notes and metadata
   find <expr...>                      retrieve notes by query expressions
 
-Read and edit:
+Read and remove:
   show <id>                           show one exact note
-  open <id>                           edit one note with $EDITOR
   rm <id...>                          remove one or more notes
 
 Plan and organize:
@@ -164,7 +160,6 @@ Commands:
   nt list [projection] [filter...]
   nt find <expr...>
   nt show <id>
-  nt open <id>
   nt rm <id...>
   nt update <id> <field> <value>
   nt agenda [week]
@@ -221,8 +216,8 @@ mod tests {
     #[test]
     fn all_commands_have_examples() {
         for topic in [
-            "", "init", "note", "todo", "list", "find", "show", "open", "rm", "update", "agenda",
-            "export", "help",
+            "", "init", "note", "todo", "list", "find", "show", "rm", "update", "agenda", "export",
+            "help",
         ] {
             assert!(topic_text(topic).unwrap().contains("Examples:"));
         }
