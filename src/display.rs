@@ -10,11 +10,23 @@ pub(crate) fn summary_line(note: &NoteMeta) -> String {
 
 #[cfg(test)]
 pub(crate) fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
-    summary_line_values(&note.id, &note.created, &note.title, &note.tags, color)
+    summary_line_values(
+        note.id.as_str(),
+        &note.created,
+        &note.title,
+        &note.tags,
+        color,
+    )
 }
 
 pub(crate) fn find_summary_line(note: &FindRow) -> String {
-    summary_line_values(&note.id, &note.created, &note.title, &note.tags, false)
+    summary_line_values(
+        note.id.as_str(),
+        &note.created,
+        &note.title,
+        &note.tags,
+        false,
+    )
 }
 
 fn summary_line_values(
@@ -37,11 +49,15 @@ fn summary_line_values(
     )
 }
 
-pub(crate) fn joined_or_dash(values: &[String]) -> String {
+pub(crate) fn joined_or_dash<T: AsRef<str>>(values: &[T]) -> String {
     if values.is_empty() {
         "-".to_string()
     } else {
-        values.join(",")
+        values
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join(",")
     }
 }
 
@@ -49,7 +65,7 @@ pub(crate) fn agenda_line(note: &AgendaNote) -> String {
     format!(
         "{}\t{}\t{}\t{}\t{}",
         note.id,
-        note.priority.as_deref().unwrap_or("-"),
+        note.priority.map(|value| value.as_str()).unwrap_or("-"),
         note.scheduled.as_deref().unwrap_or("-"),
         note.due.as_deref().unwrap_or("-"),
         note.title
@@ -64,7 +80,7 @@ mod tests {
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
-            id.to_string(),
+            id.parse().unwrap(),
             "personal/inbox".to_string(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
@@ -110,8 +126,8 @@ mod tests {
     #[test]
     fn agenda_line_omits_redundant_open_status() {
         let note = AgendaNote {
-            id: "018fbe0a-6c00-7000-8000-000000000001".to_string(),
-            priority: Some("A".to_string()),
+            id: "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap(),
+            priority: Some(crate::note::Priority::A),
             scheduled: Some("2026-05-28".to_string()),
             due: Some("2026-05-30".to_string()),
             created: "2026-05-28T14:30:12Z".to_string(),

@@ -1,26 +1,28 @@
+use crate::note::{NoteId, NoteKind, Priority, Status};
+
 #[derive(Clone, Debug)]
 pub struct NoteMeta {
-    pub id: String,
+    pub id: NoteId,
     pub home_collection: String,
     pub body: String,
     pub created: String,
     pub updated: String,
     pub title: String,
-    pub kind: String,
-    pub status: Option<String>,
-    pub priority: Option<String>,
+    pub kind: NoteKind,
+    pub status: Option<Status>,
+    pub priority: Option<Priority>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
     pub closed: Option<String>,
     pub tags: Vec<String>,
     pub collections: Vec<String>,
-    pub links: Vec<String>,
+    pub links: Vec<NoteId>,
     pub sources: Vec<String>,
 }
 
 impl NoteMeta {
     pub fn new_note(
-        id: String,
+        id: NoteId,
         home_collection: String,
         body: String,
         created: String,
@@ -34,7 +36,7 @@ impl NoteMeta {
             created,
             updated,
             title,
-            kind: "note".to_string(),
+            kind: NoteKind::Note,
             status: None,
             priority: None,
             scheduled: None,
@@ -50,8 +52,8 @@ impl NoteMeta {
 
 #[derive(Clone, Debug)]
 pub struct AgendaNote {
-    pub id: String,
-    pub priority: Option<String>,
+    pub id: NoteId,
+    pub priority: Option<Priority>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
     pub created: String,
@@ -60,7 +62,7 @@ pub struct AgendaNote {
 
 #[derive(Clone, Debug)]
 pub struct FindRow {
-    pub id: String,
+    pub id: NoteId,
     pub created: String,
     pub title: String,
     pub tags: Vec<String>,
@@ -68,14 +70,14 @@ pub struct FindRow {
 
 #[derive(Debug)]
 pub enum NoteChange {
-    Kind(String),
-    Status(Option<String>),
-    Priority(Option<String>),
+    Kind(NoteKind),
+    Status(Option<Status>),
+    Priority(Option<Priority>),
     Scheduled(Option<String>),
     Due(Option<String>),
     Home(String),
     Tag { add: bool, value: String },
     Collection { add: bool, value: String },
-    Link { add: bool, value: String },
+    Link { add: bool, value: NoteId },
     Source { add: bool, value: String },
 }

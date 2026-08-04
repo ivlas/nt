@@ -1,5 +1,4 @@
 use crate::error::{NtError, Result};
-use crate::note::validate_id;
 
 pub(super) fn unknown_field_error(field: &str) -> String {
     match super::suggest::query_field_suggestion(field) {
@@ -17,24 +16,6 @@ pub(super) fn normalize(value: &str) -> String {
 pub(super) fn validate_date_value(field: &str, value: &str) -> Result<()> {
     crate::note::validate_date(value)
         .map_err(|_| NtError::Message(format!("invalid `{field}` date `{value}`; use YYYY-MM-DD")))
-}
-
-pub(super) fn validate_priority(value: &str) -> Result<()> {
-    if matches!(
-        value.to_ascii_uppercase().as_str(),
-        "S" | "A" | "B" | "C" | "D"
-    ) {
-        Ok(())
-    } else {
-        Err(NtError::Message(format!(
-            "invalid priority `{value}`; use S, A, B, C, or D"
-        )))
-    }
-}
-
-pub(super) fn validate_note_id_value(field: &str, value: &str) -> Result<()> {
-    validate_id(value)
-        .map_err(|_| NtError::Message(format!("invalid `{field}` note id `{value}`; use a UUIDv7")))
 }
 
 pub(super) fn validate_id_prefix(value: &str) -> Result<()> {

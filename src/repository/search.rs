@@ -1,3 +1,6 @@
+use std::error::Error;
+use std::str::FromStr;
+
 use crate::error::Result;
 use crate::listing::{ListField, ListRow};
 use crate::query::{ListFilter, Query};
@@ -32,7 +35,7 @@ impl Repository {
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(rusqlite::params_from_iter(parameters.iter()), |row| {
             Ok((
-                row.get::<_, String>(0)?,
+                domain_from_row(row, 0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<String>>(3)?,
@@ -61,8 +64,8 @@ impl Repository {
         let mut statement = self.connection.prepare(AGENDA_SQL)?;
         let rows = statement.query_map([through], |row| {
             Ok(AgendaNote {
-                id: row.get(0)?,
-                priority: row.get(1)?,
+                id: domain_from_row(row, 0)?,
+                priority: optional_domain_from_row(row, 1)?,
                 scheduled: row.get(2)?,
                 due: row.get(3)?,
                 created: row.get(4)?,
@@ -182,15 +185,15 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
         }
         ListFilter::Kind(value) => {
             sql.push_str("LOWER(n.kind) = ?");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Status(value) => {
             sql.push_str("(n.status IS NOT NULL AND LOWER(n.status) = ?)");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Priority(value) => {
             sql.push_str("COALESCE(n.priority = ?, 0)");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Scheduled(value) => {
             sql.push_str("COALESCE(n.scheduled = ?, 0)");
@@ -218,7 +221,7 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
                 "EXISTS (SELECT 1 FROM note_links nl
                  WHERE nl.note_id = n.id AND LOWER(nl.target_id) = ?)",
             );
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Not(filter) => {
             sql.push_str("NOT (");
@@ -226,6 +229,39 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
             sql.push(')');
         }
     }
+}
+
+fn domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<T>
+where
+    T: FromStr,
+    T::Err: Error + Send + Sync + 'static,
+{
+    let value = row.get::<_, String>(index)?;
+    value.parse().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })
+}
+
+fn optional_domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<T>>
+where
+    T: FromStr,
+    T::Err: Error + Send + Sync + 'static,
+{
+    row.get::<_, Option<String>>(index)?
+        .map(|value| {
+            value.parse().map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    index,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })
+        })
+        .transpose()
 }
 
 #[cfg(test)]
@@ -258,15 +294,15 @@ mod tests {
                               scheduled: Option<&str>,
                               due: Option<&str>| {
                 let mut note = NoteMeta::new_note(
-                    id.to_string(),
+                    id.parse().unwrap(),
                     "personal/inbox".to_string(),
                     "# Body that agenda must not load\n".to_string(),
                     "2026-05-01T00:00:00Z".to_string(),
                     "2026-05-01T00:00:00Z".to_string(),
                     id.to_string(),
                 );
-                note.kind = kind.to_string();
-                note.status = status.map(str::to_string);
+                note.kind = kind.parse().unwrap();
+                note.status = status.map(|value| value.parse().unwrap());
                 note.scheduled = scheduled.map(str::to_string);
                 note.due = due.map(str::to_string);
                 note.closed = status
@@ -275,32 +311,89 @@ mod tests {
                 repository.insert_note(&note).unwrap();
             };
 
-            insert("overdue", "todo", Some("open"), None, Some("2026-05-27"));
             insert(
-                "scheduled-today",
+                "018fbe0a-6c00-7000-8000-000000000001",
+                "todo",
+                Some("open"),
+                None,
+                Some("2026-05-27"),
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000002",
                 "todo",
                 Some("open"),
                 Some("2026-05-28"),
                 None,
             );
-            insert("week", "todo", Some("open"), None, Some("2026-06-03"));
-            insert("future", "todo", Some("open"), None, Some("2026-06-04"));
-            insert("waiting", "todo", Some("waiting"), None, Some("2026-05-27"));
-            insert("undated", "todo", Some("open"), None, None);
-            insert("done", "todo", Some("done"), None, Some("2026-05-27"));
-            insert("dropped", "todo", Some("dropped"), Some("2026-05-27"), None);
-            insert("note", "note", None, None, None);
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000003",
+                "todo",
+                Some("open"),
+                None,
+                Some("2026-06-03"),
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000004",
+                "todo",
+                Some("open"),
+                None,
+                Some("2026-06-04"),
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000005",
+                "todo",
+                Some("waiting"),
+                None,
+                Some("2026-05-27"),
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000006",
+                "todo",
+                Some("open"),
+                None,
+                None,
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000007",
+                "todo",
+                Some("done"),
+                None,
+                Some("2026-05-27"),
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000008",
+                "todo",
+                Some("dropped"),
+                Some("2026-05-27"),
+                None,
+            );
+            insert(
+                "018fbe0a-6c00-7000-8000-000000000009",
+                "note",
+                None,
+                None,
+                None,
+            );
         }
 
         repository
             .connection
-            .execute("UPDATE notes SET body = x'80' WHERE id = 'overdue'", [])
+            .execute(
+                "UPDATE notes SET body = x'80' WHERE id = '018fbe0a-6c00-7000-8000-000000000001'",
+                [],
+            )
             .unwrap();
         repository
             .connection
             .execute(
                 "UPDATE notes SET title = x'80'
-                 WHERE id IN ('future', 'waiting', 'undated', 'done', 'dropped', 'note')",
+                 WHERE id IN (
+                     '018fbe0a-6c00-7000-8000-000000000004',
+                     '018fbe0a-6c00-7000-8000-000000000005',
+                     '018fbe0a-6c00-7000-8000-000000000006',
+                     '018fbe0a-6c00-7000-8000-000000000007',
+                     '018fbe0a-6c00-7000-8000-000000000008',
+                     '018fbe0a-6c00-7000-8000-000000000009')",
                 [],
             )
             .unwrap();
@@ -311,13 +404,20 @@ mod tests {
                 .iter()
                 .map(|note| note.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["scheduled-today", "overdue"]
+            vec![
+                "018fbe0a-6c00-7000-8000-000000000002",
+                "018fbe0a-6c00-7000-8000-000000000001"
+            ]
         );
 
         let week = repository.agenda_notes("2026-06-03").unwrap();
         assert_eq!(
             week.iter().map(|note| note.id.as_str()).collect::<Vec<_>>(),
-            vec!["week", "scheduled-today", "overdue"]
+            vec![
+                "018fbe0a-6c00-7000-8000-000000000003",
+                "018fbe0a-6c00-7000-8000-000000000002",
+                "018fbe0a-6c00-7000-8000-000000000001"
+            ]
         );
     }
 

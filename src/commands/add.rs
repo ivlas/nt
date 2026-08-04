@@ -5,12 +5,12 @@ use std::process::Command as ProcessCommand;
 
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::note::{new_id, title_from_body, validate_id};
+use crate::note::{NoteId, NoteKind, Priority, Status, title_from_body};
 use crate::repository::{NoteMeta, Repository};
 
 use super::{
     add_body_sources, apply_status_transition, editor_temp_path, ensure_note_exists,
-    push_unique_sorted, validate_collection, validate_priority, validate_status, validate_tag,
+    push_unique_sorted, validate_collection, validate_tag,
 };
 
 pub(super) fn note(metadata: &[String]) -> Result<()> {
@@ -34,7 +34,7 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
         .map(Ok)
         .unwrap_or_else(|| repository.default_home_collection())?;
 
-    let id = new_id();
+    let id = NoteId::generate();
     let mut note = NoteMeta::new_note(
         id.clone(),
         home,
@@ -54,13 +54,13 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
 #[derive(Debug, Default)]
 struct CreationMetadata {
     home: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
+    status: Option<Status>,
+    priority: Option<Priority>,
     scheduled: Option<String>,
     due: Option<String>,
     tags: Vec<String>,
     collections: Vec<String>,
-    links: Vec<String>,
+    links: Vec<NoteId>,
     sources: Vec<String>,
 }
 
@@ -102,7 +102,7 @@ impl CreationMetadata {
             "source" => push_single_value(&mut self.sources, field, value),
             "link" => {
                 for link in split_metadata_values(field, value)? {
-                    validate_id(&link)?;
+                    let link = link.parse()?;
                     ensure_note_exists(repository, &link)?;
                     push_unique_sorted(&mut self.links, link);
                 }
@@ -110,13 +110,11 @@ impl CreationMetadata {
             }
             "status" => {
                 kind.ensure_todo_field(field)?;
-                set_single_metadata(&mut self.status, field, value)?;
-                validate_status(self.status.as_deref().unwrap_or_default())
+                set_typed_metadata(&mut self.status, field, value)
             }
             "priority" => {
                 kind.ensure_todo_field(field)?;
-                set_single_metadata(&mut self.priority, field, value)?;
-                validate_priority(self.priority.as_deref().unwrap_or_default())
+                set_typed_metadata(&mut self.priority, field, value)
             }
             "scheduled" => {
                 kind.ensure_todo_field(field)?;
@@ -136,12 +134,12 @@ impl CreationMetadata {
 
     fn apply(self, kind: CreationKind, note: &mut NoteMeta, now: &str) {
         let status = if kind == CreationKind::Todo && self.status.is_none() {
-            Some("open".to_string())
+            Some(Status::Open)
         } else {
             self.status
         };
         if kind == CreationKind::Todo {
-            note.kind = "todo".to_string();
+            note.kind = NoteKind::Todo;
         }
         apply_status_transition(note, status, now);
         note.priority = self.priority;
@@ -212,6 +210,25 @@ fn set_single_metadata(target: &mut Option<String>, field: &str, raw: &str) -> R
         )));
     }
     if target.replace(values[0].clone()).is_some() {
+        return Err(NtError::Message(format!(
+            "`{field}` metadata can be set only once"
+        )));
+    }
+    Ok(())
+}
+
+fn set_typed_metadata<T>(target: &mut Option<T>, field: &str, raw: &str) -> Result<()>
+where
+    T: std::str::FromStr<Err = NtError>,
+{
+    let values = split_metadata_values(field, raw)?;
+    if values.len() != 1 {
+        return Err(NtError::Message(format!(
+            "`{field}` metadata accepts one value"
+        )));
+    }
+    let value = values[0].parse()?;
+    if target.replace(value).is_some() {
         return Err(NtError::Message(format!(
             "`{field}` metadata can be set only once"
         )));

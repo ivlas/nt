@@ -1,6 +1,7 @@
 use crate::cli::AgendaView;
 use crate::display::agenda_line;
 use crate::error::Result;
+use crate::note::Priority;
 use crate::repository::{AgendaNote, Repository};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,18 +94,11 @@ fn agenda_sort_key(note: &AgendaNote, section: AgendaSection) -> (&str, u8) {
                 .unwrap_or_default()
         }
     };
-    (date, priority_rank(note.priority.as_deref()))
+    (date, priority_rank(note.priority))
 }
 
-fn priority_rank(priority: Option<&str>) -> u8 {
-    match priority {
-        Some("S") => 0,
-        Some("A") => 1,
-        Some("B") => 2,
-        Some("C") => 3,
-        Some("D") => 4,
-        _ => 5,
-    }
+fn priority_rank(priority: Option<Priority>) -> u8 {
+    priority.map(Priority::rank).unwrap_or(5)
 }
 
 fn section_name(section: AgendaSection) -> &'static str {
@@ -122,33 +116,29 @@ mod tests {
     use super::{AgendaSection, select_agenda};
 
     fn todo(
-        id: &str,
+        id: u16,
         priority: Option<&str>,
         scheduled: Option<&str>,
         due: Option<&str>,
     ) -> AgendaNote {
+        let id = format!("018fbe0a-6c00-7000-8000-{id:012}");
         AgendaNote {
-            id: id.to_string(),
-            priority: priority.map(str::to_string),
+            id: id.parse().unwrap(),
+            priority: priority.map(|value| value.parse().unwrap()),
             scheduled: scheduled.map(str::to_string),
             due: due.map(str::to_string),
             created: "2026-05-28T14:30:12Z".to_string(),
-            title: id.to_string(),
+            title: id,
         }
     }
 
     #[test]
     fn agenda_sections_filtered_todos_and_orders_by_date_then_priority() {
         let notes = vec![
-            todo("NT20260501T000001", Some("D"), None, Some("2026-05-27")),
-            todo("NT20260502T000001", Some("S"), None, Some("2026-05-27")),
-            todo(
-                "NT20260503T000001",
-                Some("A"),
-                Some("2026-05-28"),
-                Some("2026-06-02"),
-            ),
-            todo("NT20260504T000001", None, None, Some("2026-06-01")),
+            todo(1, Some("D"), None, Some("2026-05-27")),
+            todo(2, Some("S"), None, Some("2026-05-27")),
+            todo(3, Some("A"), Some("2026-05-28"), Some("2026-06-02")),
+            todo(4, None, None, Some("2026-06-01")),
         ];
         let sections = select_agenda(&notes, "2026-05-28");
 
@@ -159,7 +149,10 @@ mod tests {
                 .iter()
                 .map(|note| note.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["NT20260502T000001", "NT20260501T000001"]
+            vec![
+                "018fbe0a-6c00-7000-8000-000000000002",
+                "018fbe0a-6c00-7000-8000-000000000001"
+            ]
         );
         assert_eq!(
             sections[1]
@@ -167,7 +160,7 @@ mod tests {
                 .iter()
                 .map(|note| note.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["NT20260503T000001"]
+            vec!["018fbe0a-6c00-7000-8000-000000000003"]
         );
         assert_eq!(
             sections[2]
@@ -175,7 +168,7 @@ mod tests {
                 .iter()
                 .map(|note| note.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["NT20260504T000001"]
+            vec!["018fbe0a-6c00-7000-8000-000000000004"]
         );
     }
 
@@ -185,29 +178,22 @@ mod tests {
         let notes: Vec<_> = priorities
             .into_iter()
             .enumerate()
-            .map(|(index, priority)| {
-                todo(
-                    &format!("NT202605{:02}T000001", index + 10),
-                    priority,
-                    None,
-                    Some("2026-05-28"),
-                )
-            })
+            .map(|(index, priority)| todo((index + 10) as u16, priority, None, Some("2026-05-28")))
             .collect();
         let sections = select_agenda(&notes, "2026-05-28");
         let priorities: Vec<Option<&str>> = sections[1]
             .1
             .iter()
-            .map(|note| note.priority.as_deref())
+            .map(|note| note.priority.map(|value| value.as_str()))
             .collect();
         assert_eq!(
             priorities,
             vec![Some("S"), Some("A"), Some("B"), Some("C"), Some("D"), None]
         );
 
-        let mut newer = todo("NT20260520T000001", Some("A"), None, Some("2026-05-28"));
+        let mut newer = todo(20, Some("A"), None, Some("2026-05-28"));
         newer.created = "2026-06-02T00:00:00Z".to_string();
-        let mut older = todo("NT20260521T000001", Some("A"), None, Some("2026-05-28"));
+        let mut older = todo(21, Some("A"), None, Some("2026-05-28"));
         older.created = "2026-06-01T00:00:00Z".to_string();
         let notes = [older, newer];
         let sections = select_agenda(&notes, "2026-05-28");
@@ -217,7 +203,10 @@ mod tests {
                 .iter()
                 .map(|note| note.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["NT20260520T000001", "NT20260521T000001"]
+            vec![
+                "018fbe0a-6c00-7000-8000-000000000020",
+                "018fbe0a-6c00-7000-8000-000000000021"
+            ]
         );
     }
 }

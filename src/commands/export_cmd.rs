@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::error::Result;
 use crate::export::export_markdown;
 use crate::fs::{absolute_path, atomic_write, relative_to_cwd};
-use crate::note::validate_id;
+use crate::note::NoteId;
 use crate::repository::Repository;
 
 pub(super) fn export(path: &Path, ids: &[String]) -> Result<()> {
@@ -33,16 +33,16 @@ pub(super) fn export(path: &Path, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn export_ids(repository: &Repository, ids: &[String]) -> Result<Vec<String>> {
+fn export_ids(repository: &Repository, ids: &[String]) -> Result<Vec<NoteId>> {
     let mut seen = BTreeSet::new();
     let mut export_ids = Vec::new();
     for id in ids {
-        validate_id(id)?;
-        if !repository.note_exists(id)? {
+        let note_id: NoteId = id.parse()?;
+        if !repository.note_exists(&note_id)? {
             return Err(crate::error::NtError::NoteNotFound(id.clone()));
         }
-        if seen.insert(id.clone()) {
-            export_ids.push(id.clone());
+        if seen.insert(note_id.clone()) {
+            export_ids.push(note_id);
         }
     }
 

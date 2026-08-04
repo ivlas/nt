@@ -1,4 +1,5 @@
 use crate::error::{NtError, Result};
+use crate::note::{NoteId, NoteKind, Priority, Status};
 
 mod eval;
 mod parse;
@@ -21,14 +22,14 @@ pub enum ListFilter {
     Day(String),
     Since(String),
     Before(String),
-    Kind(String),
-    Status(String),
-    Priority(String),
+    Kind(NoteKind),
+    Status(Status),
+    Priority(Priority),
     Scheduled(String),
     Due(String),
     Closed(String),
     Collection(String),
-    Link(String),
+    Link(NoteId),
     Not(Box<ListFilter>),
 }
 
@@ -41,14 +42,14 @@ enum QueryExpr {
     Day(String),
     Since(String),
     Before(String),
-    Kind(String),
-    Status(String),
-    Priority(String),
+    Kind(NoteKind),
+    Status(Status),
+    Priority(Priority),
     Scheduled(String),
     Due(String),
     Closed(String),
     Collection(String),
-    Link(String),
+    Link(NoteId),
     Source(String),
     Body(String),
     Not(Box<QueryExpr>),
@@ -170,12 +171,9 @@ impl QueryExpr {
                 parse::validate_date_value(field, &value)?;
                 Ok(Self::Before(value))
             }
-            "kind" => Ok(Self::Kind(value)),
-            "status" => Ok(Self::Status(value)),
-            "priority" => {
-                parse::validate_priority(&value)?;
-                Ok(Self::Priority(value.to_ascii_uppercase()))
-            }
+            "kind" => Ok(Self::Kind(value.parse()?)),
+            "status" => Ok(Self::Status(value.parse()?)),
+            "priority" => Ok(Self::Priority(value.to_ascii_uppercase().parse()?)),
             "scheduled" => {
                 parse::validate_date_value(field, &value)?;
                 Ok(Self::Scheduled(value))
@@ -190,7 +188,9 @@ impl QueryExpr {
             }
             "collection" => Ok(Self::Collection(value)),
             "link" => {
-                parse::validate_note_id_value(field, &value)?;
+                let value = value.parse().map_err(|_| {
+                    NtError::Message(format!("invalid `{field}` note id `{value}`; use a UUIDv7"))
+                })?;
                 Ok(Self::Link(value))
             }
             "source" => Ok(Self::Source(value)),
@@ -250,15 +250,15 @@ impl QueryExpr {
             }
             Self::Kind(value) => {
                 sql.push_str("lower(n.kind) = ?");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Status(value) => {
                 sql.push_str("(n.status IS NOT NULL AND lower(n.status) = ?)");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Priority(value) => {
                 sql.push_str("coalesce(n.priority = ?, 0)");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Scheduled(value) => {
                 sql.push_str("coalesce(n.scheduled = ?, 0)");
@@ -288,7 +288,7 @@ impl QueryExpr {
                      WHERE filter_links.note_id = n.id
                        AND lower(filter_links.target_id) = ?)",
                 );
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Source(value) => {
                 sql.push_str(
@@ -436,8 +436,8 @@ mod tests {
             "day:2026-01-02".to_string(),
             "since:2026-01-03".to_string(),
             "before:2026-01-04".to_string(),
-            "kind:bound-kind".to_string(),
-            "status:bound-status".to_string(),
+            "kind:todo".to_string(),
+            "status:waiting".to_string(),
             "priority:d".to_string(),
             "scheduled:2026-01-05".to_string(),
             "due:2026-01-06".to_string(),
@@ -462,8 +462,8 @@ mod tests {
             "2026-01-02",
             "2026-01-03",
             "2026-01-04",
-            "bound-kind",
-            "bound-status",
+            "todo",
+            "waiting",
             "2026-01-05",
             "2026-01-06",
             "2026-01-07",
@@ -493,6 +493,24 @@ mod tests {
 
     #[test]
     fn rejects_invalid_typed_query_values() {
+        assert_eq!(
+            Query::parse(&["kind:decision".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid kind: decision"
+        );
+        assert_eq!(
+            Query::parse(&["status:paused".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid status: paused"
+        );
+        assert_eq!(
+            Query::parse(&["priority:urgent".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid priority `URGENT`; use S, A, B, C, or D"
+        );
         assert_eq!(
             Query::parse(&["day:2026-99-01".to_string()])
                 .unwrap_err()

@@ -1,9 +1,13 @@
 use std::collections::BTreeSet;
+use std::error::Error;
+use std::str::FromStr;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OptionalExtension, Transaction, TransactionBehavior, params, types::Type,
+};
 
 use crate::error::{NtError, Result};
-use crate::note::new_id;
+use crate::note::{NoteId, NoteKind, Priority, Status, new_id};
 
 use super::{NoteChange, NoteMeta, Repository};
 
@@ -50,7 +54,7 @@ impl Repository {
         }
     }
 
-    pub fn note_exists(&self, id: &str) -> Result<bool> {
+    pub fn note_exists(&self, id: &NoteId) -> Result<bool> {
         note_exists(&self.connection, id)
     }
 
@@ -68,7 +72,7 @@ impl Repository {
         let home_id = ensure_collection(&transaction, &note.home_collection, &note.created)?;
         for link in &note.links {
             if !note_exists(&transaction, link)? {
-                return Err(NtError::NoteNotFound(link.clone()));
+                return Err(NtError::NoteNotFound(link.to_string()));
             }
         }
 
@@ -78,15 +82,15 @@ impl Repository {
               priority, scheduled, due, closed)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
-                note.id,
+                note.id.as_str(),
                 home_id,
                 note.body,
                 note.created,
                 note.updated,
                 note.title,
-                note.kind,
-                note.status,
-                note.priority,
+                note.kind.as_str(),
+                note.status.map(Status::as_str),
+                note.priority.map(Priority::as_str),
                 note.scheduled,
                 note.due,
                 note.closed
@@ -98,7 +102,7 @@ impl Repository {
         for collection_id in memberships {
             transaction.execute(
                 "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)",
-                params![note.id, collection_id],
+                params![note.id.as_str(), collection_id],
             )?;
         }
         insert_values(&transaction, "note_tags", "tag", &note.id, &note.tags)?;
@@ -109,7 +113,7 @@ impl Repository {
             &note.id,
             &note.sources,
         )?;
-        insert_values(
+        insert_note_ids(
             &transaction,
             "note_links",
             "target_id",
@@ -120,7 +124,7 @@ impl Repository {
         Ok(())
     }
 
-    pub fn get_note(&self, id: &str) -> Result<NoteMeta> {
+    pub fn get_note(&self, id: &NoteId) -> Result<NoteMeta> {
         let transaction = self.connection.unchecked_transaction()?;
         let note = load_note(&transaction, id)?;
         transaction.commit()?;
@@ -147,7 +151,7 @@ impl Repository {
         Ok(notes)
     }
 
-    pub fn update_note(&mut self, id: &str, change: &NoteChange, now: &str) -> Result<()> {
+    pub fn update_note(&mut self, id: &NoteId, change: &NoteChange, now: &str) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -158,11 +162,11 @@ impl Repository {
                  JOIN collections c ON c.id = n.home_collection_id
                  JOIN vaults v ON v.id = c.vault_id
                  WHERE n.id = ?1",
-                [id],
+                [id.as_str()],
                 |row| {
                     Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
+                        domain_from_row::<NoteKind>(row, 0)?,
+                        optional_domain_from_row::<Status>(row, 1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, String>(3)?,
                     ))
@@ -173,22 +177,22 @@ impl Repository {
 
         match change {
             NoteChange::Kind(value) => {
-                if value == "note" {
+                if *value == NoteKind::Note {
                     transaction.execute(
                         "UPDATE notes SET kind = ?1, status = NULL, priority = NULL,
                          scheduled = NULL, due = NULL, closed = NULL WHERE id = ?2",
-                        params![value, id],
+                        params![value.as_str(), id.as_str()],
                     )?;
                 } else {
                     transaction.execute(
                         "UPDATE notes SET kind = ?1 WHERE id = ?2",
-                        params![value, id],
+                        params![value.as_str(), id.as_str()],
                     )?;
                 }
             }
             NoteChange::Status(value) => {
                 ensure_todo_field(&kind, value.is_some(), "status")?;
-                let next_closed = if value.as_deref().is_some_and(is_terminal_status) {
+                let next_closed = if value.is_some_and(Status::is_terminal) {
                     if status == *value {
                         closed
                     } else {
@@ -199,28 +203,28 @@ impl Repository {
                 };
                 transaction.execute(
                     "UPDATE notes SET status = ?1, closed = ?2 WHERE id = ?3",
-                    params![value, next_closed, id],
+                    params![value.map(Status::as_str), next_closed, id.as_str()],
                 )?;
             }
             NoteChange::Priority(value) => {
                 ensure_todo_field(&kind, value.is_some(), "priority")?;
                 transaction.execute(
                     "UPDATE notes SET priority = ?1 WHERE id = ?2",
-                    params![value, id],
+                    params![value.map(Priority::as_str), id.as_str()],
                 )?;
             }
             NoteChange::Scheduled(value) => {
                 ensure_todo_field(&kind, value.is_some(), "scheduled")?;
                 transaction.execute(
                     "UPDATE notes SET scheduled = ?1 WHERE id = ?2",
-                    params![value, id],
+                    params![value, id.as_str()],
                 )?;
             }
             NoteChange::Due(value) => {
                 ensure_todo_field(&kind, value.is_some(), "due")?;
                 transaction.execute(
                     "UPDATE notes SET due = ?1 WHERE id = ?2",
-                    params![value, id],
+                    params![value, id.as_str()],
                 )?;
             }
             NoteChange::Home(collection) => {
@@ -228,11 +232,11 @@ impl Repository {
                 transaction.execute(
                     "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)
                      ON CONFLICT DO NOTHING",
-                    params![id, collection_id],
+                    params![id.as_str(), collection_id],
                 )?;
                 transaction.execute(
                     "UPDATE notes SET home_collection_id = ?1 WHERE id = ?2",
-                    params![collection_id, id],
+                    params![collection_id, id.as_str()],
                 )?;
             }
             NoteChange::Collection { add, value } => {
@@ -241,7 +245,7 @@ impl Repository {
                     transaction.execute(
                         "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)
                          ON CONFLICT DO NOTHING",
-                        params![id, collection_id],
+                        params![id.as_str(), collection_id],
                     )?;
                 } else {
                     if home == *value {
@@ -252,7 +256,7 @@ impl Repository {
                     if let Some(collection_id) = collection_id(&transaction, value)? {
                         transaction.execute(
                             "DELETE FROM note_collections WHERE note_id = ?1 AND collection_id = ?2",
-                            params![id, collection_id],
+                            params![id.as_str(), collection_id],
                         )?;
                     }
                 }
@@ -265,15 +269,15 @@ impl Repository {
             }
             NoteChange::Link { add, value } => {
                 if *add && !note_exists(&transaction, value)? {
-                    return Err(NtError::NoteNotFound(value.clone()));
+                    return Err(NtError::NoteNotFound(value.to_string()));
                 }
-                change_value(&transaction, "note_links", "target_id", id, value, *add)?;
+                change_note_id(&transaction, "note_links", "target_id", id, value, *add)?;
             }
         }
 
         transaction.execute(
             "UPDATE notes SET updated = ?1 WHERE id = ?2",
-            params![now, id],
+            params![now, id.as_str()],
         )?;
         transaction.commit()?;
         Ok(())
@@ -281,7 +285,7 @@ impl Repository {
 
     pub fn update_note_body(
         &mut self,
-        id: &str,
+        id: &NoteId,
         expected_updated: &str,
         expected_body: &str,
         body: &str,
@@ -295,7 +299,14 @@ impl Repository {
         let changed = transaction.execute(
             "UPDATE notes SET body = ?1, title = ?2, updated = ?3
              WHERE id = ?4 AND updated = ?5 AND body = ?6",
-            params![body, title, updated, id, expected_updated, expected_body],
+            params![
+                body,
+                title,
+                updated,
+                id.as_str(),
+                expected_updated,
+                expected_body
+            ],
         )?;
         if changed == 0 {
             return Err(NtError::Message(
@@ -306,24 +317,24 @@ impl Repository {
             transaction.execute(
                 "INSERT INTO note_sources (note_id, source) VALUES (?1, ?2)
                  ON CONFLICT DO NOTHING",
-                params![id, source],
+                params![id.as_str(), source],
             )?;
         }
         transaction.commit()?;
         Ok(())
     }
 
-    pub fn delete_notes(&mut self, ids: &[String]) -> Result<()> {
+    pub fn delete_notes(&mut self, ids: &[NoteId]) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         for id in ids {
             if !note_exists(&transaction, id)? {
-                return Err(NtError::NoteNotFound(id.clone()));
+                return Err(NtError::NoteNotFound(id.to_string()));
             }
         }
         for id in ids {
-            transaction.execute("DELETE FROM notes WHERE id = ?1", [id])?;
+            transaction.execute("DELETE FROM notes WHERE id = ?1", [id.as_str()])?;
         }
         transaction.commit()?;
         Ok(())
@@ -400,15 +411,15 @@ fn collection_id(connection: &Connection, full_name: &str) -> Result<Option<Stri
 
 fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
     Ok(NoteMeta {
-        id: row.get(0)?,
+        id: domain_from_row(row, 0)?,
         home_collection: row.get(1)?,
         body: row.get(2)?,
         created: row.get(3)?,
         updated: row.get(4)?,
         title: row.get(5)?,
-        kind: row.get(6)?,
-        status: row.get(7)?,
-        priority: row.get(8)?,
+        kind: domain_from_row(row, 6)?,
+        status: optional_domain_from_row(row, 7)?,
+        priority: optional_domain_from_row(row, 8)?,
         scheduled: row.get(9)?,
         due: row.get(10)?,
         closed: row.get(11)?,
@@ -419,7 +430,7 @@ fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
     })
 }
 
-fn load_note(connection: &Connection, id: &str) -> Result<NoteMeta> {
+fn load_note(connection: &Connection, id: &NoteId) -> Result<NoteMeta> {
     let mut note = connection
         .query_row(
             "SELECT n.id, v.name || '/' || c.name, n.body, n.created, n.updated,
@@ -428,7 +439,7 @@ fn load_note(connection: &Connection, id: &str) -> Result<NoteMeta> {
              JOIN collections c ON c.id = n.home_collection_id
              JOIN vaults v ON v.id = c.vault_id
              WHERE n.id = ?1",
-            [id],
+            [id.as_str()],
             note_from_row,
         )
         .optional()?
@@ -440,7 +451,7 @@ fn load_note(connection: &Connection, id: &str) -> Result<NoteMeta> {
 fn load_relationships(connection: &Connection, note: &mut NoteMeta) -> Result<()> {
     note.tags = load_values(connection, "note_tags", "tag", &note.id)?;
     note.sources = load_values(connection, "note_sources", "source", &note.id)?;
-    note.links = load_values(connection, "note_links", "target_id", &note.id)?;
+    note.links = load_note_ids(connection, "note_links", "target_id", &note.id)?;
     let mut statement = connection.prepare(
         "SELECT v.name || '/' || c.name
          FROM note_collections nc
@@ -450,7 +461,7 @@ fn load_relationships(connection: &Connection, note: &mut NoteMeta) -> Result<()
          ORDER BY v.name, c.name",
     )?;
     note.collections = statement
-        .query_map([&note.id], |row| row.get(0))?
+        .query_map([note.id.as_str()], |row| row.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(())
 }
@@ -459,11 +470,11 @@ fn load_values(
     connection: &Connection,
     table: &str,
     column: &str,
-    id: &str,
+    id: &NoteId,
 ) -> Result<Vec<String>> {
     let sql = format!("SELECT {column} FROM {table} WHERE note_id = ?1 ORDER BY {column}");
     let mut statement = connection.prepare(&sql)?;
-    let rows = statement.query_map([id], |row| row.get(0))?;
+    let rows = statement.query_map([id.as_str()], |row| row.get(0))?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -472,12 +483,12 @@ fn insert_values(
     transaction: &Transaction<'_>,
     table: &str,
     column: &str,
-    note_id: &str,
+    note_id: &NoteId,
     values: &[String],
 ) -> Result<()> {
     let sql = format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2)");
     for value in values {
-        transaction.execute(&sql, params![note_id, value])?;
+        transaction.execute(&sql, params![note_id.as_str(), value])?;
     }
     Ok(())
 }
@@ -486,7 +497,7 @@ fn change_value(
     transaction: &Transaction<'_>,
     table: &str,
     column: &str,
-    note_id: &str,
+    note_id: &NoteId,
     value: &str,
     add: bool,
 ) -> Result<()> {
@@ -495,19 +506,65 @@ fn change_value(
     } else {
         format!("DELETE FROM {table} WHERE note_id = ?1 AND {column} = ?2")
     };
-    transaction.execute(&action, params![note_id, value])?;
+    transaction.execute(&action, params![note_id.as_str(), value])?;
     Ok(())
 }
 
-fn note_exists(connection: &Connection, id: &str) -> Result<bool> {
+fn insert_note_ids(
+    transaction: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    note_id: &NoteId,
+    values: &[NoteId],
+) -> Result<()> {
+    let sql = format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2)");
+    for value in values {
+        transaction.execute(&sql, params![note_id.as_str(), value.as_str()])?;
+    }
+    Ok(())
+}
+
+fn load_note_ids(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    id: &NoteId,
+) -> Result<Vec<NoteId>> {
+    let sql = format!("SELECT {column} FROM {table} WHERE note_id = ?1 ORDER BY {column}");
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map([id.as_str()], |row| domain_from_row(row, 0))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn change_note_id(
+    transaction: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    note_id: &NoteId,
+    value: &NoteId,
+    add: bool,
+) -> Result<()> {
+    let action = if add {
+        format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2) ON CONFLICT DO NOTHING")
+    } else {
+        format!("DELETE FROM {table} WHERE note_id = ?1 AND {column} = ?2")
+    };
+    transaction.execute(&action, params![note_id.as_str(), value.as_str()])?;
+    Ok(())
+}
+
+fn note_exists(connection: &Connection, id: &NoteId) -> Result<bool> {
     Ok(connection
-        .query_row("SELECT 1 FROM notes WHERE id = ?1", [id], |_| Ok(()))
+        .query_row("SELECT 1 FROM notes WHERE id = ?1", [id.as_str()], |_| {
+            Ok(())
+        })
         .optional()?
         .is_some())
 }
 
-fn ensure_todo_field(kind: &str, has_value: bool, field: &str) -> Result<()> {
-    if has_value && kind != "todo" {
+fn ensure_todo_field(kind: &NoteKind, has_value: bool, field: &str) -> Result<()> {
+    if has_value && *kind != NoteKind::Todo {
         Err(NtError::Message(format!(
             "`{field}` metadata is only valid for todo notes"
         )))
@@ -516,12 +573,38 @@ fn ensure_todo_field(kind: &str, has_value: bool, field: &str) -> Result<()> {
     }
 }
 
-fn is_terminal_status(status: &str) -> bool {
-    matches!(status, "done" | "dropped")
+fn domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<T>
+where
+    T: FromStr,
+    T::Err: Error + Send + Sync + 'static,
+{
+    let value = row.get::<_, String>(index)?;
+    value.parse().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
+    })
+}
+
+fn optional_domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<T>>
+where
+    T: FromStr,
+    T::Err: Error + Send + Sync + 'static,
+{
+    row.get::<_, Option<String>>(index)?
+        .map(|value| {
+            value.parse().map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
+            })
+        })
+        .transpose()
 }
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::params;
+
+    use crate::error::NtError;
+    use crate::repository::{Repository, schema::configure_and_initialize};
+
     use super::parse_collection_name;
 
     #[test]
@@ -532,5 +615,50 @@ mod tests {
         );
         assert!(parse_collection_name("rust").is_err());
         assert!(parse_collection_name("Personal/rust").is_err());
+    }
+
+    #[test]
+    fn loading_rejects_non_uuid_note_ids_persisted_as_text() {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        configure_and_initialize(&mut connection).unwrap();
+        let mut repository = Repository { connection };
+        repository
+            .create_vault("personal", "2026-05-28T14:30:12Z")
+            .unwrap();
+        let collection_id: String = repository
+            .connection
+            .query_row(
+                "SELECT c.id FROM collections c JOIN vaults v ON v.id = c.vault_id
+                 WHERE v.name = 'personal' AND c.name = 'inbox'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let transaction = repository.connection.transaction().unwrap();
+        transaction
+            .execute_batch("PRAGMA defer_foreign_keys = ON")
+            .unwrap();
+        transaction
+            .execute(
+                "INSERT INTO notes
+                 (id, home_collection_id, body, created, updated, title, kind)
+                 VALUES ('not-a-uuid', ?1, '# Invalid\n', ?2, ?2, 'Invalid', 'note')",
+                params![collection_id, "2026-05-28T14:30:12Z"],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "INSERT INTO note_collections (note_id, collection_id)
+                 VALUES ('not-a-uuid', ?1)",
+                [collection_id],
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+
+        assert!(matches!(
+            repository.list_notes().unwrap_err(),
+            NtError::Database(rusqlite::Error::FromSqlConversionFailure(0, _, _))
+        ));
     }
 }

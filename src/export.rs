@@ -4,19 +4,23 @@ use crate::repository::NoteMeta;
 pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
     let mut text = String::new();
     text.push_str("---\n");
-    text.push_str(&format!("id: {}\n", json_value(&note.id)?));
+    text.push_str(&format!("id: {}\n", json_value(note.id.as_str())?));
     text.push_str(&format!("home: {}\n", json_value(&note.home_collection)?));
     text.push_str(&format!("created: {}\n", json_value(&note.created)?));
     text.push_str(&format!("updated: {}\n", json_value(&note.updated)?));
     text.push_str(&format!("title: {}\n", json_value(&note.title)?));
-    text.push_str(&format!("kind: {}\n", json_value(&note.kind)?));
+    text.push_str(&format!("kind: {}\n", json_value(note.kind.as_str())?));
     text.push_str("status: ");
     match &note.status {
-        Some(status) => text.push_str(&json_value(status)?),
+        Some(status) => text.push_str(&json_value(status.as_str())?),
         None => text.push_str("null"),
     }
     text.push('\n');
-    optional_value(&mut text, "priority", note.priority.as_deref())?;
+    optional_value(
+        &mut text,
+        "priority",
+        note.priority.map(|value| value.as_str()),
+    )?;
     optional_value(&mut text, "scheduled", note.scheduled.as_deref())?;
     optional_value(&mut text, "due", note.due.as_deref())?;
     optional_value(&mut text, "closed", note.closed.as_deref())?;
@@ -45,8 +49,9 @@ fn json_value(value: &str) -> Result<String> {
     Ok(serde_json::to_string(value)?)
 }
 
-fn json_list(values: &[String]) -> Result<String> {
-    Ok(serde_json::to_string(values)?)
+fn json_list<T: AsRef<str>>(values: &[T]) -> Result<String> {
+    let values: Vec<_> = values.iter().map(AsRef::as_ref).collect();
+    Ok(serde_json::to_string(&values)?)
 }
 
 #[cfg(test)]
@@ -57,7 +62,7 @@ mod tests {
 
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
-            id.to_string(),
+            id.parse().unwrap(),
             "personal/inbox".to_string(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
@@ -70,11 +75,11 @@ mod tests {
     fn export_markdown_adds_front_matter_from_note_metadata() {
         let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
         note.title = "Storage: \"shape\"".to_string();
-        note.kind = "decision".to_string();
-        note.status = Some("open".to_string());
+        note.kind = crate::note::NoteKind::Todo;
+        note.status = Some(crate::note::Status::Open);
         note.tags = vec!["cli".to_string(), "storage".to_string()];
         note.collections = vec!["personal/inbox".to_string(), "work/project_a".to_string()];
-        note.links = vec!["018fbe0a-6c00-7000-8000-000000000002".to_string()];
+        note.links = vec!["018fbe0a-6c00-7000-8000-000000000002".parse().unwrap()];
         note.sources = vec!["https://example.com/a,b".to_string()];
 
         let exported = export_markdown(&note, "# Storage\n\nBody.\n").unwrap();
@@ -87,7 +92,7 @@ home: \"personal/inbox\"\n\
 created: \"2026-05-28T14:30:12Z\"\n\
 updated: \"2026-05-28T14:30:12Z\"\n\
 title: \"Storage: \\\"shape\\\"\"\n\
-kind: \"decision\"\n\
+kind: \"todo\"\n\
 status: \"open\"\n\
 priority: null\n\
 scheduled: null\n\

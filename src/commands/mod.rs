@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
 use crate::fs::nt_home;
+use crate::note::{NoteId, Status};
 use crate::repository::{NoteMeta, Repository};
 
 mod add;
@@ -32,7 +33,7 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn ensure_note_exists(repository: &Repository, id: &str) -> Result<()> {
+fn ensure_note_exists(repository: &Repository, id: &NoteId) -> Result<()> {
     if repository.note_exists(id)? {
         Ok(())
     } else {
@@ -40,7 +41,7 @@ fn ensure_note_exists(repository: &Repository, id: &str) -> Result<()> {
     }
 }
 
-fn push_unique_sorted(values: &mut Vec<String>, value: String) {
+fn push_unique_sorted<T: Eq + Ord>(values: &mut Vec<T>, value: T) {
     if !values.contains(&value) {
         values.push(value);
         values.sort();
@@ -53,18 +54,14 @@ fn add_body_sources(note: &mut NoteMeta, body: &str) {
     }
 }
 
-fn apply_status_transition(note: &mut NoteMeta, status: Option<String>, now: &str) {
-    let is_terminal = status.as_deref().is_some_and(is_terminal_status);
+fn apply_status_transition(note: &mut NoteMeta, status: Option<Status>, now: &str) {
+    let is_terminal = status.is_some_and(Status::is_terminal);
     if is_terminal && note.status != status {
         note.closed = Some(now.to_string());
     } else if !is_terminal {
         note.closed = None;
     }
     note.status = status;
-}
-
-fn is_terminal_status(status: &str) -> bool {
-    matches!(status, "done" | "dropped")
 }
 
 fn validate_lowercase_name(value: &str, kind: &str) -> Result<()> {
@@ -92,32 +89,6 @@ fn validate_tag(tag: &str) -> Result<()> {
     validate_lowercase_name(tag, "tag")
 }
 
-fn validate_kind(kind: &str) -> Result<()> {
-    if matches!(kind, "note" | "todo") {
-        Ok(())
-    } else {
-        Err(NtError::Message(format!("invalid kind: {kind}")))
-    }
-}
-
-fn validate_status(status: &str) -> Result<()> {
-    if matches!(status, "open" | "waiting" | "done" | "dropped") {
-        Ok(())
-    } else {
-        Err(NtError::Message(format!("invalid status: {status}")))
-    }
-}
-
-fn validate_priority(priority: &str) -> Result<()> {
-    if matches!(priority, "S" | "A" | "B" | "C" | "D") {
-        Ok(())
-    } else {
-        Err(NtError::Message(format!(
-            "invalid priority `{priority}`; use S, A, B, C, or D"
-        )))
-    }
-}
-
 fn editor_temp_path(action: &str, id: Option<&str>) -> Result<PathBuf> {
     let dir = nt_home()?;
     fs::create_dir_all(&dir)?;
@@ -134,7 +105,7 @@ mod test_helpers {
 
     pub fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
-            id.to_string(),
+            id.parse().unwrap(),
             "personal/inbox".to_string(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
@@ -151,26 +122,38 @@ mod tests {
     #[test]
     fn status_transitions_manage_closed_deterministically() {
         let mut note = note("018fbe0a-6c00-7000-8000-000000000001");
-        apply_status_transition(&mut note, Some("done".to_string()), "2026-05-28T15:00:00Z");
+        apply_status_transition(
+            &mut note,
+            Some(crate::note::Status::Done),
+            "2026-05-28T15:00:00Z",
+        );
         assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
 
-        apply_status_transition(&mut note, Some("done".to_string()), "2026-05-29T15:00:00Z");
+        apply_status_transition(
+            &mut note,
+            Some(crate::note::Status::Done),
+            "2026-05-29T15:00:00Z",
+        );
         assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
         apply_status_transition(
             &mut note,
-            Some("dropped".to_string()),
+            Some(crate::note::Status::Dropped),
             "2026-05-30T15:00:00Z",
         );
         assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
 
         apply_status_transition(
             &mut note,
-            Some("dropped".to_string()),
+            Some(crate::note::Status::Dropped),
             "2026-05-31T15:00:00Z",
         );
         assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
 
-        apply_status_transition(&mut note, Some("open".to_string()), "2026-06-01T15:00:00Z");
+        apply_status_transition(
+            &mut note,
+            Some(crate::note::Status::Open),
+            "2026-06-01T15:00:00Z",
+        );
         assert_eq!(note.closed, None);
     }
 }

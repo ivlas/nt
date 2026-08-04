@@ -5,50 +5,34 @@ use std::process::Command as ProcessCommand;
 use crate::cli::UpdateField;
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
+use crate::note::{NoteId, NoteKind, Priority, Status};
 use crate::repository::{NoteChange, Repository};
 
-use super::{
-    editor_temp_path, ensure_note_exists, validate_collection, validate_kind, validate_priority,
-    validate_status, validate_tag,
-};
+use super::{editor_temp_path, ensure_note_exists, validate_collection, validate_tag};
 
 #[derive(Debug)]
 enum UpdateOperation {
-    Kind(Option<String>),
-    Status(Option<String>),
-    Priority(Option<String>),
+    Kind(Option<NoteKind>),
+    Status(Option<Status>),
+    Priority(Option<Priority>),
     Scheduled(Option<String>),
     Due(Option<String>),
     Home(String),
-    Set {
-        field: UpdateField,
-        add: bool,
-        value: String,
-    },
+    Tag { add: bool, value: String },
+    Collection { add: bool, value: String },
+    Link { add: bool, value: NoteId },
+    Source { add: bool, value: String },
 }
 
 impl UpdateOperation {
     fn parse(field: UpdateField, raw: &str, repository: &Repository) -> Result<Self> {
         match field {
             UpdateField::Body => unreachable!(),
-            UpdateField::Kind => {
-                if raw != "-" {
-                    validate_kind(raw)?;
-                }
-                Ok(Self::Kind((raw != "-").then(|| raw.to_string())))
-            }
-            UpdateField::Status => {
-                if raw != "-" {
-                    validate_status(raw)?;
-                }
-                Ok(Self::Status((raw != "-").then(|| raw.to_string())))
-            }
-            UpdateField::Priority => {
-                if raw != "-" {
-                    validate_priority(raw)?;
-                }
-                Ok(Self::Priority((raw != "-").then(|| raw.to_string())))
-            }
+            UpdateField::Kind => Ok(Self::Kind((raw != "-").then(|| raw.parse()).transpose()?)),
+            UpdateField::Status => Ok(Self::Status((raw != "-").then(|| raw.parse()).transpose()?)),
+            UpdateField::Priority => Ok(Self::Priority(
+                (raw != "-").then(|| raw.parse()).transpose()?,
+            )),
             UpdateField::Scheduled | UpdateField::Due => {
                 if raw != "-" {
                     crate::note::validate_date(raw)?;
@@ -84,20 +68,31 @@ impl UpdateOperation {
                         field_name(field)
                     )));
                 }
-                match field {
-                    UpdateField::Tag => validate_tag(value)?,
-                    UpdateField::Collection => validate_collection(value)?,
-                    UpdateField::Link => {
-                        crate::note::validate_id(value)?;
-                        ensure_note_exists(repository, value)?;
+                Ok(match field {
+                    UpdateField::Tag => {
+                        validate_tag(value)?;
+                        Self::Tag {
+                            add,
+                            value: value.to_string(),
+                        }
                     }
-                    UpdateField::Source => {}
+                    UpdateField::Collection => {
+                        validate_collection(value)?;
+                        Self::Collection {
+                            add,
+                            value: value.to_string(),
+                        }
+                    }
+                    UpdateField::Link => {
+                        let id: NoteId = value.parse()?;
+                        ensure_note_exists(repository, &id)?;
+                        Self::Link { add, value: id }
+                    }
+                    UpdateField::Source => Self::Source {
+                        add,
+                        value: value.to_string(),
+                    },
                     _ => unreachable!(),
-                }
-                Ok(Self::Set {
-                    field,
-                    add,
-                    value: value.to_string(),
                 })
             }
         }
@@ -105,19 +100,16 @@ impl UpdateOperation {
 
     fn into_change(self) -> NoteChange {
         match self {
-            Self::Kind(value) => NoteChange::Kind(value.unwrap_or_else(|| "note".to_string())),
+            Self::Kind(value) => NoteChange::Kind(value.unwrap_or(NoteKind::Note)),
             Self::Status(value) => NoteChange::Status(value),
             Self::Priority(value) => NoteChange::Priority(value),
             Self::Scheduled(value) => NoteChange::Scheduled(value),
             Self::Due(value) => NoteChange::Due(value),
             Self::Home(value) => NoteChange::Home(value),
-            Self::Set { field, add, value } => match field {
-                UpdateField::Tag => NoteChange::Tag { add, value },
-                UpdateField::Collection => NoteChange::Collection { add, value },
-                UpdateField::Link => NoteChange::Link { add, value },
-                UpdateField::Source => NoteChange::Source { add, value },
-                _ => unreachable!(),
-            },
+            Self::Tag { add, value } => NoteChange::Tag { add, value },
+            Self::Collection { add, value } => NoteChange::Collection { add, value },
+            Self::Link { add, value } => NoteChange::Link { add, value },
+            Self::Source { add, value } => NoteChange::Source { add, value },
         }
     }
 }
@@ -139,7 +131,7 @@ fn field_name(field: UpdateField) -> &'static str {
 }
 
 pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Result<()> {
-    crate::note::validate_id(id)?;
+    let id: NoteId = id.parse()?;
     let mut repository = Repository::open()?;
 
     if matches!(field, UpdateField::Body) {
@@ -148,22 +140,22 @@ pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Resul
                 "`body` update reads CommonMark from stdin or $EDITOR".to_string(),
             ));
         }
-        let note = repository.get_note(id)?;
-        let body = read_body(&note.body, id)?;
+        let note = repository.get_note(&id)?;
+        let body = read_body(&note.body, id.as_str())?;
         let title = crate::note::title_from_body(&body)?;
         let now = crate::note::timestamp_now().iso;
-        repository.update_note_body(id, &note.updated, &note.body, &body, &title, &now)?;
+        repository.update_note_body(&id, &note.updated, &note.body, &body, &title, &now)?;
         println!("updated {id} body");
         return Ok(());
     }
 
-    super::ensure_note_exists(&repository, id)?;
+    super::ensure_note_exists(&repository, &id)?;
     let value = value.ok_or_else(|| {
         NtError::Message(format!("`{}` update requires a value", field_name(field)))
     })?;
     let operation = UpdateOperation::parse(field, value, &repository)?;
     let now = crate::note::timestamp_now().iso;
-    repository.update_note(id, &operation.into_change(), &now)?;
+    repository.update_note(&id, &operation.into_change(), &now)?;
     println!("updated {id} {} {value}", field_name(field));
     Ok(())
 }

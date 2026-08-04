@@ -1,6 +1,6 @@
 use crate::display::{find_summary_line, joined_or_dash};
 use crate::error::Result;
-use crate::note::validate_id;
+use crate::note::{NoteId, NoteKind};
 use crate::query::Query;
 use crate::repository::Repository;
 use crate::terminal::{Style, paint};
@@ -17,14 +17,14 @@ pub(super) fn show(id: &str) -> Result<()> {
 }
 
 fn show_text_for_display(id: &str, color: bool) -> Result<String> {
-    validate_id(id)?;
+    let id: NoteId = id.parse()?;
     let repository = Repository::open()?;
-    let note = repository.get_note(id)?;
+    let note = repository.get_note(&id)?;
 
     let mut text = String::new();
     text.push_str(&format!(
         "{}  {}\n",
-        paint(&note.id, Style::BrightCyan, color),
+        paint(note.id.as_str(), Style::BrightCyan, color),
         note.title
     ));
     text.push_str(&format!("home {}\n", note.home_collection));
@@ -37,14 +37,14 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
         paint(&note.updated, Style::Dim, color)
     ));
     text.push_str(&format!("kind {}\n", note.kind));
-    if note.kind == "todo" {
+    if note.kind == NoteKind::Todo {
         text.push_str(&format!(
             "status {}\n",
-            note.status.as_deref().unwrap_or("-")
+            note.status.map(|value| value.as_str()).unwrap_or("-")
         ));
         text.push_str(&format!(
             "priority {}\n",
-            note.priority.as_deref().unwrap_or("-")
+            note.priority.map(|value| value.as_str()).unwrap_or("-")
         ));
         text.push_str(&format!(
             "scheduled {}\n",
