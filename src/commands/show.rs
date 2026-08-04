@@ -48,9 +48,15 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
         ));
         text.push_str(&format!(
             "scheduled {}\n",
-            note.scheduled.as_deref().unwrap_or("-")
+            note.scheduled
+                .as_ref()
+                .map(|value| value.as_str())
+                .unwrap_or("-")
         ));
-        text.push_str(&format!("due {}\n", note.due.as_deref().unwrap_or("-")));
+        text.push_str(&format!(
+            "due {}\n",
+            note.due.as_ref().map(|value| value.as_str()).unwrap_or("-")
+        ));
         text.push_str(&format!(
             "closed {}\n",
             note.closed.as_deref().unwrap_or("-")

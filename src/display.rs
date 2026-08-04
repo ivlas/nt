@@ -66,8 +66,11 @@ pub(crate) fn agenda_line(note: &AgendaNote) -> String {
         "{}\t{}\t{}\t{}\t{}",
         note.id,
         note.priority.map(|value| value.as_str()).unwrap_or("-"),
-        note.scheduled.as_deref().unwrap_or("-"),
-        note.due.as_deref().unwrap_or("-"),
+        note.scheduled
+            .as_ref()
+            .map(|value| value.as_str())
+            .unwrap_or("-"),
+        note.due.as_ref().map(|value| value.as_str()).unwrap_or("-"),
         note.title
     )
 }
@@ -81,7 +84,7 @@ mod tests {
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.parse().unwrap(),
-            "personal/inbox".to_string(),
+            "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
@@ -128,8 +131,8 @@ mod tests {
         let note = AgendaNote {
             id: "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap(),
             priority: Some(crate::note::Priority::A),
-            scheduled: Some("2026-05-28".to_string()),
-            due: Some("2026-05-30".to_string()),
+            scheduled: Some("2026-05-28".parse().unwrap()),
+            due: Some("2026-05-30".parse().unwrap()),
             created: "2026-05-28T14:30:12Z".to_string(),
             title: "Storage shape".to_string(),
         };

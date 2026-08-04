@@ -1,4 +1,5 @@
 use crate::error::{NtError, Result};
+use crate::note::Date;
 
 pub(super) fn unknown_field_error(field: &str) -> String {
     match super::suggest::query_field_suggestion(field) {
@@ -13,8 +14,9 @@ pub(super) fn normalize(value: &str) -> String {
     value.to_ascii_lowercase()
 }
 
-pub(super) fn validate_date_value(field: &str, value: &str) -> Result<()> {
-    crate::note::validate_date(value)
+pub(super) fn parse_date_value(field: &str, value: &str) -> Result<Date> {
+    value
+        .parse()
         .map_err(|_| NtError::Message(format!("invalid `{field}` date `{value}`; use YYYY-MM-DD")))
 }
 

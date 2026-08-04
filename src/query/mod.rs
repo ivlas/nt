@@ -1,5 +1,5 @@
 use crate::error::{NtError, Result};
-use crate::note::{NoteId, NoteKind, Priority, Status};
+use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status};
 
 mod eval;
 mod parse;
@@ -19,16 +19,16 @@ pub(crate) struct SqlQuery {
 pub enum ListFilter {
     Id(String),
     Tag(String),
-    Day(String),
-    Since(String),
-    Before(String),
+    Day(Date),
+    Since(Date),
+    Before(Date),
     Kind(NoteKind),
     Status(Status),
     Priority(Priority),
-    Scheduled(String),
-    Due(String),
-    Closed(String),
-    Collection(String),
+    Scheduled(Date),
+    Due(Date),
+    Closed(Date),
+    Collection(QualifiedCollection),
     Link(NoteId),
     Not(Box<ListFilter>),
 }
@@ -39,16 +39,16 @@ enum QueryExpr {
     Id(String),
     Tag(String),
     Title(String),
-    Day(String),
-    Since(String),
-    Before(String),
+    Day(Date),
+    Since(Date),
+    Before(Date),
     Kind(NoteKind),
     Status(Status),
     Priority(Priority),
-    Scheduled(String),
-    Due(String),
-    Closed(String),
-    Collection(String),
+    Scheduled(Date),
+    Due(Date),
+    Closed(Date),
+    Collection(QualifiedCollection),
     Link(NoteId),
     Source(String),
     Body(String),
@@ -159,34 +159,16 @@ impl QueryExpr {
             }
             "tag" => Ok(Self::Tag(value)),
             "title" => Ok(Self::Title(value)),
-            "day" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Day(value))
-            }
-            "since" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Since(value))
-            }
-            "before" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Before(value))
-            }
+            "day" => Ok(Self::Day(parse::parse_date_value(field, &value)?)),
+            "since" => Ok(Self::Since(parse::parse_date_value(field, &value)?)),
+            "before" => Ok(Self::Before(parse::parse_date_value(field, &value)?)),
             "kind" => Ok(Self::Kind(value.parse()?)),
             "status" => Ok(Self::Status(value.parse()?)),
             "priority" => Ok(Self::Priority(value.to_ascii_uppercase().parse()?)),
-            "scheduled" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Scheduled(value))
-            }
-            "due" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Due(value))
-            }
-            "closed" => {
-                parse::validate_date_value(field, &value)?;
-                Ok(Self::Closed(value))
-            }
-            "collection" => Ok(Self::Collection(value)),
+            "scheduled" => Ok(Self::Scheduled(parse::parse_date_value(field, &value)?)),
+            "due" => Ok(Self::Due(parse::parse_date_value(field, &value)?)),
+            "closed" => Ok(Self::Closed(parse::parse_date_value(field, &value)?)),
+            "collection" => Ok(Self::Collection(value.parse()?)),
             "link" => {
                 let value = value.parse().map_err(|_| {
                     NtError::Message(format!("invalid `{field}` note id `{value}`; use a UUIDv7"))
@@ -233,20 +215,20 @@ impl QueryExpr {
                     "n.id IN (SELECT filter_tags.note_id FROM note_tags filter_tags
                      WHERE lower(filter_tags.tag) = ?)",
                 );
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Title(value) => push_fts_sql(sql, parameters, value, Some("title")),
             Self::Day(value) => {
                 sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) = ?");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Since(value) => {
                 sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) >= ?");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Before(value) => {
                 sql.push_str("length(n.created) >= 10 AND substr(n.created, 1, 10) < ?");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Kind(value) => {
                 sql.push_str("lower(n.kind) = ?");
@@ -262,15 +244,15 @@ impl QueryExpr {
             }
             Self::Scheduled(value) => {
                 sql.push_str("coalesce(n.scheduled = ?, 0)");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Due(value) => {
                 sql.push_str("coalesce(n.due = ?, 0)");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Closed(value) => {
                 sql.push_str("coalesce(substr(n.closed, 1, 10) = ?, 0)");
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Collection(value) => {
                 sql.push_str(
@@ -280,7 +262,7 @@ impl QueryExpr {
                      WHERE filter_nc.note_id = n.id
                        AND lower(filter_v.name || '/' || filter_c.name) = ?)",
                 );
-                parameters.push(value.clone());
+                parameters.push(value.as_str().to_string());
             }
             Self::Link(value) => {
                 sql.push_str(
@@ -540,6 +522,12 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "invalid `link` note id `018fbe0a`; use a UUIDv7"
+        );
+        assert_eq!(
+            Query::parse(&["collection:inbox".to_string()])
+                .unwrap_err()
+                .to_string(),
+            "invalid collection `inbox`; use <vault>/<collection>"
         );
     }
 }

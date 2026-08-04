@@ -13,7 +13,6 @@ mod schema;
 mod search;
 
 pub use models::{AgendaNote, FindRow, NoteChange, NoteMeta};
-pub use notes::parse_collection_name;
 
 pub struct Repository {
     pub(super) connection: Connection,

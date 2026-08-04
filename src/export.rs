@@ -5,7 +5,10 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
     let mut text = String::new();
     text.push_str("---\n");
     text.push_str(&format!("id: {}\n", json_value(note.id.as_str())?));
-    text.push_str(&format!("home: {}\n", json_value(&note.home_collection)?));
+    text.push_str(&format!(
+        "home: {}\n",
+        json_value(note.home_collection.as_str())?
+    ));
     text.push_str(&format!("created: {}\n", json_value(&note.created)?));
     text.push_str(&format!("updated: {}\n", json_value(&note.updated)?));
     text.push_str(&format!("title: {}\n", json_value(&note.title)?));
@@ -21,8 +24,16 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
         "priority",
         note.priority.map(|value| value.as_str()),
     )?;
-    optional_value(&mut text, "scheduled", note.scheduled.as_deref())?;
-    optional_value(&mut text, "due", note.due.as_deref())?;
+    optional_value(
+        &mut text,
+        "scheduled",
+        note.scheduled.as_ref().map(|value| value.as_str()),
+    )?;
+    optional_value(
+        &mut text,
+        "due",
+        note.due.as_ref().map(|value| value.as_str()),
+    )?;
     optional_value(&mut text, "closed", note.closed.as_deref())?;
     text.push_str(&format!("tags: {}\n", json_list(&note.tags)?));
     text.push_str(&format!("collections: {}\n", json_list(&note.collections)?));
@@ -63,7 +74,7 @@ mod tests {
     fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.parse().unwrap(),
-            "personal/inbox".to_string(),
+            "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
@@ -78,7 +89,10 @@ mod tests {
         note.kind = crate::note::NoteKind::Todo;
         note.status = Some(crate::note::Status::Open);
         note.tags = vec!["cli".to_string(), "storage".to_string()];
-        note.collections = vec!["personal/inbox".to_string(), "work/project_a".to_string()];
+        note.collections = vec![
+            "personal/inbox".parse().unwrap(),
+            "work/project_a".parse().unwrap(),
+        ];
         note.links = vec!["018fbe0a-6c00-7000-8000-000000000002".parse().unwrap()];
         note.sources = vec!["https://example.com/a,b".to_string()];
 

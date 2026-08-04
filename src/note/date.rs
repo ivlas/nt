@@ -1,32 +1,63 @@
+use std::fmt;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::{NtError, Result};
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Date(String);
+
+impl Date {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Date {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for Date {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Date {
+    type Err = NtError;
+
+    fn from_str(value: &str) -> Result<Self> {
+        validate_date(value)?;
+        Ok(Self(value.to_string()))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Timestamp {
     pub iso: String,
-    pub day: String,
+    pub day: Date,
 }
 
 pub fn timestamp_now() -> Timestamp {
     timestamp_from_system_time(SystemTime::now())
 }
 
-pub fn local_day_now() -> String {
+pub fn local_day_now() -> Date {
     std::process::Command::new("date")
         .arg("+%F")
         .output()
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|day| day.trim().to_string())
-        .filter(|day| validate_date(day).is_ok())
+        .and_then(|day| day.trim().parse().ok())
         .unwrap_or_else(|| timestamp_now().day)
 }
 
-pub fn validate_date(value: &str) -> Result<()> {
+fn validate_date(value: &str) -> Result<()> {
     let valid_shape = value.len() == 10
         && value.as_bytes().get(4) == Some(&b'-')
         && value.as_bytes().get(7) == Some(&b'-')
@@ -62,14 +93,14 @@ fn days_in_month(year: u32, month: u32) -> u32 {
     }
 }
 
-pub fn add_days(day: &str, count: i64) -> Result<String> {
-    validate_date(day)?;
+pub fn add_days(day: &Date, count: i64) -> Result<Date> {
+    let day = day.as_str();
     let year: i64 = day[0..4].parse().unwrap_or(0);
     let month: i64 = day[5..7].parse().unwrap_or(0);
     let date: i64 = day[8..10].parse().unwrap_or(0);
     let days = days_from_civil(year, month, date) + count;
     let (year, month, date) = civil_from_days(days);
-    Ok(format!("{year:04}-{month:02}-{date:02}"))
+    format!("{year:04}-{month:02}-{date:02}").parse()
 }
 
 pub fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
@@ -90,7 +121,9 @@ fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
 
     Timestamp {
         iso: format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"),
-        day: format!("{year:04}-{month:02}-{day:02}"),
+        day: format!("{year:04}-{month:02}-{day:02}")
+            .parse()
+            .expect("civil date formatting is valid"),
     }
 }
 
@@ -123,19 +156,27 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{add_days, timestamp_from_system_time, validate_date};
+    use super::{Date, add_days, timestamp_from_system_time, validate_date};
 
     #[test]
     fn validates_calendar_dates_and_adds_days() {
         validate_date("2024-02-29").unwrap();
         assert!(validate_date("2026-02-29").is_err());
-        assert_eq!(add_days("2026-12-29", 6).unwrap(), "2027-01-04");
+        let day: Date = "2026-12-29".parse().unwrap();
+        assert_eq!(add_days(&day, 6).unwrap().as_str(), "2027-01-04");
     }
 
     #[test]
     fn formats_unix_epoch_timestamp() {
         let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
         assert_eq!(timestamp.iso, "1970-01-01T00:00:00Z");
-        assert_eq!(timestamp.day, "1970-01-01");
+        assert_eq!(timestamp.day.as_str(), "1970-01-01");
+    }
+
+    #[test]
+    fn date_parses_only_canonical_calendar_values() {
+        assert_eq!("2024-02-29".parse::<Date>().unwrap().as_str(), "2024-02-29");
+        assert!("2026-02-29".parse::<Date>().is_err());
+        assert!("2026-1-01".parse::<Date>().is_err());
     }
 }

@@ -5,23 +5,35 @@ use std::process::Command as ProcessCommand;
 use crate::cli::UpdateField;
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::note::{NoteId, NoteKind, Priority, Status};
+use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status};
 use crate::repository::{NoteChange, Repository};
 
-use super::{editor_temp_path, ensure_note_exists, validate_collection, validate_tag};
+use super::{editor_temp_path, ensure_note_exists, validate_tag};
 
 #[derive(Debug)]
 enum UpdateOperation {
     Kind(Option<NoteKind>),
     Status(Option<Status>),
     Priority(Option<Priority>),
-    Scheduled(Option<String>),
-    Due(Option<String>),
-    Home(String),
-    Tag { add: bool, value: String },
-    Collection { add: bool, value: String },
-    Link { add: bool, value: NoteId },
-    Source { add: bool, value: String },
+    Scheduled(Option<Date>),
+    Due(Option<Date>),
+    Home(QualifiedCollection),
+    Tag {
+        add: bool,
+        value: String,
+    },
+    Collection {
+        add: bool,
+        value: QualifiedCollection,
+    },
+    Link {
+        add: bool,
+        value: NoteId,
+    },
+    Source {
+        add: bool,
+        value: String,
+    },
 }
 
 impl UpdateOperation {
@@ -34,20 +46,14 @@ impl UpdateOperation {
                 (raw != "-").then(|| raw.parse()).transpose()?,
             )),
             UpdateField::Scheduled | UpdateField::Due => {
-                if raw != "-" {
-                    crate::note::validate_date(raw)?;
-                }
-                let value = (raw != "-").then(|| raw.to_string());
+                let value = (raw != "-").then(|| raw.parse()).transpose()?;
                 Ok(if matches!(field, UpdateField::Scheduled) {
                     Self::Scheduled(value)
                 } else {
                     Self::Due(value)
                 })
             }
-            UpdateField::Home => {
-                validate_collection(raw)?;
-                Ok(Self::Home(raw.to_string()))
-            }
+            UpdateField::Home => Ok(Self::Home(raw.parse()?)),
             UpdateField::Tag
             | UpdateField::Collection
             | UpdateField::Link
@@ -76,13 +82,10 @@ impl UpdateOperation {
                             value: value.to_string(),
                         }
                     }
-                    UpdateField::Collection => {
-                        validate_collection(value)?;
-                        Self::Collection {
-                            add,
-                            value: value.to_string(),
-                        }
-                    }
+                    UpdateField::Collection => Self::Collection {
+                        add,
+                        value: value.parse()?,
+                    },
                     UpdateField::Link => {
                         let id: NoteId = value.parse()?;
                         ensure_note_exists(repository, &id)?;

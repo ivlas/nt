@@ -1,7 +1,7 @@
 use crate::cli::AgendaView;
 use crate::display::agenda_line;
 use crate::error::Result;
-use crate::note::Priority;
+use crate::note::{Date, Priority};
 use crate::repository::{AgendaNote, Repository};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,7 +14,6 @@ enum AgendaSection {
 pub(super) fn agenda(view: Option<AgendaView>) -> Result<()> {
     let repository = Repository::open()?;
     let today = crate::note::local_day_now();
-    crate::note::validate_date(&today)?;
     let through = match view {
         None => today.clone(),
         Some(AgendaView::Week) => crate::note::add_days(&today, 6)?,
@@ -38,7 +37,7 @@ pub(super) fn agenda(view: Option<AgendaView>) -> Result<()> {
 
 fn select_agenda<'a>(
     notes: &'a [AgendaNote],
-    today: &str,
+    today: &Date,
 ) -> Vec<(AgendaSection, Vec<&'a AgendaNote>)> {
     let mut sections = vec![
         (AgendaSection::Overdue, Vec::new()),
@@ -67,13 +66,11 @@ fn select_agenda<'a>(
     sections
 }
 
-fn agenda_section(note: &AgendaNote, today: &str) -> Option<AgendaSection> {
-    if note.due.as_deref().is_some_and(|due| due < today) {
+fn agenda_section(note: &AgendaNote, today: &Date) -> Option<AgendaSection> {
+    if note.due.as_ref().is_some_and(|due| due < today) {
         return Some(AgendaSection::Overdue);
     }
-    if note.due.as_deref() == Some(today)
-        || note.scheduled.as_deref().is_some_and(|day| day <= today)
-    {
+    if note.due.as_ref() == Some(today) || note.scheduled.as_ref().is_some_and(|day| day <= today) {
         return Some(AgendaSection::Today);
     }
     if note.due.is_some() || note.scheduled.is_some() {
@@ -83,15 +80,14 @@ fn agenda_section(note: &AgendaNote, today: &str) -> Option<AgendaSection> {
     }
 }
 
-fn agenda_sort_key(note: &AgendaNote, section: AgendaSection) -> (&str, u8) {
+fn agenda_sort_key(note: &AgendaNote, section: AgendaSection) -> (Option<&Date>, u8) {
     let date = match section {
-        AgendaSection::Overdue => note.due.as_deref().unwrap_or_default(),
+        AgendaSection::Overdue => note.due.as_ref(),
         AgendaSection::Today | AgendaSection::Upcoming => {
-            [note.scheduled.as_deref(), note.due.as_deref()]
+            [note.scheduled.as_ref(), note.due.as_ref()]
                 .into_iter()
                 .flatten()
                 .min()
-                .unwrap_or_default()
         }
     };
     (date, priority_rank(note.priority))
@@ -125,8 +121,8 @@ mod tests {
         AgendaNote {
             id: id.parse().unwrap(),
             priority: priority.map(|value| value.parse().unwrap()),
-            scheduled: scheduled.map(str::to_string),
-            due: due.map(str::to_string),
+            scheduled: scheduled.map(|value| value.parse().unwrap()),
+            due: due.map(|value| value.parse().unwrap()),
             created: "2026-05-28T14:30:12Z".to_string(),
             title: id,
         }
@@ -140,7 +136,7 @@ mod tests {
             todo(3, Some("A"), Some("2026-05-28"), Some("2026-06-02")),
             todo(4, None, None, Some("2026-06-01")),
         ];
-        let sections = select_agenda(&notes, "2026-05-28");
+        let sections = select_agenda(&notes, &"2026-05-28".parse().unwrap());
 
         assert_eq!(sections[0].0, AgendaSection::Overdue);
         assert_eq!(
@@ -180,7 +176,7 @@ mod tests {
             .enumerate()
             .map(|(index, priority)| todo((index + 10) as u16, priority, None, Some("2026-05-28")))
             .collect();
-        let sections = select_agenda(&notes, "2026-05-28");
+        let sections = select_agenda(&notes, &"2026-05-28".parse().unwrap());
         let priorities: Vec<Option<&str>> = sections[1]
             .1
             .iter()
@@ -196,7 +192,7 @@ mod tests {
         let mut older = todo(21, Some("A"), None, Some("2026-05-28"));
         older.created = "2026-06-01T00:00:00Z".to_string();
         let notes = [older, newer];
-        let sections = select_agenda(&notes, "2026-05-28");
+        let sections = select_agenda(&notes, &"2026-05-28".parse().unwrap());
         assert_eq!(
             sections[1]
                 .1

@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use crate::error::Result;
 use crate::listing::{ListField, ListRow};
+use crate::note::Date;
 use crate::query::{ListFilter, Query};
 
 use super::{AgendaNote, FindRow, Repository};
@@ -60,14 +61,14 @@ impl Repository {
         Ok(found)
     }
 
-    pub fn agenda_notes(&self, through: &str) -> Result<Vec<AgendaNote>> {
+    pub fn agenda_notes(&self, through: &Date) -> Result<Vec<AgendaNote>> {
         let mut statement = self.connection.prepare(AGENDA_SQL)?;
-        let rows = statement.query_map([through], |row| {
+        let rows = statement.query_map([through.as_str()], |row| {
             Ok(AgendaNote {
                 id: domain_from_row(row, 0)?,
                 priority: optional_domain_from_row(row, 1)?,
-                scheduled: row.get(2)?,
-                due: row.get(3)?,
+                scheduled: optional_domain_from_row(row, 2)?,
+                due: optional_domain_from_row(row, 3)?,
                 created: row.get(4)?,
                 title: row.get(5)?,
             })
@@ -169,19 +170,19 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
                 "n.id IN (SELECT nt.note_id FROM note_tags nt
                  WHERE LOWER(nt.tag) = ?)",
             );
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Day(value) => {
             sql.push_str("substr(n.created, 1, 10) = ?");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Since(value) => {
             sql.push_str("substr(n.created, 1, 10) >= ?");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Before(value) => {
             sql.push_str("substr(n.created, 1, 10) < ?");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Kind(value) => {
             sql.push_str("LOWER(n.kind) = ?");
@@ -197,15 +198,15 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
         }
         ListFilter::Scheduled(value) => {
             sql.push_str("COALESCE(n.scheduled = ?, 0)");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Due(value) => {
             sql.push_str("COALESCE(n.due = ?, 0)");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Closed(value) => {
             sql.push_str("COALESCE(substr(n.closed, 1, 10) = ?, 0)");
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Collection(value) => {
             sql.push_str(
@@ -214,7 +215,7 @@ fn push_list_filter_sql(sql: &mut String, parameters: &mut Vec<String>, filter: 
                  JOIN vaults v ON v.id = c.vault_id
                  WHERE nc.note_id = n.id AND LOWER(v.name || '/' || c.name) = ?)",
             );
-            parameters.push(value.clone());
+            parameters.push(value.as_str().to_string());
         }
         ListFilter::Link(value) => {
             sql.push_str(
@@ -295,7 +296,7 @@ mod tests {
                               due: Option<&str>| {
                 let mut note = NoteMeta::new_note(
                     id.parse().unwrap(),
-                    "personal/inbox".to_string(),
+                    "personal/inbox".parse().unwrap(),
                     "# Body that agenda must not load\n".to_string(),
                     "2026-05-01T00:00:00Z".to_string(),
                     "2026-05-01T00:00:00Z".to_string(),
@@ -303,8 +304,8 @@ mod tests {
                 );
                 note.kind = kind.parse().unwrap();
                 note.status = status.map(|value| value.parse().unwrap());
-                note.scheduled = scheduled.map(str::to_string);
-                note.due = due.map(str::to_string);
+                note.scheduled = scheduled.map(|value| value.parse().unwrap());
+                note.due = due.map(|value| value.parse().unwrap());
                 note.closed = status
                     .filter(|status| matches!(*status, "done" | "dropped"))
                     .map(|_| "2026-05-28T00:00:00Z".to_string());
@@ -398,7 +399,9 @@ mod tests {
             )
             .unwrap();
 
-        let today = repository.agenda_notes("2026-05-28").unwrap();
+        let today = repository
+            .agenda_notes(&"2026-05-28".parse().unwrap())
+            .unwrap();
         assert_eq!(
             today
                 .iter()
@@ -410,7 +413,9 @@ mod tests {
             ]
         );
 
-        let week = repository.agenda_notes("2026-06-03").unwrap();
+        let week = repository
+            .agenda_notes(&"2026-06-03".parse().unwrap())
+            .unwrap();
         assert_eq!(
             week.iter().map(|note| note.id.as_str()).collect::<Vec<_>>(),
             vec![
@@ -635,7 +640,10 @@ mod tests {
     }
 
     fn benchmark_agenda(repository: &Repository) -> usize {
-        repository.agenda_notes("2026-01-20").unwrap().len()
+        repository
+            .agenda_notes(&"2026-01-20".parse().unwrap())
+            .unwrap()
+            .len()
     }
 
     fn benchmark_list_status(repository: &Repository) -> usize {

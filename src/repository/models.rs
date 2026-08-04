@@ -1,9 +1,9 @@
-use crate::note::{NoteId, NoteKind, Priority, Status};
+use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status};
 
 #[derive(Clone, Debug)]
 pub struct NoteMeta {
     pub id: NoteId,
-    pub home_collection: String,
+    pub home_collection: QualifiedCollection,
     pub body: String,
     pub created: String,
     pub updated: String,
@@ -11,11 +11,11 @@ pub struct NoteMeta {
     pub kind: NoteKind,
     pub status: Option<Status>,
     pub priority: Option<Priority>,
-    pub scheduled: Option<String>,
-    pub due: Option<String>,
+    pub scheduled: Option<Date>,
+    pub due: Option<Date>,
     pub closed: Option<String>,
     pub tags: Vec<String>,
-    pub collections: Vec<String>,
+    pub collections: Vec<QualifiedCollection>,
     pub links: Vec<NoteId>,
     pub sources: Vec<String>,
 }
@@ -23,7 +23,7 @@ pub struct NoteMeta {
 impl NoteMeta {
     pub fn new_note(
         id: NoteId,
-        home_collection: String,
+        home_collection: QualifiedCollection,
         body: String,
         created: String,
         updated: String,
@@ -54,8 +54,8 @@ impl NoteMeta {
 pub struct AgendaNote {
     pub id: NoteId,
     pub priority: Option<Priority>,
-    pub scheduled: Option<String>,
-    pub due: Option<String>,
+    pub scheduled: Option<Date>,
+    pub due: Option<Date>,
     pub created: String,
     pub title: String,
 }
@@ -73,11 +73,23 @@ pub enum NoteChange {
     Kind(NoteKind),
     Status(Option<Status>),
     Priority(Option<Priority>),
-    Scheduled(Option<String>),
-    Due(Option<String>),
-    Home(String),
-    Tag { add: bool, value: String },
-    Collection { add: bool, value: String },
-    Link { add: bool, value: NoteId },
-    Source { add: bool, value: String },
+    Scheduled(Option<Date>),
+    Due(Option<Date>),
+    Home(QualifiedCollection),
+    Tag {
+        add: bool,
+        value: String,
+    },
+    Collection {
+        add: bool,
+        value: QualifiedCollection,
+    },
+    Link {
+        add: bool,
+        value: NoteId,
+    },
+    Source {
+        add: bool,
+        value: String,
+    },
 }

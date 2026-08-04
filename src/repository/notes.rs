@@ -7,7 +7,9 @@ use rusqlite::{
 };
 
 use crate::error::{NtError, Result};
-use crate::note::{NoteId, NoteKind, Priority, Status, new_id};
+use crate::note::{
+    Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, new_id, validate_namespace_part,
+};
 
 use super::{NoteChange, NoteMeta, Repository};
 
@@ -38,7 +40,7 @@ impl Repository {
         Ok(())
     }
 
-    pub fn default_home_collection(&self) -> Result<String> {
+    pub fn default_home_collection(&self) -> Result<QualifiedCollection> {
         let mut statement = self
             .connection
             .prepare("SELECT name FROM vaults ORDER BY name")?;
@@ -47,7 +49,7 @@ impl Repository {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match names.as_slice() {
             [] => Err(NtError::MissingVault),
-            [name] => Ok(format!("{name}/inbox")),
+            [name] => Ok(format!("{name}/inbox").parse()?),
             _ => Err(NtError::Message(
                 "specify `home:<vault>/<collection>` when more than one vault exists".to_string(),
             )),
@@ -91,8 +93,8 @@ impl Repository {
                 note.kind.as_str(),
                 note.status.map(Status::as_str),
                 note.priority.map(Priority::as_str),
-                note.scheduled,
-                note.due,
+                note.scheduled.as_ref().map(Date::as_str),
+                note.due.as_ref().map(Date::as_str),
                 note.closed
             ],
         )?;
@@ -168,7 +170,7 @@ impl Repository {
                         domain_from_row::<NoteKind>(row, 0)?,
                         optional_domain_from_row::<Status>(row, 1)?,
                         row.get::<_, Option<String>>(2)?,
-                        row.get::<_, String>(3)?,
+                        domain_from_row::<QualifiedCollection>(row, 3)?,
                     ))
                 },
             )
@@ -217,14 +219,14 @@ impl Repository {
                 ensure_todo_field(&kind, value.is_some(), "scheduled")?;
                 transaction.execute(
                     "UPDATE notes SET scheduled = ?1 WHERE id = ?2",
-                    params![value, id.as_str()],
+                    params![value.as_ref().map(Date::as_str), id.as_str()],
                 )?;
             }
             NoteChange::Due(value) => {
                 ensure_todo_field(&kind, value.is_some(), "due")?;
                 transaction.execute(
                     "UPDATE notes SET due = ?1 WHERE id = ?2",
-                    params![value, id.as_str()],
+                    params![value.as_ref().map(Date::as_str), id.as_str()],
                 )?;
             }
             NoteChange::Home(collection) => {
@@ -341,41 +343,16 @@ impl Repository {
     }
 }
 
-pub fn parse_collection_name(value: &str) -> Result<(&str, &str)> {
-    let Some((vault, collection)) = value.split_once('/') else {
-        return Err(NtError::Message(format!(
-            "invalid collection `{value}`; use <vault>/<collection>"
-        )));
-    };
-    validate_namespace_part(vault, "vault")?;
-    validate_namespace_part(collection, "collection")?;
-    Ok((vault, collection))
-}
-
-fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
-    if value.is_empty()
-        || value.starts_with('/')
-        || value.ends_with('/')
-        || value
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
-    {
-        return Err(NtError::Message(format!(
-            "invalid {kind} `{value}`; use lowercase names without spaces or commas"
-        )));
-    }
-    Ok(())
-}
-
 fn ensure_collection(
     transaction: &Transaction<'_>,
-    full_name: &str,
+    full_name: &QualifiedCollection,
     created: &str,
 ) -> Result<String> {
     if let Some(id) = collection_id(transaction, full_name)? {
         return Ok(id);
     }
-    let (vault_name, collection_name) = parse_collection_name(full_name)?;
+    let vault_name = full_name.vault();
+    let collection_name = full_name.collection();
     let vault_id = transaction
         .query_row(
             "SELECT id FROM vaults WHERE name = ?1",
@@ -396,8 +373,12 @@ fn ensure_collection(
     Ok(id)
 }
 
-fn collection_id(connection: &Connection, full_name: &str) -> Result<Option<String>> {
-    let (vault, collection) = parse_collection_name(full_name)?;
+fn collection_id(
+    connection: &Connection,
+    full_name: &QualifiedCollection,
+) -> Result<Option<String>> {
+    let vault = full_name.vault();
+    let collection = full_name.collection();
     connection
         .query_row(
             "SELECT c.id FROM collections c JOIN vaults v ON v.id = c.vault_id
@@ -412,7 +393,7 @@ fn collection_id(connection: &Connection, full_name: &str) -> Result<Option<Stri
 fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
     Ok(NoteMeta {
         id: domain_from_row(row, 0)?,
-        home_collection: row.get(1)?,
+        home_collection: domain_from_row(row, 1)?,
         body: row.get(2)?,
         created: row.get(3)?,
         updated: row.get(4)?,
@@ -420,8 +401,8 @@ fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
         kind: domain_from_row(row, 6)?,
         status: optional_domain_from_row(row, 7)?,
         priority: optional_domain_from_row(row, 8)?,
-        scheduled: row.get(9)?,
-        due: row.get(10)?,
+        scheduled: optional_domain_from_row(row, 9)?,
+        due: optional_domain_from_row(row, 10)?,
         closed: row.get(11)?,
         tags: Vec::new(),
         collections: Vec::new(),
@@ -461,7 +442,7 @@ fn load_relationships(connection: &Connection, note: &mut NoteMeta) -> Result<()
          ORDER BY v.name, c.name",
     )?;
     note.collections = statement
-        .query_map([note.id.as_str()], |row| row.get(0))?
+        .query_map([note.id.as_str()], |row| domain_from_row(row, 0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(())
 }
@@ -604,18 +585,6 @@ mod tests {
 
     use crate::error::NtError;
     use crate::repository::{Repository, schema::configure_and_initialize};
-
-    use super::parse_collection_name;
-
-    #[test]
-    fn collection_names_are_vault_qualified() {
-        assert_eq!(
-            parse_collection_name("personal/rust").unwrap(),
-            ("personal", "rust")
-        );
-        assert!(parse_collection_name("rust").is_err());
-        assert!(parse_collection_name("Personal/rust").is_err());
-    }
 
     #[test]
     fn loading_rejects_non_uuid_note_ids_persisted_as_text() {

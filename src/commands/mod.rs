@@ -81,10 +81,6 @@ fn validate_lowercase_name(value: &str, kind: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_collection(collection: &str) -> Result<()> {
-    crate::repository::parse_collection_name(collection).map(|_| ())
-}
-
 fn validate_tag(tag: &str) -> Result<()> {
     validate_lowercase_name(tag, "tag")
 }
@@ -106,7 +102,7 @@ mod test_helpers {
     pub fn note(id: &str) -> NoteMeta {
         NoteMeta::new_note(
             id.parse().unwrap(),
-            "personal/inbox".to_string(),
+            "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
             "2026-05-28T14:30:12Z".to_string(),
             "2026-05-28T14:30:12Z".to_string(),

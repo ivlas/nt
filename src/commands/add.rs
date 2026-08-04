@@ -5,12 +5,12 @@ use std::process::Command as ProcessCommand;
 
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::note::{NoteId, NoteKind, Priority, Status, title_from_body};
+use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, title_from_body};
 use crate::repository::{NoteMeta, Repository};
 
 use super::{
     add_body_sources, apply_status_transition, editor_temp_path, ensure_note_exists,
-    push_unique_sorted, validate_collection, validate_tag,
+    push_unique_sorted, validate_tag,
 };
 
 pub(super) fn note(metadata: &[String]) -> Result<()> {
@@ -53,13 +53,13 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
 
 #[derive(Debug, Default)]
 struct CreationMetadata {
-    home: Option<String>,
+    home: Option<QualifiedCollection>,
     status: Option<Status>,
     priority: Option<Priority>,
-    scheduled: Option<String>,
-    due: Option<String>,
+    scheduled: Option<Date>,
+    due: Option<Date>,
     tags: Vec<String>,
-    collections: Vec<String>,
+    collections: Vec<QualifiedCollection>,
     links: Vec<NoteId>,
     sources: Vec<String>,
 }
@@ -85,14 +85,11 @@ impl CreationMetadata {
             )));
         };
         match field {
-            "home" => {
-                validate_collection(value)?;
-                set_single_metadata(&mut self.home, field, value)
-            }
+            "home" => set_typed_metadata(&mut self.home, field, value),
             "tag" => push_value_list(&mut self.tags, field, value),
             "collection" => {
                 for collection in split_metadata_values(field, value)? {
-                    validate_collection(&collection)?;
+                    let collection = collection.parse()?;
                     if !self.collections.contains(&collection) {
                         self.collections.push(collection);
                     }
@@ -118,13 +115,11 @@ impl CreationMetadata {
             }
             "scheduled" => {
                 kind.ensure_todo_field(field)?;
-                set_single_metadata(&mut self.scheduled, field, value)?;
-                crate::note::validate_date(self.scheduled.as_deref().unwrap_or_default())
+                set_typed_metadata(&mut self.scheduled, field, value)
             }
             "due" => {
                 kind.ensure_todo_field(field)?;
-                set_single_metadata(&mut self.due, field, value)?;
-                crate::note::validate_date(self.due.as_deref().unwrap_or_default())
+                set_typed_metadata(&mut self.due, field, value)
             }
             _ => Err(NtError::Message(format!(
                 "unknown {kind} metadata field `{field}`"
@@ -199,21 +194,6 @@ fn push_single_value(values: &mut Vec<String>, field: &str, raw: &str) -> Result
         )));
     }
     push_unique_sorted(values, value.to_string());
-    Ok(())
-}
-
-fn set_single_metadata(target: &mut Option<String>, field: &str, raw: &str) -> Result<()> {
-    let values = split_metadata_values(field, raw)?;
-    if values.len() != 1 {
-        return Err(NtError::Message(format!(
-            "`{field}` metadata accepts one value"
-        )));
-    }
-    if target.replace(values[0].clone()).is_some() {
-        return Err(NtError::Message(format!(
-            "`{field}` metadata can be set only once"
-        )));
-    }
     Ok(())
 }
 
