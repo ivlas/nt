@@ -60,6 +60,45 @@ fn init_creates_logical_vault_and_inbox_in_one_database() {
 }
 
 #[test]
+fn commands_before_init_do_not_create_filesystem_state() {
+    let root = temp_dir("missing-database-no-state");
+    let home = root.join("home");
+
+    assert_failed(&home, &["list"], "", "run `nt init <vault>` first");
+
+    assert!(!home.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn failed_first_init_removes_all_created_state() {
+    let root = temp_dir("failed-init-no-state");
+    let home = root.join("home");
+
+    assert_failed(&home, &["init", "Personal"], "", "invalid vault `Personal`");
+
+    assert!(!home.join(".nt").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn initialized_database_without_a_vault_is_rejected_without_modification() {
+    let root = temp_dir("initialized-without-vault");
+    let home = root.join("home");
+    run_nt(&home, &["init", "personal"]);
+    let database = home.join(".nt/nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection.execute("DELETE FROM vaults", []).unwrap();
+    drop(connection);
+    let before = fs::read(&database).unwrap();
+
+    assert_failed(&home, &["list"], "", "run `nt init <vault>` first");
+
+    assert_eq!(fs::read(database).unwrap(), before);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_refuses_to_modify_an_existing_unrelated_database() {
     let root = temp_dir("init-existing-database");
     let home = root.join("home");
@@ -72,7 +111,12 @@ fn init_refuses_to_modify_an_existing_unrelated_database() {
         .unwrap();
     drop(connection);
 
-    assert_failed(&home, &["init", "personal"], "", "refusing to overwrite it");
+    assert_failed(
+        &home,
+        &["init", "personal"],
+        "",
+        "refusing to overwrite or modify it",
+    );
 
     let connection = Connection::open(database).unwrap();
     let sentinel: String = connection
@@ -88,6 +132,49 @@ fn init_refuses_to_modify_an_existing_unrelated_database() {
         .unwrap();
     assert_eq!(nt_tables, 0);
 
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn normal_open_does_not_modify_an_existing_unrelated_database() {
+    let root = temp_dir("open-existing-database");
+    let home = root.join("home");
+    let nt_home = home.join(".nt");
+    fs::create_dir_all(&nt_home).unwrap();
+    let database = nt_home.join("nt.sqlite3");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch("CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES ('kept');")
+        .unwrap();
+    drop(connection);
+    let before = fs::read(&database).unwrap();
+
+    assert_failed(&home, &["list"], "", "refusing to overwrite or modify it");
+
+    assert_eq!(fs::read(&database).unwrap(), before);
+    assert!(!nt_home.join("nt.sqlite3-wal").exists());
+    assert!(!nt_home.join("nt.sqlite3-shm").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_never_overwrites_an_existing_non_database_file() {
+    let root = temp_dir("init-existing-file");
+    let home = root.join("home");
+    let nt_home = home.join(".nt");
+    fs::create_dir_all(&nt_home).unwrap();
+    let database = nt_home.join("nt.sqlite3");
+    let contents = b"not a sqlite database\n";
+    fs::write(&database, contents).unwrap();
+
+    assert_failed(
+        &home,
+        &["init", "personal"],
+        "",
+        "is not a valid nt database; refusing to overwrite or modify it",
+    );
+
+    assert_eq!(fs::read(database).unwrap(), contents);
     let _ = fs::remove_dir_all(root);
 }
 

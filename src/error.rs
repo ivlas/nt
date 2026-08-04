@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use std::path::PathBuf;
+
 #[derive(Debug, Error)]
 pub enum NtError {
     #[error("{0}")]
@@ -16,6 +18,17 @@ pub enum NtError {
     HomeNotFound,
     #[error("run `nt init <vault>` first")]
     MissingVault,
+    #[error("database at {} is not initialized by nt; refusing to overwrite or modify it", .0.display())]
+    UninitializedDatabase(PathBuf),
+    #[error(
+        "database at {} is not a valid nt database; refusing to overwrite or modify it: {source}",
+        path.display()
+    )]
+    InvalidDatabase {
+        path: PathBuf,
+        #[source]
+        source: rusqlite::Error,
+    },
     #[error("note not found: {0}")]
     NoteNotFound(String),
     #[error("invalid note id: {0}")]

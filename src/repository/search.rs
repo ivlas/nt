@@ -244,7 +244,9 @@ mod tests {
     #[test]
     fn agenda_query_filters_rows_in_sql_and_does_not_materialize_bodies() {
         let directory = tempdir().unwrap();
-        let mut repository = Repository::open_path(&directory.path().join("nt.sqlite3")).unwrap();
+        let mut connection = Connection::open(directory.path().join("nt.sqlite3")).unwrap();
+        configure_and_initialize(&mut connection).unwrap();
+        let mut repository = Repository { connection };
         repository
             .create_vault("personal", "2026-05-01T00:00:00Z")
             .unwrap();

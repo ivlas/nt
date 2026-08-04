@@ -168,6 +168,12 @@ pub(super) fn configure_and_initialize(connection: &mut Connection) -> Result<()
     initialize_with(connection, |_| Ok(()))
 }
 
+pub(super) fn configure_existing(connection: &Connection) -> Result<()> {
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+    Ok(())
+}
+
 fn initialize_with(
     connection: &mut Connection,
     mut after_step: impl FnMut(usize) -> Result<()>,
