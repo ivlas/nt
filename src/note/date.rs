@@ -36,10 +36,67 @@ impl FromStr for Date {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Timestamp {
-    pub iso: String,
-    pub day: Date,
+    iso: String,
+    day: Date,
+}
+
+impl Timestamp {
+    pub fn as_str(&self) -> &str {
+        &self.iso
+    }
+
+    pub fn day(&self) -> &Date {
+        &self.day
+    }
+}
+
+impl AsRef<str> for Timestamp {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for Timestamp {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Timestamp {
+    type Err = NtError;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let valid_shape = value.len() == 20
+            && value.as_bytes().get(10) == Some(&b'T')
+            && value.as_bytes().get(13) == Some(&b':')
+            && value.as_bytes().get(16) == Some(&b':')
+            && value.as_bytes().get(19) == Some(&b'Z')
+            && value.chars().enumerate().all(|(index, ch)| {
+                matches!(index, 4 | 7) && ch == '-'
+                    || index == 10 && ch == 'T'
+                    || matches!(index, 13 | 16) && ch == ':'
+                    || index == 19 && ch == 'Z'
+                    || ch.is_ascii_digit()
+            });
+        if !valid_shape {
+            return Err(invalid_timestamp(value));
+        }
+
+        let day: Date = value[0..10].parse().map_err(|_| invalid_timestamp(value))?;
+        let hour: u8 = value[11..13].parse().unwrap_or(24);
+        let minute: u8 = value[14..16].parse().unwrap_or(60);
+        let second: u8 = value[17..19].parse().unwrap_or(60);
+        if hour > 23 || minute > 59 || second > 59 {
+            return Err(invalid_timestamp(value));
+        }
+
+        Ok(Self {
+            iso: value.to_string(),
+            day,
+        })
+    }
 }
 
 pub fn timestamp_now() -> Timestamp {
@@ -83,6 +140,12 @@ fn invalid_date(value: &str) -> NtError {
     NtError::Message(format!("invalid date `{value}`; use YYYY-MM-DD"))
 }
 
+fn invalid_timestamp(value: &str) -> NtError {
+    NtError::Message(format!(
+        "invalid timestamp `{value}`; use YYYY-MM-DDTHH:MM:SSZ"
+    ))
+}
+
 fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -119,12 +182,9 @@ fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
     let minute = (second_of_day % 3600) / 60;
     let second = second_of_day % 60;
 
-    Timestamp {
-        iso: format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"),
-        day: format!("{year:04}-{month:02}-{day:02}")
-            .parse()
-            .expect("civil date formatting is valid"),
-    }
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+        .parse()
+        .expect("civil timestamp formatting is valid")
 }
 
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
@@ -156,7 +216,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{Date, add_days, timestamp_from_system_time, validate_date};
+    use super::{Date, Timestamp, add_days, timestamp_from_system_time, validate_date};
 
     #[test]
     fn validates_calendar_dates_and_adds_days() {
@@ -169,8 +229,8 @@ mod tests {
     #[test]
     fn formats_unix_epoch_timestamp() {
         let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
-        assert_eq!(timestamp.iso, "1970-01-01T00:00:00Z");
-        assert_eq!(timestamp.day.as_str(), "1970-01-01");
+        assert_eq!(timestamp.as_str(), "1970-01-01T00:00:00Z");
+        assert_eq!(timestamp.day().as_str(), "1970-01-01");
     }
 
     #[test]
@@ -178,5 +238,15 @@ mod tests {
         assert_eq!("2024-02-29".parse::<Date>().unwrap().as_str(), "2024-02-29");
         assert!("2026-02-29".parse::<Date>().is_err());
         assert!("2026-1-01".parse::<Date>().is_err());
+    }
+
+    #[test]
+    fn timestamp_parses_only_canonical_utc_values() {
+        let timestamp: Timestamp = "2026-05-28T14:30:12Z".parse().unwrap();
+        assert_eq!(timestamp.as_str(), "2026-05-28T14:30:12Z");
+        assert_eq!(timestamp.day().as_str(), "2026-05-28");
+        assert!("2026-02-29T14:30:12Z".parse::<Timestamp>().is_err());
+        assert!("2026-05-28T24:00:00Z".parse::<Timestamp>().is_err());
+        assert!("2026-05-28T14:30:12+00:00".parse::<Timestamp>().is_err());
     }
 }

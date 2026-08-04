@@ -9,8 +9,14 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
         "home: {}\n",
         json_value(note.home_collection.as_str())?
     ));
-    text.push_str(&format!("created: {}\n", json_value(&note.created)?));
-    text.push_str(&format!("updated: {}\n", json_value(&note.updated)?));
+    text.push_str(&format!(
+        "created: {}\n",
+        json_value(note.created.as_str())?
+    ));
+    text.push_str(&format!(
+        "updated: {}\n",
+        json_value(note.updated.as_str())?
+    ));
     text.push_str(&format!("title: {}\n", json_value(&note.title)?));
     text.push_str(&format!("kind: {}\n", json_value(note.kind.as_str())?));
     text.push_str("status: ");
@@ -34,7 +40,11 @@ pub(crate) fn export_markdown(note: &NoteMeta, body: &str) -> Result<String> {
         "due",
         note.due.as_ref().map(|value| value.as_str()),
     )?;
-    optional_value(&mut text, "closed", note.closed.as_deref())?;
+    optional_value(
+        &mut text,
+        "closed",
+        note.closed.as_ref().map(|value| value.as_str()),
+    )?;
     text.push_str(&format!("tags: {}\n", json_list(&note.tags)?));
     text.push_str(&format!("collections: {}\n", json_list(&note.collections)?));
     text.push_str(&format!("links: {}\n", json_list(&note.links)?));
@@ -76,8 +86,8 @@ mod tests {
             id.parse().unwrap(),
             "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
             "Storage shape".to_string(),
         )
     }

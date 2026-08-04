@@ -123,7 +123,7 @@ mod tests {
             priority: priority.map(|value| value.parse().unwrap()),
             scheduled: scheduled.map(|value| value.parse().unwrap()),
             due: due.map(|value| value.parse().unwrap()),
-            created: "2026-05-28T14:30:12Z".to_string(),
+            created: "2026-05-28T14:30:12Z".parse().unwrap(),
             title: id,
         }
     }
@@ -188,9 +188,9 @@ mod tests {
         );
 
         let mut newer = todo(20, Some("A"), None, Some("2026-05-28"));
-        newer.created = "2026-06-02T00:00:00Z".to_string();
+        newer.created = "2026-06-02T00:00:00Z".parse().unwrap();
         let mut older = todo(21, Some("A"), None, Some("2026-05-28"));
-        older.created = "2026-06-01T00:00:00Z".to_string();
+        older.created = "2026-06-01T00:00:00Z".parse().unwrap();
         let notes = [older, newer];
         let sections = select_agenda(&notes, &"2026-05-28".parse().unwrap());
         assert_eq!(

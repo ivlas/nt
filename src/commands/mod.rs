@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
 use crate::fs::nt_home;
-use crate::note::{NoteId, Status};
+use crate::note::{NoteId, Status, Timestamp};
 use crate::repository::{NoteMeta, Repository};
 
 mod add;
@@ -54,10 +54,10 @@ fn add_body_sources(note: &mut NoteMeta, body: &str) {
     }
 }
 
-fn apply_status_transition(note: &mut NoteMeta, status: Option<Status>, now: &str) {
+fn apply_status_transition(note: &mut NoteMeta, status: Option<Status>, now: &Timestamp) {
     let is_terminal = status.is_some_and(Status::is_terminal);
     if is_terminal && note.status != status {
-        note.closed = Some(now.to_string());
+        note.closed = Some(now.clone());
     } else if !is_terminal {
         note.closed = None;
     }
@@ -104,8 +104,8 @@ mod test_helpers {
             id.parse().unwrap(),
             "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
             "Storage shape".to_string(),
         )
     }
@@ -121,34 +121,46 @@ mod tests {
         apply_status_transition(
             &mut note,
             Some(crate::note::Status::Done),
-            "2026-05-28T15:00:00Z",
+            &"2026-05-28T15:00:00Z".parse().unwrap(),
         );
-        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+        assert_eq!(
+            note.closed.as_ref().map(|value| value.as_str()),
+            Some("2026-05-28T15:00:00Z")
+        );
 
         apply_status_transition(
             &mut note,
             Some(crate::note::Status::Done),
-            "2026-05-29T15:00:00Z",
+            &"2026-05-29T15:00:00Z".parse().unwrap(),
         );
-        assert_eq!(note.closed.as_deref(), Some("2026-05-28T15:00:00Z"));
+        assert_eq!(
+            note.closed.as_ref().map(|value| value.as_str()),
+            Some("2026-05-28T15:00:00Z")
+        );
         apply_status_transition(
             &mut note,
             Some(crate::note::Status::Dropped),
-            "2026-05-30T15:00:00Z",
+            &"2026-05-30T15:00:00Z".parse().unwrap(),
         );
-        assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
+        assert_eq!(
+            note.closed.as_ref().map(|value| value.as_str()),
+            Some("2026-05-30T15:00:00Z")
+        );
 
         apply_status_transition(
             &mut note,
             Some(crate::note::Status::Dropped),
-            "2026-05-31T15:00:00Z",
+            &"2026-05-31T15:00:00Z".parse().unwrap(),
         );
-        assert_eq!(note.closed.as_deref(), Some("2026-05-30T15:00:00Z"));
+        assert_eq!(
+            note.closed.as_ref().map(|value| value.as_str()),
+            Some("2026-05-30T15:00:00Z")
+        );
 
         apply_status_transition(
             &mut note,
             Some(crate::note::Status::Open),
-            "2026-06-01T15:00:00Z",
+            &"2026-06-01T15:00:00Z".parse().unwrap(),
         );
         assert_eq!(note.closed, None);
     }

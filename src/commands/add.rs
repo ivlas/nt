@@ -5,7 +5,9 @@ use std::process::Command as ProcessCommand;
 
 use crate::error::{NtError, Result};
 use crate::fs::atomic_write;
-use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, title_from_body};
+use crate::note::{
+    Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, Timestamp, title_from_body,
+};
 use crate::repository::{NoteMeta, Repository};
 
 use super::{
@@ -26,7 +28,7 @@ fn add(kind: CreationKind, metadata: &[String]) -> Result<()> {
     let title = title_from_body(&body)?;
     let mut repository = Repository::open()?;
     let metadata = CreationMetadata::parse(kind, metadata, &repository)?;
-    let timestamp = crate::note::timestamp_now().iso;
+    let timestamp = crate::note::timestamp_now();
     let home = metadata
         .home
         .clone()
@@ -127,7 +129,7 @@ impl CreationMetadata {
         }
     }
 
-    fn apply(self, kind: CreationKind, note: &mut NoteMeta, now: &str) {
+    fn apply(self, kind: CreationKind, note: &mut NoteMeta, now: &Timestamp) {
         let status = if kind == CreationKind::Todo && self.status.is_none() {
             Some(Status::Open)
         } else {

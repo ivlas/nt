@@ -8,13 +8,14 @@ use rusqlite::{
 
 use crate::error::{NtError, Result};
 use crate::note::{
-    Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, new_id, validate_namespace_part,
+    Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, Timestamp, new_id,
+    validate_namespace_part,
 };
 
 use super::{NoteChange, NoteMeta, Repository};
 
 impl Repository {
-    pub fn create_vault(&mut self, name: &str, created: &str) -> Result<()> {
+    pub fn create_vault(&mut self, name: &str, created: &Timestamp) -> Result<()> {
         validate_namespace_part(name, "vault")?;
         let transaction = self
             .connection
@@ -30,11 +31,11 @@ impl Repository {
         let vault_id = new_id();
         transaction.execute(
             "INSERT INTO vaults (id, name, created) VALUES (?1, ?2, ?3)",
-            params![vault_id, name, created],
+            params![vault_id, name, created.as_str()],
         )?;
         transaction.execute(
             "INSERT INTO collections (id, vault_id, name, created) VALUES (?1, ?2, 'inbox', ?3)",
-            params![new_id(), vault_id, created],
+            params![new_id(), vault_id, created.as_str()],
         )?;
         transaction.commit()?;
         Ok(())
@@ -87,15 +88,15 @@ impl Repository {
                 note.id.as_str(),
                 home_id,
                 note.body,
-                note.created,
-                note.updated,
+                note.created.as_str(),
+                note.updated.as_str(),
                 note.title,
                 note.kind.as_str(),
                 note.status.map(Status::as_str),
                 note.priority.map(Priority::as_str),
                 note.scheduled.as_ref().map(Date::as_str),
                 note.due.as_ref().map(Date::as_str),
-                note.closed
+                note.closed.as_ref().map(Timestamp::as_str)
             ],
         )?;
 
@@ -153,7 +154,7 @@ impl Repository {
         Ok(notes)
     }
 
-    pub fn update_note(&mut self, id: &NoteId, change: &NoteChange, now: &str) -> Result<()> {
+    pub fn update_note(&mut self, id: &NoteId, change: &NoteChange, now: &Timestamp) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -169,7 +170,7 @@ impl Repository {
                     Ok((
                         domain_from_row::<NoteKind>(row, 0)?,
                         optional_domain_from_row::<Status>(row, 1)?,
-                        row.get::<_, Option<String>>(2)?,
+                        optional_domain_from_row::<Timestamp>(row, 2)?,
                         domain_from_row::<QualifiedCollection>(row, 3)?,
                     ))
                 },
@@ -198,14 +199,18 @@ impl Repository {
                     if status == *value {
                         closed
                     } else {
-                        Some(now.to_string())
+                        Some(now.clone())
                     }
                 } else {
                     None
                 };
                 transaction.execute(
                     "UPDATE notes SET status = ?1, closed = ?2 WHERE id = ?3",
-                    params![value.map(Status::as_str), next_closed, id.as_str()],
+                    params![
+                        value.map(Status::as_str),
+                        next_closed.as_ref().map(Timestamp::as_str),
+                        id.as_str()
+                    ],
                 )?;
             }
             NoteChange::Priority(value) => {
@@ -279,7 +284,7 @@ impl Repository {
 
         transaction.execute(
             "UPDATE notes SET updated = ?1 WHERE id = ?2",
-            params![now, id.as_str()],
+            params![now.as_str(), id.as_str()],
         )?;
         transaction.commit()?;
         Ok(())
@@ -288,11 +293,11 @@ impl Repository {
     pub fn update_note_body(
         &mut self,
         id: &NoteId,
-        expected_updated: &str,
+        expected_updated: &Timestamp,
         expected_body: &str,
         body: &str,
         title: &str,
-        updated: &str,
+        updated: &Timestamp,
     ) -> Result<()> {
         let body_sources = crate::note::sources_from_body(body);
         let transaction = self
@@ -304,9 +309,9 @@ impl Repository {
             params![
                 body,
                 title,
-                updated,
+                updated.as_str(),
                 id.as_str(),
-                expected_updated,
+                expected_updated.as_str(),
                 expected_body
             ],
         )?;
@@ -346,7 +351,7 @@ impl Repository {
 fn ensure_collection(
     transaction: &Transaction<'_>,
     full_name: &QualifiedCollection,
-    created: &str,
+    created: &Timestamp,
 ) -> Result<String> {
     if let Some(id) = collection_id(transaction, full_name)? {
         return Ok(id);
@@ -368,7 +373,7 @@ fn ensure_collection(
     let id = new_id();
     transaction.execute(
         "INSERT INTO collections (id, vault_id, name, created) VALUES (?1, ?2, ?3, ?4)",
-        params![id, vault_id, collection_name, created],
+        params![id, vault_id, collection_name, created.as_str()],
     )?;
     Ok(id)
 }
@@ -395,15 +400,15 @@ fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
         id: domain_from_row(row, 0)?,
         home_collection: domain_from_row(row, 1)?,
         body: row.get(2)?,
-        created: row.get(3)?,
-        updated: row.get(4)?,
+        created: domain_from_row(row, 3)?,
+        updated: domain_from_row(row, 4)?,
         title: row.get(5)?,
         kind: domain_from_row(row, 6)?,
         status: optional_domain_from_row(row, 7)?,
         priority: optional_domain_from_row(row, 8)?,
         scheduled: optional_domain_from_row(row, 9)?,
         due: optional_domain_from_row(row, 10)?,
-        closed: row.get(11)?,
+        closed: optional_domain_from_row(row, 11)?,
         tags: Vec::new(),
         collections: Vec::new(),
         links: Vec::new(),
@@ -592,7 +597,7 @@ mod tests {
         configure_and_initialize(&mut connection).unwrap();
         let mut repository = Repository { connection };
         repository
-            .create_vault("personal", "2026-05-28T14:30:12Z")
+            .create_vault("personal", &"2026-05-28T14:30:12Z".parse().unwrap())
             .unwrap();
         let collection_id: String = repository
             .connection

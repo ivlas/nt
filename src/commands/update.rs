@@ -146,7 +146,7 @@ pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Resul
         let note = repository.get_note(&id)?;
         let body = read_body(&note.body, id.as_str())?;
         let title = crate::note::title_from_body(&body)?;
-        let now = crate::note::timestamp_now().iso;
+        let now = crate::note::timestamp_now();
         repository.update_note_body(&id, &note.updated, &note.body, &body, &title, &now)?;
         println!("updated {id} body");
         return Ok(());
@@ -157,7 +157,7 @@ pub(super) fn update(id: &str, field: UpdateField, value: Option<&str>) -> Resul
         NtError::Message(format!("`{}` update requires a value", field_name(field)))
     })?;
     let operation = UpdateOperation::parse(field, value, &repository)?;
-    let now = crate::note::timestamp_now().iso;
+    let now = crate::note::timestamp_now();
     repository.update_note(&id, &operation.into_change(), &now)?;
     println!("updated {id} {} {value}", field_name(field));
     Ok(())

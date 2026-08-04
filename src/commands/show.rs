@@ -30,11 +30,11 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
     text.push_str(&format!("home {}\n", note.home_collection));
     text.push_str(&format!(
         "created {}\n",
-        paint(&note.created, Style::Dim, color)
+        paint(note.created.as_str(), Style::Dim, color)
     ));
     text.push_str(&format!(
         "updated {}\n",
-        paint(&note.updated, Style::Dim, color)
+        paint(note.updated.as_str(), Style::Dim, color)
     ));
     text.push_str(&format!("kind {}\n", note.kind));
     if note.kind == NoteKind::Todo {
@@ -59,7 +59,10 @@ fn show_text_for_display(id: &str, color: bool) -> Result<String> {
         ));
         text.push_str(&format!(
             "closed {}\n",
-            note.closed.as_deref().unwrap_or("-")
+            note.closed
+                .as_ref()
+                .map(|value| value.as_str())
+                .unwrap_or("-")
         ));
     }
     text.push_str(&format!(

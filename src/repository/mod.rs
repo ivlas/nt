@@ -6,6 +6,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
+use crate::note::Timestamp;
 
 mod models;
 mod notes;
@@ -121,7 +122,7 @@ impl Repository {
 }
 
 impl InitRepository {
-    pub(crate) fn create_vault(mut self, name: &str, created_at: &str) -> Result<()> {
+    pub(crate) fn create_vault(mut self, name: &str, created_at: &Timestamp) -> Result<()> {
         let result = self
             .repository
             .as_mut()

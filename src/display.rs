@@ -12,7 +12,7 @@ pub(crate) fn summary_line(note: &NoteMeta) -> String {
 pub(crate) fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
     summary_line_values(
         note.id.as_str(),
-        &note.created,
+        note.created.as_str(),
         &note.title,
         &note.tags,
         color,
@@ -22,7 +22,7 @@ pub(crate) fn summary_line_for_display(note: &NoteMeta, color: bool) -> String {
 pub(crate) fn find_summary_line(note: &FindRow) -> String {
     summary_line_values(
         note.id.as_str(),
-        &note.created,
+        note.created.as_str(),
         &note.title,
         &note.tags,
         false,
@@ -86,8 +86,8 @@ mod tests {
             id.parse().unwrap(),
             "personal/inbox".parse().unwrap(),
             "# Storage shape\n".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
-            "2026-05-28T14:30:12Z".to_string(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
+            "2026-05-28T14:30:12Z".parse().unwrap(),
             "Storage shape".to_string(),
         )
     }
@@ -133,7 +133,7 @@ mod tests {
             priority: Some(crate::note::Priority::A),
             scheduled: Some("2026-05-28".parse().unwrap()),
             due: Some("2026-05-30".parse().unwrap()),
-            created: "2026-05-28T14:30:12Z".to_string(),
+            created: "2026-05-28T14:30:12Z".parse().unwrap(),
             title: "Storage shape".to_string(),
         };
 

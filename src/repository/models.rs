@@ -1,19 +1,19 @@
-use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status};
+use crate::note::{Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, Timestamp};
 
 #[derive(Clone, Debug)]
 pub struct NoteMeta {
     pub id: NoteId,
     pub home_collection: QualifiedCollection,
     pub body: String,
-    pub created: String,
-    pub updated: String,
+    pub created: Timestamp,
+    pub updated: Timestamp,
     pub title: String,
     pub kind: NoteKind,
     pub status: Option<Status>,
     pub priority: Option<Priority>,
     pub scheduled: Option<Date>,
     pub due: Option<Date>,
-    pub closed: Option<String>,
+    pub closed: Option<Timestamp>,
     pub tags: Vec<String>,
     pub collections: Vec<QualifiedCollection>,
     pub links: Vec<NoteId>,
@@ -25,8 +25,8 @@ impl NoteMeta {
         id: NoteId,
         home_collection: QualifiedCollection,
         body: String,
-        created: String,
-        updated: String,
+        created: Timestamp,
+        updated: Timestamp,
         title: String,
     ) -> Self {
         Self {
@@ -56,14 +56,14 @@ pub struct AgendaNote {
     pub priority: Option<Priority>,
     pub scheduled: Option<Date>,
     pub due: Option<Date>,
-    pub created: String,
+    pub created: Timestamp,
     pub title: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct FindRow {
     pub id: NoteId,
-    pub created: String,
+    pub created: Timestamp,
     pub title: String,
     pub tags: Vec<String>,
 }

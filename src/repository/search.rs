@@ -37,7 +37,7 @@ impl Repository {
         let rows = statement.query_map(rusqlite::params_from_iter(parameters.iter()), |row| {
             Ok((
                 domain_from_row(row, 0)?,
-                row.get::<_, String>(1)?,
+                domain_from_row(row, 1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<String>>(3)?,
             ))
@@ -69,7 +69,7 @@ impl Repository {
                 priority: optional_domain_from_row(row, 1)?,
                 scheduled: optional_domain_from_row(row, 2)?,
                 due: optional_domain_from_row(row, 3)?,
-                created: row.get(4)?,
+                created: domain_from_row(row, 4)?,
                 title: row.get(5)?,
             })
         })?;
@@ -285,7 +285,7 @@ mod tests {
         configure_and_initialize(&mut connection).unwrap();
         let mut repository = Repository { connection };
         repository
-            .create_vault("personal", "2026-05-01T00:00:00Z")
+            .create_vault("personal", &"2026-05-01T00:00:00Z".parse().unwrap())
             .unwrap();
 
         {
@@ -298,8 +298,8 @@ mod tests {
                     id.parse().unwrap(),
                     "personal/inbox".parse().unwrap(),
                     "# Body that agenda must not load\n".to_string(),
-                    "2026-05-01T00:00:00Z".to_string(),
-                    "2026-05-01T00:00:00Z".to_string(),
+                    "2026-05-01T00:00:00Z".parse().unwrap(),
+                    "2026-05-01T00:00:00Z".parse().unwrap(),
                     id.to_string(),
                 );
                 note.kind = kind.parse().unwrap();
@@ -308,7 +308,7 @@ mod tests {
                 note.due = due.map(|value| value.parse().unwrap());
                 note.closed = status
                     .filter(|status| matches!(*status, "done" | "dropped"))
-                    .map(|_| "2026-05-28T00:00:00Z".to_string());
+                    .map(|_| "2026-05-28T00:00:00Z".parse().unwrap());
                 repository.insert_note(&note).unwrap();
             };
 
@@ -532,11 +532,14 @@ mod tests {
         configure_and_initialize(&mut connection).unwrap();
         let mut repository = Repository { connection };
         repository
-            .create_vault("personal", "2026-01-01T00:00:00Z")
+            .create_vault("personal", &"2026-01-01T00:00:00Z".parse().unwrap())
             .unwrap();
         for index in 0..20 {
             repository
-                .create_vault(&format!("fixture{index}"), "2026-01-01T00:00:00Z")
+                .create_vault(
+                    &format!("fixture{index}"),
+                    &"2026-01-01T00:00:00Z".parse().unwrap(),
+                )
                 .unwrap();
         }
         let collection_id: String = repository
