@@ -59,10 +59,10 @@ pub(crate) fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
         || value.ends_with('/')
         || value
             .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || ch == ',')
+            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || matches!(ch, ',' | '/'))
     {
         return Err(NtError::Message(format!(
-            "invalid {kind} `{value}`; use lowercase names without spaces or commas"
+            "invalid {kind} `{value}`; use lowercase names without slashes, spaces, or commas"
         )));
     }
     Ok(())
@@ -80,5 +80,11 @@ mod tests {
         assert_eq!(collection.as_str(), "personal/rust");
         assert!("rust".parse::<QualifiedCollection>().is_err());
         assert!("Personal/rust".parse::<QualifiedCollection>().is_err());
+        assert!(
+            "personal/rust/notes"
+                .parse::<QualifiedCollection>()
+                .is_err()
+        );
+        assert!("personal//rust".parse::<QualifiedCollection>().is_err());
     }
 }
