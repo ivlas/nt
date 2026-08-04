@@ -27,20 +27,20 @@ impl Repository {
     pub fn open_for_init() -> Result<Self> {
         let path = database_path()?;
         let existed = path.exists();
-        let repository = Self::open_path_uninitialized(&path)?;
+        let mut repository = Self::open_path_uninitialized(&path)?;
         if existed && !schema::is_nt_database(&repository.connection)? {
             return Err(NtError::Message(format!(
                 "database already exists at {}; refusing to overwrite it",
                 path.display()
             )));
         }
-        schema::configure_and_initialize(&repository.connection)?;
+        schema::configure_and_initialize(&mut repository.connection)?;
         Ok(repository)
     }
 
     fn open_path(path: &Path) -> Result<Self> {
-        let repository = Self::open_path_uninitialized(path)?;
-        schema::configure_and_initialize(&repository.connection)?;
+        let mut repository = Self::open_path_uninitialized(path)?;
+        schema::configure_and_initialize(&mut repository.connection)?;
         Ok(repository)
     }
 

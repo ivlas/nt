@@ -43,6 +43,10 @@ fn init_creates_logical_vault_and_inbox_in_one_database() {
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(schema_version, 2);
+    let schema_version_rows: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(schema_version_rows, 1);
     let search_table: String = connection
         .query_row(
             "SELECT sql FROM sqlite_schema WHERE name = 'note_fts'",

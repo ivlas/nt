@@ -252,12 +252,20 @@ fn fts_results_do_not_materialize_matching_bodies() {
     let id = saved.trim().strip_prefix("saved ").unwrap();
 
     let connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    let update_trigger_sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = 'notes_search_update'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     connection
         .execute_batch("DROP TRIGGER notes_search_update")
         .unwrap();
     connection
         .execute("UPDATE notes SET body = x'80' WHERE id = ?1", [id])
         .unwrap();
+    connection.execute_batch(&update_trigger_sql).unwrap();
     drop(connection);
 
     assert_eq!(

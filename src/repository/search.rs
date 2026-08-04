@@ -418,8 +418,8 @@ mod tests {
     }
 
     fn query_plan_repository(note_count: usize) -> Repository {
-        let connection = Connection::open_in_memory().unwrap();
-        configure_and_initialize(&connection).unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        configure_and_initialize(&mut connection).unwrap();
         let mut repository = Repository { connection };
         repository
             .create_vault("personal", "2026-01-01T00:00:00Z")
