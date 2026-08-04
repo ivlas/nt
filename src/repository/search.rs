@@ -267,6 +267,9 @@ mod tests {
                 note.status = status.map(str::to_string);
                 note.scheduled = scheduled.map(str::to_string);
                 note.due = due.map(str::to_string);
+                note.closed = status
+                    .filter(|status| matches!(*status, "done" | "dropped"))
+                    .map(|_| "2026-05-28T00:00:00Z".to_string());
                 repository.insert_note(&note).unwrap();
             };
 
@@ -284,7 +287,7 @@ mod tests {
             insert("undated", "todo", Some("open"), None, None);
             insert("done", "todo", Some("done"), None, Some("2026-05-27"));
             insert("dropped", "todo", Some("dropped"), Some("2026-05-27"), None);
-            insert("note", "note", Some("open"), None, Some("2026-05-28"));
+            insert("note", "note", None, None, None);
         }
 
         repository

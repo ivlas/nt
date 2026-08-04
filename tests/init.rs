@@ -42,7 +42,7 @@ fn init_creates_logical_vault_and_inbox_in_one_database() {
     let schema_version: i64 = connection
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(schema_version, 2);
+    assert_eq!(schema_version, 3);
     let schema_version_rows: i64 = connection
         .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
         .unwrap();

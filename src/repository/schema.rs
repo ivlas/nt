@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::{NtError, Result};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA_STEPS: &[&str] = &[
     "CREATE TABLE schema_version (
@@ -29,11 +29,24 @@ const SCHEMA_STEPS: &[&str] = &[
          updated TEXT NOT NULL,
          title TEXT NOT NULL,
          kind TEXT NOT NULL CHECK(kind IN ('note', 'todo')),
-         status TEXT,
-         priority TEXT,
-         scheduled TEXT,
-         due TEXT,
-         closed TEXT,
+         status TEXT CHECK(status IS NULL OR status IN ('open', 'waiting', 'done', 'dropped')),
+         priority TEXT CHECK(priority IS NULL OR priority IN ('S', 'A', 'B', 'C', 'D')),
+         scheduled TEXT CHECK(scheduled IS NULL OR
+             (length(scheduled) = 10 AND date(scheduled, '+0 days') IS scheduled)),
+         due TEXT CHECK(due IS NULL OR
+             (length(due) = 10 AND date(due, '+0 days') IS due)),
+         closed TEXT CHECK(closed IS NULL OR
+             (length(closed) = 20 AND
+              strftime('%Y-%m-%dT%H:%M:%SZ', closed) IS closed)),
+         CHECK(length(created) = 20 AND
+             strftime('%Y-%m-%dT%H:%M:%SZ', created) IS created),
+         CHECK(length(updated) = 20 AND
+             strftime('%Y-%m-%dT%H:%M:%SZ', updated) IS updated),
+         CHECK(kind = 'todo' OR
+             (status IS NULL AND priority IS NULL AND scheduled IS NULL AND
+              due IS NULL AND closed IS NULL)),
+         CHECK((status IN ('done', 'dropped') AND closed IS NOT NULL) OR
+             ((status IS NULL OR status IN ('open', 'waiting')) AND closed IS NULL)),
          UNIQUE(id, home_collection_id),
          FOREIGN KEY(id, home_collection_id)
              REFERENCES note_collections(note_id, collection_id)
@@ -104,7 +117,7 @@ const SCHEMA_STEPS: &[&str] = &[
     "CREATE INDEX note_collections_collection ON note_collections(collection_id)",
     "CREATE INDEX note_tags_lower_tag_note ON note_tags(LOWER(tag), note_id)",
     "CREATE INDEX note_links_target ON note_links(target_id)",
-    "INSERT INTO schema_version (singleton, version) VALUES (1, 2)",
+    "INSERT INTO schema_version (singleton, version) VALUES (1, 3)",
 ];
 
 const VERSION_TABLE_MIGRATION_STEPS: &[&str] = &[
@@ -287,6 +300,27 @@ pub(super) fn is_nt_database(connection: &Connection) -> Result<bool> {
 mod tests {
     use super::*;
 
+    fn insert_open_todo(connection: &mut Connection) {
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute_batch(
+                "INSERT INTO vaults (id, name, created)
+                     VALUES ('vault', 'personal', '2026-05-28T14:30:12Z');
+                 INSERT INTO collections (id, vault_id, name, created)
+                     VALUES ('inbox', 'vault', 'inbox', '2026-05-28T14:30:12Z');
+                 INSERT INTO notes
+                     (id, home_collection_id, body, created, updated, title, kind,
+                      status, priority, scheduled, due, closed)
+                     VALUES ('todo', 'inbox', '# Todo', '2026-05-28T14:30:12Z',
+                             '2026-05-28T14:30:12Z', 'Todo', 'todo', 'open', 'A',
+                             '2026-05-29', '2026-05-30', NULL);
+                 INSERT INTO note_collections (note_id, collection_id)
+                     VALUES ('todo', 'inbox');",
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+    }
+
     #[test]
     fn every_failed_initialization_step_rolls_back_the_entire_schema() {
         for failed_step in 0..SCHEMA_STEPS.len() {
@@ -360,11 +394,50 @@ mod tests {
 
         let error = connection
             .execute(
-                "INSERT INTO schema_version (singleton, version) VALUES (2, 2)",
+                "INSERT INTO schema_version (singleton, version) VALUES (2, 3)",
                 [],
             )
             .unwrap_err();
 
         assert!(error.to_string().contains("CHECK constraint failed"));
+    }
+
+    #[test]
+    fn notes_reject_invalid_metadata_domains_and_shapes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_with(&mut connection, |_| Ok(())).unwrap();
+        insert_open_todo(&mut connection);
+
+        for sql in [
+            "UPDATE notes SET status = 'active' WHERE id = 'todo'",
+            "UPDATE notes SET priority = 'urgent' WHERE id = 'todo'",
+            "UPDATE notes SET scheduled = '2026/05/29' WHERE id = 'todo'",
+            "UPDATE notes SET due = '2026-02-29' WHERE id = 'todo'",
+            "UPDATE notes SET created = '2026-05-28' WHERE id = 'todo'",
+            "UPDATE notes SET updated = '2026-05-28T25:00:00Z' WHERE id = 'todo'",
+            "UPDATE notes SET closed = '2026-05-28' WHERE id = 'todo'",
+            "UPDATE notes SET closed = '2026-05-28T15:00:00Z' WHERE id = 'todo'",
+            "UPDATE notes SET status = 'done' WHERE id = 'todo'",
+            "UPDATE notes SET kind = 'note' WHERE id = 'todo'",
+        ] {
+            assert!(connection.execute(sql, []).is_err(), "accepted `{sql}`");
+        }
+
+        connection
+            .execute(
+                "UPDATE notes SET kind = 'note', status = NULL, priority = NULL,
+                 scheduled = NULL, due = NULL, closed = NULL WHERE id = 'todo'",
+                [],
+            )
+            .unwrap();
+        for sql in [
+            "UPDATE notes SET status = 'open' WHERE id = 'todo'",
+            "UPDATE notes SET priority = 'A' WHERE id = 'todo'",
+            "UPDATE notes SET scheduled = '2026-05-29' WHERE id = 'todo'",
+            "UPDATE notes SET due = '2026-05-30' WHERE id = 'todo'",
+            "UPDATE notes SET closed = '2026-05-28T15:00:00Z' WHERE id = 'todo'",
+        ] {
+            assert!(connection.execute(sql, []).is_err(), "accepted `{sql}`");
+        }
     }
 }
