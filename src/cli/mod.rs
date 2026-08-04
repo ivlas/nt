@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue};
 
 pub mod help;
 
@@ -65,19 +65,87 @@ pub enum Command {
     },
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug)]
 pub enum UpdateField {
     Body,
+    Value(ValueUpdateField),
+    Set(SetUpdateField),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ValueUpdateField {
     Kind,
     Status,
     Priority,
     Scheduled,
     Due,
+    Home,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SetUpdateField {
     Tag,
     Collection,
-    Home,
     Link,
     Source,
+}
+
+const UPDATE_FIELDS: [UpdateField; 11] = [
+    UpdateField::Body,
+    UpdateField::Value(ValueUpdateField::Kind),
+    UpdateField::Value(ValueUpdateField::Status),
+    UpdateField::Value(ValueUpdateField::Priority),
+    UpdateField::Value(ValueUpdateField::Scheduled),
+    UpdateField::Value(ValueUpdateField::Due),
+    UpdateField::Set(SetUpdateField::Tag),
+    UpdateField::Set(SetUpdateField::Collection),
+    UpdateField::Value(ValueUpdateField::Home),
+    UpdateField::Set(SetUpdateField::Link),
+    UpdateField::Set(SetUpdateField::Source),
+];
+
+impl ValueEnum for UpdateField {
+    fn value_variants<'a>() -> &'a [Self] {
+        &UPDATE_FIELDS
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(PossibleValue::new(self.name()))
+    }
+}
+
+impl UpdateField {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Body => "body",
+            Self::Value(field) => field.name(),
+            Self::Set(field) => field.name(),
+        }
+    }
+}
+
+impl ValueUpdateField {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Kind => "kind",
+            Self::Status => "status",
+            Self::Priority => "priority",
+            Self::Scheduled => "scheduled",
+            Self::Due => "due",
+            Self::Home => "home",
+        }
+    }
+}
+
+impl SetUpdateField {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Tag => "tag",
+            Self::Collection => "collection",
+            Self::Link => "link",
+            Self::Source => "source",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -89,7 +157,7 @@ pub enum AgendaView {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AgendaView, Cli, Command, UpdateField};
+    use super::{AgendaView, Cli, Command, SetUpdateField, UpdateField, ValueUpdateField};
 
     const ID: &str = "018fbe0a-6c00-7000-8000-000000000001";
 
@@ -121,7 +189,11 @@ mod tests {
         let cli = Cli::parse_from(["nt", "update", ID, "home", "work/project_a"]);
         assert!(matches!(
             cli.command,
-            Some(Command::Update { id, field: UpdateField::Home, value })
+            Some(Command::Update {
+                id,
+                field: UpdateField::Value(ValueUpdateField::Home),
+                value,
+            })
                 if id == ID && value.as_deref() == Some("work/project_a")
         ));
 
@@ -129,6 +201,16 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(Command::Update { id, field: UpdateField::Body, value: None }) if id == ID
+        ));
+
+        let cli = Cli::parse_from(["nt", "update", ID, "tag", "+rust"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update {
+                id,
+                field: UpdateField::Set(SetUpdateField::Tag),
+                value,
+            }) if id == ID && value.as_deref() == Some("+rust")
         ));
 
         let cli = Cli::parse_from(["nt", "agenda", "week"]);
