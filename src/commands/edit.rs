@@ -11,6 +11,8 @@ pub(super) fn edit(id: &str, body_arguments: &[String]) -> Result<()> {
     let body = read_body(body_arguments, Some(note.body()))?;
     if note.replace_body(body, timestamp_now())? {
         repository.replace_body(&note, expected_version)?;
+    } else {
+        repository.verify_body_version(&id, expected_version)?;
     }
     println!("updated {id}");
     Ok(())

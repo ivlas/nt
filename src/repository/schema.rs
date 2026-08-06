@@ -83,6 +83,13 @@ const REQUIRED_OBJECTS: &[(&str, &str)] = &[
     ("index", "note_links_target_idx"),
 ];
 
+const FTS_SHADOW_OBJECTS: &[&str] = &[
+    "note_fts_data",
+    "note_fts_idx",
+    "note_fts_docsize",
+    "note_fts_config",
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Identity {
     Empty,
@@ -114,24 +121,44 @@ pub(super) fn inspect(connection: &Connection) -> Result<Identity> {
     Ok(Identity::Nt)
 }
 
-pub(super) fn initialize(connection: &mut Connection) -> Result<()> {
-    initialize_with(connection, |_| Ok(()))
+pub(super) fn initialize(connection: &mut Connection) -> Result<bool> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    match inspect(&transaction)? {
+        Identity::Nt => {
+            transaction.commit()?;
+            Ok(false)
+        }
+        Identity::Empty => {
+            initialize_transaction(&transaction, |_| Ok(()))?;
+            transaction.commit()?;
+            Ok(true)
+        }
+    }
 }
 
+#[cfg(test)]
 fn initialize_with(
     connection: &mut Connection,
     mut after_step: impl FnMut(usize) -> Result<()>,
 ) -> Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    initialize_transaction(&transaction, &mut after_step)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn initialize_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    mut after_step: impl FnMut(usize) -> Result<()>,
+) -> Result<()> {
     for (step, sql) in SCHEMA_STEPS.iter().enumerate() {
         transaction.execute_batch(sql)?;
         after_step(step)?;
     }
     transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
     after_step(SCHEMA_STEPS.len())?;
-    validate_version(&transaction)?;
-    validate_schema(&transaction)?;
-    transaction.commit()?;
+    validate_version(transaction)?;
+    validate_schema(transaction)?;
     Ok(())
 }
 
@@ -193,6 +220,27 @@ fn validate_schema(connection: &Connection) -> Result<()> {
     if singleton != Some(1) {
         return Err(NtError::NotNtDatabase);
     }
+    let object_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if object_count != (REQUIRED_OBJECTS.len() + FTS_SHADOW_OBJECTS.len()) as i64 {
+        return Err(NtError::NotNtDatabase);
+    }
+    for name in FTS_SHADOW_OBJECTS {
+        let exists = connection
+            .query_row(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                [name],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Err(NtError::NotNtDatabase);
+        }
+    }
     Ok(())
 }
 
@@ -202,7 +250,7 @@ mod tests {
 
     fn initialized() -> Connection {
         let mut connection = Connection::open_in_memory().unwrap();
-        initialize(&mut connection).unwrap();
+        assert!(initialize(&mut connection).unwrap());
         connection
             .execute_batch("PRAGMA foreign_keys = ON")
             .unwrap();
@@ -211,8 +259,9 @@ mod tests {
 
     #[test]
     fn initializes_version_one_with_nt_identity() {
-        let connection = initialized();
+        let mut connection = initialized();
         assert_eq!(inspect(&connection).unwrap(), Identity::Nt);
+        assert!(!initialize(&mut connection).unwrap());
         let application_id: i64 = connection
             .pragma_query_value(None, "application_id", |row| row.get(0))
             .unwrap();
@@ -309,19 +358,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(matches, 1);
+        let old_matches: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM note_fts WHERE note_fts MATCH 'storage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_matches, 0);
         connection
             .execute("DELETE FROM notes WHERE pk = 1", [])
             .unwrap();
         connection
-            .query_row(
+            .execute(
                 "INSERT INTO note_fts(note_fts) VALUES ('integrity-check')",
                 [],
-                |_| Ok(()),
             )
-            .unwrap_or(());
+            .unwrap();
         let count: i64 = connection
             .query_row("SELECT COUNT(*) FROM note_fts", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn identity_rejects_additional_schema_objects() {
+        let connection = initialized();
+        connection
+            .execute_batch("CREATE TABLE unrelated(value TEXT)")
+            .unwrap();
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
     }
 }

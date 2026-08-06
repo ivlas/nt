@@ -8,7 +8,11 @@ pub fn read_body(arguments: &[String], seed: Option<&str>) -> Result<String> {
     let stdin_is_terminal = io::stdin().is_terminal();
     if !arguments.is_empty() {
         if !stdin_is_terminal {
-            return Err(NtError::ConflictingBodyInput);
+            let mut stdin = String::new();
+            io::stdin().read_to_string(&mut stdin)?;
+            if !stdin.is_empty() {
+                return Err(NtError::ConflictingBodyInput);
+            }
         }
         return Ok(arguments.join(" "));
     }

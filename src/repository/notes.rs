@@ -200,6 +200,27 @@ impl Repository {
         Ok(())
     }
 
+    pub fn verify_body_version(&mut self, id: &NoteId, expected_version: u64) -> Result<()> {
+        let expected_version = i64::try_from(expected_version)
+            .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let actual_version: i64 = transaction
+            .query_row(
+                "SELECT body_version FROM notes WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+        if actual_version != expected_version {
+            return Err(NtError::ConcurrentEdit(id.to_string()));
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn move_note(&mut self, id: &NoteId, collection: &CollectionPath) -> Result<bool> {
         let transaction = self
             .connection
@@ -249,15 +270,19 @@ impl Repository {
         if target == id {
             return Err(NtError::SelfLink);
         }
-        let target_pk = note_pk(&transaction, target)?;
         let changed = match operation {
-            AddOrRemove::Add(_) => transaction.execute(
-                "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
-                params![source_pk, target_pk],
-            )?,
-            AddOrRemove::Remove(_) => transaction.execute(
-                "DELETE FROM note_links WHERE note_pk = ?1 AND target_note_pk = ?2",
-                params![source_pk, target_pk],
+            AddOrRemove::Add(target) => {
+                let target_pk = note_pk(&transaction, &target)?;
+                transaction.execute(
+                    "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
+                    params![source_pk, target_pk],
+                )?
+            }
+            AddOrRemove::Remove(target) => transaction.execute(
+                "DELETE FROM note_links
+                 WHERE note_pk = ?1 AND target_note_pk =
+                     (SELECT pk FROM notes WHERE id = ?2)",
+                params![source_pk, target.to_string()],
             )?,
         } != 0;
         touch_if_changed(&transaction, id, changed)?;
@@ -507,6 +532,10 @@ mod tests {
             repository.replace_body(&stale, stale_version),
             Err(NtError::ConcurrentEdit(_))
         ));
+        assert!(matches!(
+            repository.verify_body_version(&id, stale_version),
+            Err(NtError::ConcurrentEdit(_))
+        ));
     }
 
     #[test]
@@ -577,6 +606,29 @@ mod tests {
             repository.change_link(&id, AddOrRemove::Add(id.clone())),
             Err(NtError::SelfLink)
         ));
+    }
+
+    #[test]
+    fn removing_a_link_to_a_deleted_target_is_idempotent() {
+        let mut repository = repository();
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let source = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Source")
+                    .unwrap()
+                    .with_links([target.clone()]),
+            )
+            .unwrap();
+        repository
+            .delete_notes(std::slice::from_ref(&target))
+            .unwrap();
+        assert!(
+            !repository
+                .change_link(&source, AddOrRemove::Remove(target))
+                .unwrap()
+        );
     }
 
     #[test]

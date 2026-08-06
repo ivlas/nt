@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
@@ -49,24 +49,15 @@ impl Repository {
 }
 
 fn initialize_at(path: &Path) -> Result<InitOutcome> {
-    let created = create_empty_if_missing(path)?;
-    let result = (|| {
-        let mut connection = open_existing(path)?;
-        let outcome = match inspect(&connection)? {
-            schema::Identity::Empty => {
-                schema::initialize(&mut connection)?;
-                InitOutcome::Initialized
-            }
-            schema::Identity::Nt => InitOutcome::AlreadyInitialized,
-        };
-        schema::configure(&connection)?;
-        Ok(outcome)
-    })();
-
-    if result.is_err() && created {
-        cleanup_created_database(path);
-    }
-    result
+    create_empty_if_missing(path)?;
+    let mut connection = open_existing(path)?;
+    let outcome = if schema::initialize(&mut connection)? {
+        InitOutcome::Initialized
+    } else {
+        InitOutcome::AlreadyInitialized
+    };
+    schema::configure(&connection)?;
+    Ok(outcome)
 }
 
 fn open_at(path: &Path) -> Result<Repository> {
@@ -86,9 +77,9 @@ fn inspect(connection: &Connection) -> Result<schema::Identity> {
     }
 }
 
-fn create_empty_if_missing(path: &Path) -> Result<bool> {
+fn create_empty_if_missing(path: &Path) -> Result<()> {
     match fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => return Ok(false),
+        Ok(metadata) if metadata.is_file() => return Ok(()),
         Ok(_) => return Err(NtError::NotNtDatabase),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -102,8 +93,8 @@ fn create_empty_if_missing(path: &Path) -> Result<bool> {
         .create_new(true)
         .open(path)
     {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(error) => Err(error.into()),
     }
 }
@@ -120,16 +111,9 @@ fn open_existing(path: &Path) -> Result<Connection> {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(Into::into)
 }
 
-fn cleanup_created_database(path: &Path) {
-    for suffix in ["-wal", "-shm", "-journal", ""] {
-        let mut file = path.as_os_str().to_os_string();
-        file.push(suffix);
-        let _ = fs::remove_file(PathBuf::from(file));
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
     use rusqlite::Connection;
@@ -255,5 +239,41 @@ mod tests {
             second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
         assert!(matches!(result, Err(NtError::DatabaseBusy)));
         transaction.rollback().unwrap();
+    }
+
+    #[test]
+    fn concurrent_initializers_preserve_the_winning_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".nt/nt.sqlite3");
+        let barrier = Arc::new(Barrier::new(8));
+        let handles = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    initialize_at(&path)
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == InitOutcome::Initialized)
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == InitOutcome::AlreadyInitialized)
+                .count(),
+            7
+        );
+        assert!(open_at(&path).is_ok());
     }
 }

@@ -169,6 +169,19 @@ fn wal_readers_keep_their_snapshot_while_a_writer_commits() {
     assert_eq!(after, 2);
 }
 
+#[test]
+fn trailing_body_arguments_accept_empty_redirected_stdin() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let output = success(
+        home.path(),
+        &["add", "tag:argument", "--", "# Argument body"],
+        None,
+    );
+    let id = output.trim().strip_prefix("saved ").unwrap();
+    assert_eq!(success(home.path(), &["show", id], None), "# Argument body");
+}
+
 fn assert_summary_row(
     row: &str,
     expected_id: &str,
