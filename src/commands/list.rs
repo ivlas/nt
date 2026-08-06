@@ -7,7 +7,10 @@ use crate::repository::{NoteSummary, Repository};
 pub(super) fn list(filters: &[String]) -> Result<()> {
     let query = NoteQuery::parse_list(filters)?;
     let repository = Repository::open()?;
-    let notes = repository.list_notes(&query)?;
+    print_notes(repository.list_notes(&query)?)
+}
+
+pub(super) fn print_notes(notes: Vec<NoteSummary>) -> Result<()> {
     let tty = io::stdout().is_terminal();
     for note in notes {
         if tty {

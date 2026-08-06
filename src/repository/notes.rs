@@ -116,7 +116,15 @@ impl Repository {
     }
 
     pub fn list_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
-        let (where_sql, parameters) = compile_filters(query.filters());
+        self.query_notes(query)
+    }
+
+    pub fn find_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        self.query_notes(query)
+    }
+
+    fn query_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        let (where_sql, parameters) = compile_query(query);
         let sql = format!(
             "SELECT n.pk, n.id, n.updated, n.collection, n.title
              FROM notes n {where_sql}
@@ -320,17 +328,29 @@ fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSe
         .collect()
 }
 
-fn compile_filters(filters: &[Filter]) -> (String, Vec<Value>) {
-    if filters.is_empty() {
+fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
+    if query.filters().is_empty() && query.lexical_terms().is_empty() {
         return (String::new(), Vec::new());
     }
     let mut parameters = Vec::new();
-    let expressions = filters
+    let mut expressions = query
+        .filters()
         .iter()
         .map(|filter| compile_filter(filter, &mut parameters))
-        .collect::<Vec<_>>()
-        .join(" AND ");
-    (format!("WHERE {expressions}"), parameters)
+        .collect::<Vec<_>>();
+    if !query.lexical_terms().is_empty() {
+        let fts_query = query
+            .lexical_terms()
+            .iter()
+            .map(|term| format!("\"{term}\""))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let parameter = push_parameter(&mut parameters, &fts_query);
+        expressions.push(format!(
+            "n.pk IN (SELECT rowid FROM note_fts WHERE note_fts MATCH ?{parameter})"
+        ));
+    }
+    (format!("WHERE {}", expressions.join(" AND ")), parameters)
 }
 
 fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
@@ -560,5 +580,34 @@ mod tests {
             repository.change_link(&id, AddOrRemove::Add(id.clone())),
             Err(NtError::SelfLink)
         ));
+    }
+
+    #[test]
+    fn find_uses_literal_complete_tokens_with_structured_filters() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new(
+                    "work/nt".parse().unwrap(),
+                    "# Café storage\nOwnership and borrowing.",
+                )
+                .unwrap()
+                .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Storage shed").unwrap())
+            .unwrap();
+
+        let query =
+            NoteQuery::parse_find(&["cafe ownership".to_string(), "tag:rust".to_string()]).unwrap();
+        let notes = repository.find_notes(&query).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].title(), "Café storage");
+
+        let prefix = NoteQuery::parse_find(&["stor".to_string()]).unwrap();
+        assert!(repository.find_notes(&prefix).unwrap().is_empty());
+        let punctuation = NoteQuery::parse_find(&["(storage*)".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&punctuation).unwrap().len(), 2);
     }
 }
