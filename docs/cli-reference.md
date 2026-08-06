@@ -1,169 +1,170 @@
 # nt CLI Reference
 
 `nt` is a flagless, configless local CLI over `$HOME/.nt/nt.sqlite3`. SQLite is
-canonical for note bodies, metadata, vaults, collections, and relationships.
+canonical for note bodies and metadata.
 
 ## Commands
 
 ```text
-nt init <vault>
-nt note [metadata...]
-nt todo [metadata...]
-nt list [projection] [filter...]
-nt find <expr...>
+nt init
+nt add [metadata...] [-- body...]
 nt show <id>
+nt list [filter...]
+nt find <term-or-filter...>
 nt rm <id...>
-nt update <id> body
-nt update <id> <field> <value>
-nt agenda [week]
-nt export <path> [id...]
+nt edit <id> [-- body...]
+nt move <id> <collection>
+nt tag <id> <+tag|-tag>
+nt link <id> <+id|-id>
 nt help [command...]
 ```
 
-Running `nt` is equivalent to `nt help`. Use `nt help`, not help flags.
+Running `nt` is equivalent to `nt help`. Exact-note commands require a full
+canonical lowercase UUID. `id:<prefix>` filters accept a non-empty hexadecimal
+UUID prefix and return every match.
 
-## Ids
+## Initialization
 
-Notes, vaults, and collections use canonical lowercase UUIDv7 identifiers.
-Commands print full note ids; `id:<prefix>` accepts a hexadecimal UUID prefix.
+`nt init` is the only command that creates `$HOME/.nt`, the database file, or
+schema objects. It prints `initialized` for a new database and
+`already initialized` for a valid existing database.
 
-## Vaults And Collections
-
-`nt init personal` creates logical vault `personal` and collection
-`personal/inbox`. Vaults are database namespaces, not directories. There is no
-active-vault state and reads operate across the database.
-
-A collection belongs to exactly one vault and uses the qualified form
-`<vault>/<collection>`, such as `personal/rust` or `work/project_a`. Collection
-names may contain additional `/` separators after the vault.
-
-A note has exactly one home collection and may have additional memberships in
-any vault. The home is always also a membership. For capture:
-
-- `home:<vault>/<collection>` sets home explicitly.
-- The first `collection:` value becomes home when `home:` is absent.
-- With exactly one vault and no collection metadata, `<vault>/inbox` is home.
-- With multiple vaults, capture requires an explicit home or collection.
-
-Capture, home movement, and `collection +...` create an unknown collection when
-its vault exists. Reads never create collections, and unknown vaults are errors.
-Move home with `nt update <id> home <vault>/<collection>`. The old home remains a
-reference until removed with a collection update.
+Ordinary commands do not create storage. They validate application ID
+`0x4e544e54` and clean-sheet schema version `1` before operating.
 
 ## Capture
 
-`note` and `todo` read CommonMark from stdin or `$EDITOR`. The first non-empty
-line must be `# Title`. Success prints `saved <id>`.
-
-```sh
-printf '%s\n' '# Ownership' '' 'Borrow checker notes.' \
-  | nt note home:personal/rust tag:rust
-
-printf '%s\n' '# Release' '' 'Ship.' \
-  | nt todo home:work/project_a priority:A due:2026-08-15
-```
-
-Note metadata is `home:`, `tag:`, `collection:`, `link:`, and `source:`. Todo
-also accepts `status:`, `priority:`, `scheduled:`, and `due:`. New todos default
-to `status:open`. Set metadata is repeatable and comma-separated except source,
-where commas are literal.
-
-## List And Find
+`add` accepts metadata only before `--`:
 
 ```text
-nt list
-nt list all [filter...]
-nt list <field>[,<field>...] [filter...]
+collection:<path>
+tag:<tag,...>
+link:<id,...>
 ```
 
-Fields are `id`, `home`, `created`, `updated`, `title`, `kind`, `status`,
-`priority`, `scheduled`, `due`, `closed`, `tag`, `collection`, `link`, and
-`source`; plain `nt list` selects `id,title,kind,collection,tag`, and `all`
-selects every field. Redirected projections are headerless
-tab-separated rows, one per note. Set-valued fields are comma-separated. `list`
-accepts AND-combined structured metadata filters only; bare words and `title:`,
-`source:`, and `body:` filters require `find`.
+At most one collection is accepted and it defaults to `inbox`. Tags and links
+may repeat and are deduplicated. Unknown metadata fields are errors. A
+collection is a lowercase `/`-separated path whose segments contain only
+`a-z`, `0-9`, `_`, and `-`. Tags use the same characters without `/`.
 
-`find` field names are lowercase and expressions are AND-combined:
+The body comes from exactly one source: non-empty arguments after `--`, piped
+stdin, or `$EDITOR`. Trailing arguments are joined with one ASCII space. Piped
+but empty stdin and empty editor output are errors. Combining trailing body text
+with piped stdin is an error.
 
-```text
-<word> #<tag> id:<prefix> tag:<tag> title:<term>
-day:<date> since:<date> before:<date> kind:<kind> status:<status>
-priority:<priority> scheduled:<date> due:<date> closed:<date>
-collection:<vault>/<collection> link:<id> source:<term> body:<term> not:<expr>
-```
-
-Bare, `title:`, and `body:` values use the FTS5 `unicode61` tokenizer. `nt`
-splits each value into unique Unicode letter-or-digit runs; punctuation,
-including quotes, hyphens, slashes, and `*`, separates terms. Every term must
-match a complete token, but terms may occur in any order. Shell-quoted
-multiword values are therefore AND searches, not phrase searches. Bare terms
-may match across title and body. Unicode case is folded and diacritics are
-removed from Latin characters where supported by `unicode61`, so `cafe` matches
-`café`. Prefix matching is not enabled: `stor` and `stor*` do not match
-`storage`. A `title:` or `body:` value containing only punctuation matches
-nothing.
-
-Bare values also retain ASCII case-insensitive literal substring matching over
-non-text metadata, including sources. `source:` remains an ordinary SQL
-substring predicate rather than an FTS field. Structured metadata filters use
-ordinary SQL predicates and their existing ASCII normalization. Retrieval is
-deterministic, ordered by creation time and id rather than relevance, and
-unranked; there is no scoring, fuzzy search, embeddings, or semantic search.
-
-## Show
-
-`show` prints id, title, home, timestamps, kind-specific metadata, then the exact
-body. Note output omits the todo-only `status`, `priority`, `scheduled`, `due`,
-and `closed` fields.
-
-## Update
-
-`body` replaces the complete CommonMark document from stdin or `$EDITOR`. The
-body must begin with `# Title`; the derived title, update timestamp, search
-index, and sources discovered in the new body are updated in one transaction.
-An interactive edit is rejected if the note changed after the editor opened.
-
-`kind` takes `note` or `todo`; `kind -` resets it to `note`. `status`, `priority`,
-`scheduled`, and `due` use `-` to clear. `home` takes a qualified collection.
-Set fields `tag`, `collection`, `link`, and `source` require `+value` or
-`-value`.
+The canonical body normalizes CRLF and CR line endings to LF. Its first line
+must be `# Non-empty title`, with no leading blank line. Success prints
+`saved <id>`.
 
 ```sh
-printf '%s\n' '# Updated title' '' 'Replacement body.' | nt update <id> body
-nt update <id> home work/project_a
-nt update <id> collection +personal/rust
-nt update <id> tag +decision
+nt add tag:rust,sqlite -- '# Storage'
+printf '%s\n' '# Storage' '' 'SQLite is canonical.' | nt add tag:rust
+nt add collection:work/nt
 ```
 
-A home collection cannot be removed until home moves. Terminal statuses manage
-the `closed` timestamp.
+## Show And Listing
 
-## Agenda, Remove, And Export
+`show <id>` writes the exact canonical body with no metadata wrapper.
 
-`agenda` is a date-focused view of open todos. By default it includes overdue
-todos and todos due today or scheduled today or earlier. `agenda week` also
-includes todos scheduled or due in the next six days. Waiting, undated, done,
-and dropped todos are excluded. Rows contain tab-separated `id`, `priority`,
-`scheduled`, `due`, and `title` fields and are ordered by date, priority, and
-recency. `rm` rejects duplicate ids and verifies that every requested note
-exists inside one transaction before deleting anything. A missing id leaves
-every note unchanged. Cascades remove memberships, tags, sources, and incoming
-and outgoing links.
+`list` accepts structured filters. `find` accepts the same filters and one or
+more lexical terms:
 
-`export <path> [id...]` writes portable `<id>.md` snapshots with generated front
-matter. `<path>` is a directory and is created if necessary. Omitting ids
-exports all notes; explicit ids are validated and deduplicated before any
-snapshot is written. Each file is atomically replaced, but a multi-file export
-is not transactional. Exported Markdown is not canonical storage.
+```text
+id:<prefix>
+collection:<path>
+tag:<tag>
+link:<id>
+created-since:<timestamp>
+updated-since:<timestamp>
+not:<filter>
+```
+
+Expressions are AND-combined. `not:` wraps exactly one structured filter.
+Unknown fields, malformed filters, and negated lexical terms are errors.
+
+Bare `find` arguments are split into Unicode letter-or-digit runs, deduplicated,
+quoted as FTS literals, and AND-combined. Matching is complete-token,
+case-folded, and Latin-diacritic-insensitive where supported by SQLite
+`unicode61`. There is no raw FTS syntax, prefix expansion, ranking, scoring,
+fuzzy matching, or metadata substring fallback.
+
+Results are ordered by `updated DESC, id DESC` and use columns:
+
+```text
+id    updated    collection    title    tags
+```
+
+Redirected output is headerless TSV. Scalar cells are JSON strings and tags are
+a lexicographically sorted JSON array, preserving one physical line per note:
+
+```text
+"<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]
+```
+
+TTY output may remove JSON quoting and add ANSI color while preserving values
+and column order. Color respects `NO_COLOR` and `TERM=dumb`.
+
+## Mutations
+
+`edit` replaces the complete body using the same input rules as `add`. An editor
+session is rejected if another body edit changes the note first. Metadata
+changes do not conflict with an open editor session.
+
+```sh
+nt move <id> work/nt
+nt tag <id> +decision
+nt tag <id> -decision
+nt link <id> +01989abc-...
+nt link <id> -01989abc-...
+```
+
+Moves, tag changes, and link changes are transactional. Adding an existing set
+value or removing a missing one succeeds without changing `updated`. Self-links
+are errors. Links are directional.
+
+Success output is exact:
+
+```text
+updated <id>
+moved <id> <collection>
+tagged <id> <operation>
+linked <id> <operation>
+removed <count>
+```
+
+`rm` rejects duplicate IDs and validates every ID in one transaction before
+deleting anything. Any missing or invalid ID leaves all requested notes intact.
+Foreign-key cascades remove tags and incoming and outgoing links.
+
+## Errors
+
+Operational errors write `error: <message>` to stderr, return nonzero, and do
+not print to stdout. Stable messages are:
+
+```text
+error: run nt init first
+error: database is not an nt database
+error: unsupported nt schema version <version>; delete ~/.nt/nt.sqlite3 and run nt init
+error: database is busy; retry
+error: note not found: <id>
+error: note changed while editing: <id>
+error: invalid <field>: <value>
+error: body is empty
+error: body must begin with '# <title>'
+error: cannot combine body arguments with stdin
+error: EDITOR is not set
+error: editor exited unsuccessfully
+error: duplicate note id: <id>
+error: cannot link note to itself
+```
+
+Command grammar errors use clap's stderr diagnostics and exit code. SQLite
+internals and host paths are not exposed by expected operational errors.
 
 ## Operation
 
-SQLite transactions provide atomic database mutations and foreign-key
-consistency. WAL mode lets readers continue from the last committed snapshot
-while another connection writes. Independent commands may write concurrently,
-but SQLite remains a single-writer database: a contending writer waits for the
-five-second busy timeout and then reports a retryable error. Transactions are
-short and never remain open while `nt` reads note content from stdin or waits for
-`$EDITOR`. Agents use the same visible interface and should obtain user approval
-before mutations.
+Every mutation uses one short SQLite transaction. Foreign keys are enabled on
+all operational connections. WAL lets readers continue from the last committed
+snapshot while another connection writes. A contending writer waits for the
+bounded busy timeout and then reports the stable retryable error. No transaction
+remains open while reading stdin or waiting for `$EDITOR`.

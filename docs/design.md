@@ -1,112 +1,180 @@
 # nt Design
 
-`nt` is a local, agent-first knowledge and memory layer. Its goals are fast
-capture, fast deterministic retrieval, bounded context construction, durable
-hierarchical organization, low LLM token cost, and full local ownership.
+`nt` is a local, agent-first note layer for editable CommonMark notes,
+deterministic metadata, and lexical retrieval. The previous vault, todo,
+membership, source, projection, and generic metadata model is obsolete and has
+no compatibility requirement.
 
-## Implemented Architecture
+## Product Boundary
 
-`clap` parses the flagless CLI, command handlers orchestrate operations, and
-`src/repository/mod.rs` owns SQLite connection setup, schema initialization,
-direct SQL persistence, and row materialization. Query evaluation remains
-explicit and deterministic. `$EDITOR` integration uses temporary files, but
-canonical bodies remain in SQLite.
+A note has one canonical body, one derived title, exactly one collection,
+optional tags, optional directional links, creation and update timestamps, and a
+body version used only for optimistic body-edit conflicts.
 
-The database is `$HOME/.nt/nt.sqlite3`. Every connection enables foreign keys,
-uses WAL journaling, and has a five-second busy timeout. Mutations use
-transactions. The schema contains:
+SQLite at `$HOME/.nt/nt.sqlite3` is canonical. Markdown exists at the interface
+boundary; there is no canonical Markdown filesystem or rebuild workflow. Public
+note IDs are lowercase UUIDv7 values. Internal integer keys may be used for
+joins and FTS row IDs.
 
-- `vaults`: UUIDv7 id, unique logical name, creation time
-- `collections`: UUIDv7 id, one owning vault, name, creation time
-- `notes`: UUIDv7 id, home collection, CommonMark body, scalar metadata
-- `note_collections`: many-to-many collection memberships
-- `note_tags`, `note_sources`, and `note_links`: note-associated values and links
-- `note_search_rows` and `note_fts`: derived title/body lexical index
-- `schema_version`: current schema-version gate
+There are no note kinds, todos, agenda behavior, vaults, collection entities,
+many-to-many memberships, sources, generic metadata, configurable projections,
+reserved tags, automatic routing, or migration compatibility. Append-only
+memory requires a separate workflow-backed RFC and must remain an independent
+subsystem.
 
-A deferred composite foreign key requires every `notes.home_collection_id` pair
-to exist in `note_collections`. This makes home a real membership. A note has one
-home but may reference collections from multiple vaults.
+## Initialization
 
-## Storage Decisions
+`nt init` is the only command allowed to create `$HOME/.nt`, the database file,
+or schema objects. The clean-sheet database uses application ID `0x4e544e54`
+(`NTNT`) and schema version `1`.
 
-SQLite replaces canonical Markdown files, configured filesystem vaults,
-active-vault state, and JSON indexes. It gives body and metadata updates one
-transaction boundary and removes file/index reconciliation and rebuild paths.
+Initialization accepts a missing database, a zero-length file, or an empty
+SQLite database. A valid existing nt database is reported as already
+initialized. A database with unrelated objects or another application ID is
+rejected without modification. An incompatible nt schema is rejected with an
+instruction to delete the development database.
 
-UUIDv7 replaces timestamp-derived `NT...` ids for notes, vaults, and
-collections. Creation timestamps remain explicit fields rather than being
-decoded from identifiers.
+Ordinary commands validate existence, application identity, and schema version
+without creating files or objects. Recognized operational connections enable
+foreign keys, use WAL, and apply a bounded busy timeout. Mutations use short
+transactions, and no transaction remains open while reading stdin or waiting
+for `$EDITOR`.
 
-Mutations issue targeted `INSERT`, `UPDATE`, and `DELETE` statements inside
-short transactions. They do not load or rewrite unrelated rows. Note creation
-atomically resolves collections and inserts the note and its relationships;
-updates touch only the selected scalar or set value; removal validates every id
-before deleting any note.
+## Notes
 
-## Retrieval Decisions
+The canonical body is non-empty CommonMark with CRLF and CR line endings
+normalized to LF. Other content is preserved. The first line must begin with
+`# ` and have non-whitespace content after it. There is no leading blank line or
+Setext-title support. The trimmed remainder of the first line is the title.
 
-`list` produces compact metadata projections; `find` narrows candidates; `show`
-retrieves one exact body. This staged interface lets agents bound context and
-avoid emitting every body. Exact-note commands use id-scoped repository reads.
-`list`, `find`, and `agenda` push their filters and compact projections into
-SQL. `find` selects only id, creation time, title, and output tags; note bodies
-are never decoded into Rust during candidate retrieval. Structured predicates
-and source substrings use ordinary bound SQL. Bare, title, and body terms use a
-contentless FTS5 index maintained by SQLite triggers in the same transaction as
-note insertion, title/body editing, and deletion.
+A collection is a lowercase ASCII path with one or more `/`-separated segments.
+Segments contain only `a-z`, `0-9`, `_`, and `-`; empty segments and leading or
+trailing slashes are invalid. Every note has one collection, defaulting to
+`inbox`.
 
-Lexical search uses complete Unicode tokens with Unicode case folding,
-`unicode61` Latin-diacritic removal, AND-combined terms, and no prefix expansion.
-Quoted multiword values match all terms, not an exact phrase. Results remain
-unranked and ordered by note recency.
+Tags use lowercase ASCII `a-z`, `0-9`, `_`, and `-`. Links are directional:
+linking A to B creates only A to B. Duplicate tags and links are eliminated,
+self-links are rejected, and deleting a note removes its tags and incoming and
+outgoing links through foreign-key cascades.
 
-There is no scoring, vector database, embeddings, semantic search, hidden
-retrieval, daemon, or RAG system. These are not required for the implemented
-deterministic retrieval contract.
+## Schema
 
-## Metadata Decisions
+Primary state uses these tables:
 
-Vaults are top-level logical namespaces. Collections belong to exactly one
-vault and are addressed as `<vault>/<collection>`. Collections may use `/`
-inside the collection portion for durable hierarchy without creating files.
+```sql
+CREATE TABLE schema_version (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    version INTEGER NOT NULL CHECK (version = 1)
+) WITHOUT ROWID;
 
-Home records canonical ownership. Additional memberships are references. Tags
-remain sparse topics; links are explicit UUID relationships; sources remain
-external references. Note bodies stay ordinary CommonMark without nt-specific
-link syntax.
+CREATE TABLE notes (
+    pk INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,
+    body TEXT NOT NULL,
+    title TEXT NOT NULL,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    body_version INTEGER NOT NULL DEFAULT 1,
+    CHECK(length(collection) > 0),
+    CHECK(length(body) > 0),
+    CHECK(length(title) > 0),
+    CHECK(length(created) = 20),
+    CHECK(length(updated) = 20),
+    CHECK(body_version > 0)
+);
 
-## Interface Decisions
+CREATE TABLE note_tags (
+    note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY(note_pk, tag)
+);
 
-Core workflows remain positional and compose with stdin, stdout, pipes, and
-`$EDITOR`. Successful mutations print one short line. Redirected projections
-are stable, tab-separated, and one record per line.
+CREATE TABLE note_links (
+    note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
+    target_note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
+    PRIMARY KEY(note_pk, target_note_pk),
+    CHECK(note_pk <> target_note_pk)
+);
 
-Agents and humans use the same interface. The user directs writes; there is no
-agent-only command or hidden mutation path. WAL permits readers to continue from
-the last committed snapshot while a write is in progress. Independent commands
-may write concurrently, but SQLite still permits only one active writer;
-contending writers wait up to five seconds and then receive a retryable error.
-Mutations use short transactions, and `nt` does not hold a write transaction
-open while reading note content from stdin or waiting for `$EDITOR`.
+CREATE VIRTUAL TABLE note_fts USING fts5(
+    title,
+    body,
+    content = 'notes',
+    content_rowid = 'pk',
+    tokenize = 'unicode61 remove_diacritics 2'
+);
+```
 
-## Decision Status
+Indexes support created and updated ordering, collection filtering, tag lookup,
+and target-link lookup. Timestamps are fixed-width UTC RFC 3339 seconds.
 
-The SQLite relational model, UUIDv7 identities, logical vaults, vault-owned
-collections, cross-vault memberships, and one required home collection are the
-current storage contract. Markdown exports are portable snapshots, not primary
-storage.
+External-content FTS5 state is maintained by isolated SQLite triggers. Inserts
+add an FTS row, body/title changes replace it, and deletion removes it.
+Metadata-only updates do not rewrite FTS state.
 
-Long-term derived memory nodes and context-budget commands need a separate,
-explicit behavioral design before they become public schema or CLI surface.
+## Domain And Repository
 
-## Development And Release
+Domain types own UUIDv7 note identity, collection and tag validation, body
+normalization, H1 validation and title extraction, deduplication, self-link
+rejection, and body replacement. Invalid note state must not be constructible
+through public domain APIs. Domain code does not parse CLI tokens, render output,
+open SQLite, or know about FTS.
 
-Schema version 2 introduces the FTS5 index. There is no general migration
-framework yet; recreate version 1 development databases before running this
-version.
+Command handlers orchestrate narrow repository operations and do not issue SQL.
+Existence and conflict checks happen inside each mutation transaction. Body
+replacement uses an expected body version; only body changes increment that
+version. Metadata mutations update `updated` only when canonical state changes.
 
-Run before release:
+## Interface
+
+Core workflows are flagless, configless, positional, and shared by humans and
+agents. Capture uses exactly one body source: trailing arguments after `--`,
+piped stdin, or `$EDITOR`. Input is fully read and validated before a write
+transaction begins.
+
+The command and output contract is specified in `cli-reference.md`. `list` and
+`find` retrieve fixed metadata summaries rather than bodies. `show` retrieves one
+exact body.
+
+Redirected list and find output is headerless JSON-encoded TSV with one physical
+line per note. TTY output may add color and remove JSON quoting without changing
+values or column order.
+
+## Retrieval
+
+Structured filters and lexical terms are parsed into one query model and
+compiled to bound SQL parameters. `list` accepts only structured filters;
+`find` adds literal lexical terms. Expressions are AND-combined and ordered by
+`updated DESC, id DESC`.
+
+Users cannot submit raw FTS5 syntax. Lexical input is split into Unicode
+letter-or-digit runs, deduplicated, quoted as literals, and AND-combined.
+Matching uses complete tokens without prefix expansion, ranking, scoring, fuzzy
+matching, or metadata substring fallback. Candidate retrieval does not load
+bodies into Rust.
+
+## Consistency
+
+Every mutation uses one short transaction. Foreign keys enforce relationship
+cleanup, and FTS changes atomically with canonical note content. Multi-note
+deletion rejects duplicate IDs and validates every ID before deleting any row.
+
+WAL permits readers to continue from the last committed snapshot while another
+connection writes. SQLite remains single-writer; contention waits for the busy
+timeout and then returns a stable retryable error.
+
+## Development
+
+Existing development databases may be deleted. Obsolete code should be removed
+as its replacement lands rather than retained behind compatibility paths.
+
+Required verification covers database identity, schema constraints, UUIDv7 IDs,
+body validation, default collection behavior, transactions, command routing,
+query syntax, body conflicts, idempotent metadata changes, link cleanup, FTS
+synchronization, busy handling, and output encoding.
+
+Before release, run:
 
 ```sh
 cargo fmt --check
