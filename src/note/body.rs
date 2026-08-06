@@ -1,91 +1,51 @@
 use crate::error::{NtError, Result};
 
-pub fn title_from_body(body: &str) -> Result<String> {
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let title = trimmed
-            .strip_prefix("# ")
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .ok_or(NtError::InvalidTitle)?;
-        return Ok(title.to_string());
+pub(super) fn normalize_body(body: &str) -> Result<(String, String)> {
+    if body.is_empty() {
+        return Err(NtError::EmptyBody);
     }
 
-    Err(NtError::InvalidTitle)
-}
-
-pub fn sources_from_body(body: &str) -> Vec<String> {
-    let mut sources = Vec::new();
-    let mut cursor = 0;
-
-    while cursor < body.len() {
-        let Some(offset) = next_url_offset(&body[cursor..]) else {
-            break;
-        };
-        let start = cursor + offset;
-        let end = body[start..]
-            .char_indices()
-            .find_map(|(index, ch)| url_terminator(ch).then_some(start + index))
-            .unwrap_or(body.len());
-        let source = body[start..end].trim_end_matches(trailing_url_punctuation);
-        if !source.is_empty() && !sources.iter().any(|value| value == source) {
-            sources.push(source.to_string());
-        }
-        cursor = end.max(start + 1);
+    let body = body.replace("\r\n", "\n").replace('\r', "\n");
+    if body.is_empty() {
+        return Err(NtError::EmptyBody);
     }
 
-    sources.sort();
-    sources
-}
+    let first_line = body
+        .split_once('\n')
+        .map_or(body.as_str(), |(line, _)| line);
+    let title = first_line
+        .strip_prefix("# ")
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .ok_or(NtError::InvalidTitle)?;
 
-fn next_url_offset(text: &str) -> Option<usize> {
-    match (text.find("http://"), text.find("https://")) {
-        (Some(http), Some(https)) => Some(http.min(https)),
-        (Some(http), None) => Some(http),
-        (None, Some(https)) => Some(https),
-        (None, None) => None,
-    }
-}
-
-fn url_terminator(ch: char) -> bool {
-    ch.is_whitespace() || matches!(ch, ')' | ']' | '>' | '"' | '\'')
-}
-
-fn trailing_url_punctuation(ch: char) -> bool {
-    matches!(ch, '.' | ',' | ':' | ';' | '!' | '?')
+    Ok((body.clone(), title.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{sources_from_body, title_from_body};
+    use crate::error::NtError;
+
+    use super::normalize_body;
 
     #[test]
-    fn extracts_title_from_markdown_heading() {
-        assert_eq!(title_from_body("\n# Hello\nbody").unwrap(), "Hello");
+    fn normalizes_line_endings_and_derives_title() {
+        let (body, title) = normalize_body("#  Storage  \r\n\rDetails\r\n").unwrap();
+        assert_eq!(body, "#  Storage  \n\nDetails\n");
+        assert_eq!(title, "Storage");
     }
 
     #[test]
-    fn requires_h1_title_as_first_non_empty_line() {
-        assert!(title_from_body("body\n# Later").is_err());
-        assert!(title_from_body("## Section\nbody").is_err());
-        assert!(title_from_body("#\nbody").is_err());
-        assert!(title_from_body("#   \nbody").is_err());
+    fn preserves_content_other_than_line_endings() {
+        let (body, _) = normalize_body("# Title\n\nbody  ").unwrap();
+        assert_eq!(body, "# Title\n\nbody  ");
     }
 
     #[test]
-    fn extracts_http_sources_from_markdown_body() {
-        let body = "# Links\n\n[Spec](https://example.com/spec), <http://example.com/a>.\n";
-
-        assert_eq!(
-            sources_from_body(body),
-            vec![
-                "http://example.com/a".to_string(),
-                "https://example.com/spec".to_string()
-            ]
-        );
+    fn requires_a_leading_nonempty_atx_h1() {
+        assert!(matches!(normalize_body(""), Err(NtError::EmptyBody)));
+        for body in ["\n# Later", "body\n# Later", " ## Title", "#", "#   "] {
+            assert!(matches!(normalize_body(body), Err(NtError::InvalidTitle)));
+        }
     }
 }

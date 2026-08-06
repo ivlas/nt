@@ -1,26 +1,5 @@
 use thiserror::Error;
 
-use std::path::PathBuf;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MetadataErrorKind {
-    UnknownExpression,
-    UnknownField,
-    TodoOnly,
-    EmptyValue,
-    MultipleValues,
-    DuplicateField,
-    RequiresValue,
-    RequiresSignedValue,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CollectionErrorKind {
-    MissingQualifier,
-    InvalidVault,
-    InvalidName,
-}
-
 #[derive(Debug, Error)]
 pub enum NtError {
     #[error("{0}")]
@@ -31,55 +10,28 @@ pub enum NtError {
     Json(#[from] serde_json::Error),
     #[error("database error: {0}")]
     Database(rusqlite::Error),
-    #[error("database is busy; retry the command")]
+    #[error("database is busy; retry")]
     DatabaseBusy,
-    #[error("invalid metadata")]
-    InvalidMetadata {
-        command: &'static str,
-        field: Option<String>,
-        value: Option<String>,
-        kind: MetadataErrorKind,
-    },
-    #[error("invalid collection")]
-    InvalidCollection {
-        value: String,
-        component: Option<String>,
-        kind: CollectionErrorKind,
-    },
     #[error("home directory not found")]
     HomeNotFound,
-    #[error("run `nt init <vault>` first")]
-    MissingVault,
-    #[error("database at {} is not initialized by nt; refusing to overwrite or modify it", .0.display())]
-    UninitializedDatabase(PathBuf),
-    #[error(
-        "database at {} is not a valid nt database; refusing to overwrite or modify it: {source}",
-        path.display()
-    )]
-    InvalidDatabase {
-        path: PathBuf,
-        #[source]
-        source: rusqlite::Error,
-    },
-    #[error("note not found: {0}")]
-    NoteNotFound(String),
+    #[error("run nt init first")]
+    MissingDatabase,
+    #[error("database is not an nt database")]
+    NotNtDatabase,
+    #[error("unsupported nt schema version {0}; delete ~/.nt/nt.sqlite3 and run nt init")]
+    UnsupportedSchema(i64),
     #[error("invalid note id: {0}")]
     InvalidNoteId(String),
-    #[error("empty note")]
-    EmptyNote,
-    #[error("note must start with a non-empty `# Title` heading")]
+    #[error("invalid {field}: {value}")]
+    InvalidValue { field: &'static str, value: String },
+    #[error("body is empty")]
+    EmptyBody,
+    #[error("body must begin with '# <title>'")]
     InvalidTitle,
-    #[error("editor failed: {0}")]
-    EditorFailed(String),
-    #[error("note changed during edit")]
-    ConcurrentEdit { note_id: String },
-    #[error("export failed")]
-    ExportFailure {
-        path: PathBuf,
-        note_id: Option<String>,
-        #[source]
-        source: Box<NtError>,
-    },
+    #[error("cannot link note to itself")]
+    SelfLink,
+    #[error("invalid body version: {0}")]
+    InvalidBodyVersion(u64),
 }
 
 impl From<rusqlite::Error> for NtError {

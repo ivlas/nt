@@ -1,139 +1,74 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::error::{CollectionErrorKind, NtError, Result};
+use crate::error::{NtError, Result};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct QualifiedCollection(String);
+pub struct CollectionPath(String);
 
-impl QualifiedCollection {
+impl CollectionPath {
+    pub fn inbox() -> Self {
+        Self("inbox".to_string())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    pub fn vault(&self) -> &str {
-        self.0
-            .split_once('/')
-            .expect("qualified collection is validated")
-            .0
-    }
-
-    pub fn collection(&self) -> &str {
-        self.0
-            .split_once('/')
-            .expect("qualified collection is validated")
-            .1
-    }
 }
 
-impl AsRef<str> for QualifiedCollection {
+impl AsRef<str> for CollectionPath {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl fmt::Display for QualifiedCollection {
+impl fmt::Display for CollectionPath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
 }
 
-impl FromStr for QualifiedCollection {
+impl FromStr for CollectionPath {
     type Err = NtError;
 
     fn from_str(value: &str) -> Result<Self> {
-        let Some((vault, collection)) = value.split_once('/') else {
-            return Err(NtError::InvalidCollection {
+        if value.is_empty() || value.split('/').any(segment_is_invalid) {
+            return Err(NtError::InvalidValue {
+                field: "collection",
                 value: value.to_string(),
-                component: None,
-                kind: CollectionErrorKind::MissingQualifier,
             });
-        };
-        validate_collection_part(value, vault, CollectionErrorKind::InvalidVault)?;
-        validate_collection_part(value, collection, CollectionErrorKind::InvalidName)?;
+        }
         Ok(Self(value.to_string()))
     }
 }
 
-fn validate_collection_part(value: &str, component: &str, kind: CollectionErrorKind) -> Result<()> {
-    if namespace_part_is_invalid(component) {
-        return Err(NtError::InvalidCollection {
-            value: value.to_string(),
-            component: Some(component.to_string()),
-            kind,
-        });
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_namespace_part(value: &str, kind: &str) -> Result<()> {
-    if namespace_part_is_invalid(value) {
-        return Err(NtError::Message(format!(
-            "invalid {kind} `{value}`; use lowercase names without slashes, spaces, or commas"
-        )));
-    }
-    Ok(())
-}
-
-fn namespace_part_is_invalid(value: &str) -> bool {
+pub(super) fn segment_is_invalid(value: &str) -> bool {
     value.is_empty()
-        || value.starts_with('/')
-        || value.ends_with('/')
-        || value
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_uppercase() || matches!(ch, ',' | '/'))
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::error::{CollectionErrorKind, NtError};
-
-    use super::QualifiedCollection;
+    use super::CollectionPath;
 
     #[test]
-    fn collection_names_are_vault_qualified() {
-        let collection: QualifiedCollection = "personal/rust".parse().unwrap();
-        assert_eq!(collection.vault(), "personal");
-        assert_eq!(collection.collection(), "rust");
-        assert_eq!(collection.as_str(), "personal/rust");
-        assert!(matches!(
-            "rust".parse::<QualifiedCollection>().unwrap_err(),
-            NtError::InvalidCollection {
-                value,
-                component: None,
-                kind: CollectionErrorKind::MissingQualifier,
-            } if value == "rust"
-        ));
-        assert!("Personal/rust".parse::<QualifiedCollection>().is_err());
-        assert!(
-            "personal/rust/notes"
-                .parse::<QualifiedCollection>()
-                .is_err()
-        );
-        assert!("personal//rust".parse::<QualifiedCollection>().is_err());
+    fn accepts_normalized_collection_paths() {
+        for value in ["inbox", "work/nt", "research/sqlite/index_2"] {
+            let collection: CollectionPath = value.parse().unwrap();
+            assert_eq!(collection.as_str(), value);
+        }
+        assert_eq!(CollectionPath::inbox().as_str(), "inbox");
     }
 
     #[test]
-    fn collection_errors_identify_the_invalid_component() {
-        assert!(matches!(
-            "Personal/inbox"
-                .parse::<QualifiedCollection>()
-                .unwrap_err(),
-            NtError::InvalidCollection {
-                value,
-                component: Some(component),
-                kind: CollectionErrorKind::InvalidVault,
-            } if value == "Personal/inbox" && component == "Personal"
-        ));
-        assert!(matches!(
-            "personal/Rust"
-                .parse::<QualifiedCollection>()
-                .unwrap_err(),
-            NtError::InvalidCollection {
-                component: Some(component),
-                kind: CollectionErrorKind::InvalidName,
-                ..
-            } if component == "Rust"
-        ));
+    fn rejects_invalid_collection_paths() {
+        for value in ["", "/inbox", "inbox/", "work//nt", "Work/nt", "work/a.b"] {
+            assert!(
+                value.parse::<CollectionPath>().is_err(),
+                "accepted {value:?}"
+            );
+        }
     }
 }

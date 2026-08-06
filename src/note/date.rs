@@ -7,44 +7,11 @@ use crate::error::{NtError, Result};
 const SECONDS_PER_DAY: i64 = 86_400;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Date(String);
-
-impl Date {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl AsRef<str> for Date {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl fmt::Display for Date {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for Date {
-    type Err = NtError;
-
-    fn from_str(value: &str) -> Result<Self> {
-        validate_date(value)?;
-        Ok(Self(value.to_string()))
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Timestamp {
-    iso: String,
-    day: Date,
-}
+pub struct Timestamp(String);
 
 impl Timestamp {
     pub fn as_str(&self) -> &str {
-        &self.iso
+        &self.0
     }
 }
 
@@ -65,6 +32,8 @@ impl FromStr for Timestamp {
 
     fn from_str(value: &str) -> Result<Self> {
         let valid_shape = value.len() == 20
+            && value.as_bytes().get(4) == Some(&b'-')
+            && value.as_bytes().get(7) == Some(&b'-')
             && value.as_bytes().get(10) == Some(&b'T')
             && value.as_bytes().get(13) == Some(&b':')
             && value.as_bytes().get(16) == Some(&b':')
@@ -80,18 +49,17 @@ impl FromStr for Timestamp {
             return Err(invalid_timestamp(value));
         }
 
-        let day: Date = value[0..10].parse().map_err(|_| invalid_timestamp(value))?;
+        let year: u32 = value[0..4].parse().unwrap_or(0);
+        let month: u32 = value[5..7].parse().unwrap_or(0);
+        let day: u32 = value[8..10].parse().unwrap_or(0);
         let hour: u8 = value[11..13].parse().unwrap_or(24);
         let minute: u8 = value[14..16].parse().unwrap_or(60);
         let second: u8 = value[17..19].parse().unwrap_or(60);
-        if hour > 23 || minute > 59 || second > 59 {
+        if day == 0 || day > days_in_month(year, month) || hour > 23 || minute > 59 || second > 59 {
             return Err(invalid_timestamp(value));
         }
 
-        Ok(Self {
-            iso: value.to_string(),
-            day,
-        })
+        Ok(Self(value.to_string()))
     }
 }
 
@@ -99,47 +67,11 @@ pub fn timestamp_now() -> Timestamp {
     timestamp_from_system_time(SystemTime::now())
 }
 
-pub fn local_day_now() -> Date {
-    std::process::Command::new("date")
-        .arg("+%F")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .and_then(|day| day.trim().parse().ok())
-        .unwrap_or_else(|| timestamp_now().day)
-}
-
-fn validate_date(value: &str) -> Result<()> {
-    let valid_shape = value.len() == 10
-        && value.as_bytes().get(4) == Some(&b'-')
-        && value.as_bytes().get(7) == Some(&b'-')
-        && value
-            .chars()
-            .enumerate()
-            .all(|(index, ch)| matches!(index, 4 | 7) || ch.is_ascii_digit());
-    if !valid_shape {
-        return Err(invalid_date(value));
-    }
-
-    let year = value[0..4].parse().unwrap_or(0);
-    let month = value[5..7].parse().unwrap_or(0);
-    let day = value[8..10].parse().unwrap_or(0);
-    let max_day = days_in_month(year, month);
-    if day == 0 || day > max_day {
-        return Err(invalid_date(value));
-    }
-    Ok(())
-}
-
-fn invalid_date(value: &str) -> NtError {
-    NtError::Message(format!("invalid date `{value}`; use YYYY-MM-DD"))
-}
-
 fn invalid_timestamp(value: &str) -> NtError {
-    NtError::Message(format!(
-        "invalid timestamp `{value}`; use YYYY-MM-DDTHH:MM:SSZ"
-    ))
+    NtError::InvalidValue {
+        field: "timestamp",
+        value: value.to_string(),
+    }
 }
 
 fn days_in_month(year: u32, month: u32) -> u32 {
@@ -152,25 +84,11 @@ fn days_in_month(year: u32, month: u32) -> u32 {
     }
 }
 
-pub fn add_days(day: &Date, count: i64) -> Result<Date> {
-    let day = day.as_str();
-    let year: i64 = day[0..4].parse().unwrap_or(0);
-    let month: i64 = day[5..7].parse().unwrap_or(0);
-    let date: i64 = day[8..10].parse().unwrap_or(0);
-    let days = days_from_civil(year, month, date) + count;
-    let (year, month, date) = civil_from_days(days);
-    format!("{year:04}-{month:02}-{date:02}").parse()
-}
-
-pub fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
+fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
     let seconds = time
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0);
-    timestamp_from_unix_seconds(seconds)
-}
-
-fn timestamp_from_unix_seconds(seconds: i64) -> Timestamp {
     let days = seconds.div_euclid(SECONDS_PER_DAY);
     let second_of_day = seconds.rem_euclid(SECONDS_PER_DAY);
     let (year, month, day) = civil_from_days(days);
@@ -191,58 +109,34 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    let year = y + if m <= 2 { 1 } else { 0 };
-
-    (year, m, d)
-}
-
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let yoe = year - era * 400;
-    let adjusted_month = month + if month > 2 { -3 } else { 9 };
-    let doy = (153 * adjusted_month + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + i64::from(month <= 2);
+    (year, month, day)
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{Date, Timestamp, add_days, timestamp_from_system_time, validate_date};
-
-    #[test]
-    fn validates_calendar_dates_and_adds_days() {
-        validate_date("2024-02-29").unwrap();
-        assert!(validate_date("2026-02-29").is_err());
-        let day: Date = "2026-12-29".parse().unwrap();
-        assert_eq!(add_days(&day, 6).unwrap().as_str(), "2027-01-04");
-    }
+    use super::{Timestamp, timestamp_from_system_time};
 
     #[test]
     fn formats_unix_epoch_timestamp() {
         let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
         assert_eq!(timestamp.as_str(), "1970-01-01T00:00:00Z");
-        assert_eq!(timestamp.day.as_str(), "1970-01-01");
     }
 
     #[test]
-    fn date_parses_only_canonical_calendar_values() {
-        assert_eq!("2024-02-29".parse::<Date>().unwrap().as_str(), "2024-02-29");
-        assert!("2026-02-29".parse::<Date>().is_err());
-        assert!("2026-1-01".parse::<Date>().is_err());
-    }
-
-    #[test]
-    fn timestamp_parses_only_canonical_utc_values() {
+    fn parses_only_canonical_utc_seconds() {
         let timestamp: Timestamp = "2026-05-28T14:30:12Z".parse().unwrap();
         assert_eq!(timestamp.as_str(), "2026-05-28T14:30:12Z");
-        assert_eq!(timestamp.day.as_str(), "2026-05-28");
-        assert!("2026-02-29T14:30:12Z".parse::<Timestamp>().is_err());
-        assert!("2026-05-28T24:00:00Z".parse::<Timestamp>().is_err());
-        assert!("2026-05-28T14:30:12+00:00".parse::<Timestamp>().is_err());
+        for value in [
+            "2026-02-29T14:30:12Z",
+            "2026-05-28T24:00:00Z",
+            "2026-05-28T14:30:12+00:00",
+        ] {
+            assert!(value.parse::<Timestamp>().is_err());
+        }
     }
 }
