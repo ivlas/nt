@@ -1,0 +1,334 @@
+use std::collections::BTreeSet;
+
+use rusqlite::types::Value;
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter};
+
+use crate::error::{NtError, Result};
+use crate::note::{CollectionPath, NewNote, Note, NoteId, Tag, Timestamp, timestamp_now};
+use crate::query::{Filter, NoteQuery};
+
+use super::Repository;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NoteSummary {
+    id: NoteId,
+    updated: Timestamp,
+    collection: CollectionPath,
+    title: String,
+    tags: BTreeSet<Tag>,
+}
+
+impl NoteSummary {
+    pub fn id(&self) -> &NoteId {
+        &self.id
+    }
+
+    pub fn updated(&self) -> &Timestamp {
+        &self.updated
+    }
+
+    pub fn collection(&self) -> &CollectionPath {
+        &self.collection
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn tags(&self) -> &BTreeSet<Tag> {
+        &self.tags
+    }
+}
+
+impl Repository {
+    pub fn create_note(&mut self, note: NewNote) -> Result<NoteId> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = NoteId::generate();
+        note.validate_links_for(&id)?;
+        let now = timestamp_now();
+        transaction.execute(
+            "INSERT INTO notes(id, collection, body, title, created, updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![
+                id.to_string(),
+                note.collection().as_str(),
+                note.body(),
+                note.title(),
+                now.as_str(),
+            ],
+        )?;
+        let source_pk = transaction.last_insert_rowid();
+        for tag in note.tags() {
+            transaction.execute(
+                "INSERT INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
+                params![source_pk, tag.as_str()],
+            )?;
+        }
+        for target in note.links() {
+            let target_pk = note_pk(&transaction, target)?;
+            transaction.execute(
+                "INSERT INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
+                params![source_pk, target_pk],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(id)
+    }
+
+    pub fn get_note(&self, id: &NoteId) -> Result<Note> {
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT pk, collection, body, title, created, updated, body_version
+                 FROM notes WHERE id = ?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+        let tags = load_tags(&self.connection, stored.0)?;
+        let links = load_links(&self.connection, stored.0)?;
+        let body_version = u64::try_from(stored.6)
+            .map_err(|_| NtError::InvalidBodyVersion(stored.6.cast_unsigned()))?;
+        Note::rehydrate(
+            id.clone(),
+            stored.1.parse()?,
+            stored.2,
+            stored.3,
+            stored.4.parse()?,
+            stored.5.parse()?,
+            body_version,
+            tags,
+            links,
+        )
+    }
+
+    pub fn list_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        let (where_sql, parameters) = compile_filters(query.filters());
+        let sql = format!(
+            "SELECT n.pk, n.id, n.updated, n.collection, n.title
+             FROM notes n {where_sql}
+             ORDER BY n.updated DESC, n.id DESC"
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(parameters), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?;
+        let mut notes = Vec::new();
+        for row in rows {
+            let row = row?;
+            notes.push(NoteSummary {
+                id: row.1.parse()?,
+                updated: row.2.parse()?,
+                collection: row.3.parse()?,
+                title: row.4,
+                tags: load_tags(&self.connection, row.0)?,
+            });
+        }
+        Ok(notes)
+    }
+
+    pub fn delete_notes(&mut self, ids: &[NoteId]) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut pks = Vec::with_capacity(ids.len());
+        for id in ids {
+            pks.push(note_pk(&transaction, id)?);
+        }
+        for pk in pks {
+            transaction.execute("DELETE FROM notes WHERE pk = ?1", [pk])?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+}
+
+fn note_pk(transaction: &Transaction<'_>, id: &NoteId) -> Result<i64> {
+    transaction
+        .query_row(
+            "SELECT pk FROM notes WHERE id = ?1",
+            [id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
+}
+
+fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<Tag>> {
+    let mut statement =
+        connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
+    statement
+        .query_map([note_pk], |row| row.get::<_, String>(0))?
+        .map(|value| Ok(value?.parse()?))
+        .collect()
+}
+
+fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<NoteId>> {
+    let mut statement = connection.prepare(
+        "SELECT target.id
+         FROM note_links links
+         JOIN notes target ON target.pk = links.target_note_pk
+         WHERE links.note_pk = ?1
+         ORDER BY target.id",
+    )?;
+    statement
+        .query_map([note_pk], |row| row.get::<_, String>(0))?
+        .map(|value| Ok(value?.parse()?))
+        .collect()
+}
+
+fn compile_filters(filters: &[Filter]) -> (String, Vec<Value>) {
+    if filters.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    let mut parameters = Vec::new();
+    let expressions = filters
+        .iter()
+        .map(|filter| compile_filter(filter, &mut parameters))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    (format!("WHERE {expressions}"), parameters)
+}
+
+fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
+    match filter {
+        Filter::IdPrefix(prefix) => {
+            let parameter = push_parameter(parameters, prefix);
+            format!("substr(n.id, 1, length(?{parameter})) = ?{parameter}")
+        }
+        Filter::Collection(collection) => {
+            let parameter = push_parameter(parameters, collection.as_str());
+            format!("n.collection = ?{parameter}")
+        }
+        Filter::Tag(tag) => {
+            let parameter = push_parameter(parameters, tag.as_str());
+            format!(
+                "EXISTS (SELECT 1 FROM note_tags filter_tags
+                 WHERE filter_tags.note_pk = n.pk AND filter_tags.tag = ?{parameter})"
+            )
+        }
+        Filter::LinkedTo(target) => {
+            let parameter = push_parameter(parameters, &target.to_string());
+            format!(
+                "EXISTS (SELECT 1 FROM note_links filter_links
+                 JOIN notes filter_target ON filter_target.pk = filter_links.target_note_pk
+                 WHERE filter_links.note_pk = n.pk AND filter_target.id = ?{parameter})"
+            )
+        }
+        Filter::CreatedSince(timestamp) => {
+            let parameter = push_parameter(parameters, timestamp.as_str());
+            format!("n.created >= ?{parameter}")
+        }
+        Filter::UpdatedSince(timestamp) => {
+            let parameter = push_parameter(parameters, timestamp.as_str());
+            format!("n.updated >= ?{parameter}")
+        }
+        Filter::Not(inner) => format!("NOT ({})", compile_filter(inner, parameters)),
+    }
+}
+
+fn push_parameter(parameters: &mut Vec<Value>, value: &str) -> usize {
+    parameters.push(Value::Text(value.to_string()));
+    parameters.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::schema;
+
+    fn repository() -> Repository {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        schema::initialize(&mut connection).unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON")
+            .unwrap();
+        Repository { connection }
+    }
+
+    #[test]
+    fn creates_loads_lists_and_deletes_notes() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Storage\nBody")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        let note = repository.get_note(&id).unwrap();
+        assert_eq!(note.id(), &id);
+        assert_eq!(note.body(), "# Storage\nBody");
+        assert_eq!(note.tags().len(), 1);
+
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].id(), &id);
+        repository.delete_notes(&[id.clone()]).unwrap();
+        assert!(matches!(
+            repository.get_note(&id),
+            Err(NtError::NoteNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn validates_link_targets_and_atomic_deletion() {
+        let mut repository = repository();
+        let missing: NoteId = "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap();
+        let result = repository.create_note(
+            NewNote::new(CollectionPath::inbox(), "# Link")
+                .unwrap()
+                .with_links([missing.clone()]),
+        );
+        assert!(matches!(result, Err(NtError::NoteNotFound(_))));
+
+        let first = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# First").unwrap())
+            .unwrap();
+        let result = repository.delete_notes(&[first.clone(), missing]);
+        assert!(matches!(result, Err(NtError::NoteNotFound(_))));
+        assert!(repository.get_note(&first).is_ok());
+    }
+
+    #[test]
+    fn list_filters_are_and_combined_and_negatable() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new("work/nt".parse().unwrap(), "# Rust")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Other").unwrap())
+            .unwrap();
+        let query = NoteQuery::parse_list(&[
+            "collection:work/nt".to_string(),
+            "not:tag:sqlite".to_string(),
+        ])
+        .unwrap();
+        let notes = repository.list_notes(&query).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].title(), "Rust");
+    }
+}

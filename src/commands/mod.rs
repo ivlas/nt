@@ -1,32 +1,27 @@
 use crate::cli::{Cli, Command};
-use crate::error::{NtError, Result};
+use crate::error::Result;
+
+mod add;
+mod init;
+mod list;
+mod rm;
+mod show;
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         None => crate::cli::help::print(&[]),
+        Some(Command::Init) => init::init(),
+        Some(Command::Add { metadata, body }) => add::add(&metadata, &body),
+        Some(Command::Show { id }) => show::show(&id),
+        Some(Command::List { filters }) => list::list(&filters),
+        Some(Command::Rm { ids }) => rm::rm(&ids),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic),
-        Some(command) => {
-            consume(command);
-            Err(NtError::Message(
-                "command is not implemented in this build".to_string(),
-            ))
-        }
-    }
-}
-
-fn consume(command: Command) {
-    match command {
-        Command::Init => {}
-        Command::Add { metadata, body } => drop((metadata, body)),
-        Command::Show { id } => drop(id),
-        Command::List { filters } => drop(filters),
-        Command::Find { expressions } => drop(expressions),
-        Command::Rm { ids } => drop(ids),
-        Command::Edit { id, body } => drop((id, body)),
-        Command::Move { id, collection } => drop((id, collection)),
-        Command::Tag { id, operation } | Command::Link { id, operation } => {
-            drop((id, operation));
-        }
-        Command::Help { topic } => drop(topic),
+        Some(Command::Find { .. })
+        | Some(Command::Edit { .. })
+        | Some(Command::Move { .. })
+        | Some(Command::Tag { .. })
+        | Some(Command::Link { .. }) => Err(crate::error::NtError::Message(
+            "command is not implemented in this build".to_string(),
+        )),
     }
 }

@@ -7,7 +7,10 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
 
+mod notes;
 mod schema;
+
+pub use notes::NoteSummary;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitOutcome {

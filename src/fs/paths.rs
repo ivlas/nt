@@ -1,5 +1,5 @@
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::error::{NtError, Result};
 
@@ -21,20 +21,4 @@ pub fn nt_home() -> Result<PathBuf> {
 
 pub fn database_path() -> Result<PathBuf> {
     Ok(nt_home()?.join("nt.sqlite3"))
-}
-
-pub fn absolute_path(path: &Path) -> Result<PathBuf> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-
-    Ok(env::current_dir()?.join(path))
-}
-
-pub fn relative_to_cwd(path: &Path) -> PathBuf {
-    let Ok(cwd) = env::current_dir() else {
-        return path.to_path_buf();
-    };
-
-    path.strip_prefix(cwd).unwrap_or(path).to_path_buf()
 }

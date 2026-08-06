@@ -32,6 +32,16 @@ pub enum NtError {
     SelfLink,
     #[error("invalid body version: {0}")]
     InvalidBodyVersion(u64),
+    #[error("note not found: {0}")]
+    NoteNotFound(String),
+    #[error("duplicate note id: {0}")]
+    DuplicateNoteId(String),
+    #[error("cannot combine body arguments with stdin")]
+    ConflictingBodyInput,
+    #[error("EDITOR is not set")]
+    EditorNotSet,
+    #[error("editor exited unsuccessfully")]
+    EditorFailed,
 }
 
 impl From<rusqlite::Error> for NtError {

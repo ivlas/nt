@@ -4,7 +4,9 @@ mod cli;
 mod commands;
 mod error;
 mod fs;
+mod input;
 mod note;
+mod query;
 mod repository;
 mod terminal;
 
