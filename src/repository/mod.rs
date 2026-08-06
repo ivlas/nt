@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,21 @@ mod notes;
 mod schema;
 
 pub use notes::NoteSummary;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AddOrRemove<T> {
+    Add(T),
+    Remove(T),
+}
+
+impl<T: fmt::Display> fmt::Display for AddOrRemove<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add(value) => write!(formatter, "+{value}"),
+            Self::Remove(value) => write!(formatter, "-{value}"),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitOutcome {

@@ -42,6 +42,8 @@ pub enum NtError {
     EditorNotSet,
     #[error("editor exited unsuccessfully")]
     EditorFailed,
+    #[error("note changed while editing: {0}")]
+    ConcurrentEdit(String),
 }
 
 impl From<rusqlite::Error> for NtError {

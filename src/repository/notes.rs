@@ -7,7 +7,7 @@ use crate::error::{NtError, Result};
 use crate::note::{CollectionPath, NewNote, Note, NoteId, Tag, Timestamp, timestamp_now};
 use crate::query::{Filter, NoteQuery};
 
-use super::Repository;
+use super::{AddOrRemove, Repository};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NoteSummary {
@@ -160,6 +160,102 @@ impl Repository {
         transaction.commit()?;
         Ok(())
     }
+
+    pub fn replace_body(&mut self, note: &Note, expected_version: u64) -> Result<()> {
+        let expected_version = i64::try_from(expected_version)
+            .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
+        let body_version = i64::try_from(note.body_version())
+            .map_err(|_| NtError::InvalidBodyVersion(note.body_version()))?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE notes
+             SET body = ?1, title = ?2, updated = ?3, body_version = ?4
+             WHERE id = ?5 AND body_version = ?6",
+            params![
+                note.body(),
+                note.title(),
+                note.updated().as_str(),
+                body_version,
+                note.id().to_string(),
+                expected_version,
+            ],
+        )?;
+        if changed == 0 {
+            if note_exists(&transaction, note.id())? {
+                return Err(NtError::ConcurrentEdit(note.id().to_string()));
+            }
+            return Err(NtError::NoteNotFound(note.id().to_string()));
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn move_note(&mut self, id: &NoteId, collection: &CollectionPath) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_note_exists(&transaction, id)?;
+        let changed = transaction.execute(
+            "UPDATE notes SET collection = ?1, updated = ?2
+             WHERE id = ?3 AND collection <> ?1",
+            params![
+                collection.as_str(),
+                timestamp_now().as_str(),
+                id.to_string()
+            ],
+        )? != 0;
+        transaction.commit()?;
+        Ok(changed)
+    }
+
+    pub fn change_tag(&mut self, id: &NoteId, operation: AddOrRemove<Tag>) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let pk = note_pk(&transaction, id)?;
+        let changed = match operation {
+            AddOrRemove::Add(tag) => transaction.execute(
+                "INSERT OR IGNORE INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
+                params![pk, tag.as_str()],
+            )?,
+            AddOrRemove::Remove(tag) => transaction.execute(
+                "DELETE FROM note_tags WHERE note_pk = ?1 AND tag = ?2",
+                params![pk, tag.as_str()],
+            )?,
+        } != 0;
+        touch_if_changed(&transaction, id, changed)?;
+        transaction.commit()?;
+        Ok(changed)
+    }
+
+    pub fn change_link(&mut self, id: &NoteId, operation: AddOrRemove<NoteId>) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let source_pk = note_pk(&transaction, id)?;
+        let target = match &operation {
+            AddOrRemove::Add(target) | AddOrRemove::Remove(target) => target,
+        };
+        if target == id {
+            return Err(NtError::SelfLink);
+        }
+        let target_pk = note_pk(&transaction, target)?;
+        let changed = match operation {
+            AddOrRemove::Add(_) => transaction.execute(
+                "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
+                params![source_pk, target_pk],
+            )?,
+            AddOrRemove::Remove(_) => transaction.execute(
+                "DELETE FROM note_links WHERE note_pk = ?1 AND target_note_pk = ?2",
+                params![source_pk, target_pk],
+            )?,
+        } != 0;
+        touch_if_changed(&transaction, id, changed)?;
+        transaction.commit()?;
+        Ok(changed)
+    }
 }
 
 fn note_pk(transaction: &Transaction<'_>, id: &NoteId) -> Result<i64> {
@@ -171,6 +267,34 @@ fn note_pk(transaction: &Transaction<'_>, id: &NoteId) -> Result<i64> {
         )
         .optional()?
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
+}
+
+fn note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<bool> {
+    transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
+            [id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+fn ensure_note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<()> {
+    if note_exists(transaction, id)? {
+        Ok(())
+    } else {
+        Err(NtError::NoteNotFound(id.to_string()))
+    }
+}
+
+fn touch_if_changed(transaction: &Transaction<'_>, id: &NoteId, changed: bool) -> Result<()> {
+    if changed {
+        transaction.execute(
+            "UPDATE notes SET updated = ?1 WHERE id = ?2",
+            params![timestamp_now().as_str(), id.to_string()],
+        )?;
+    }
+    Ok(())
 }
 
 fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<Tag>> {
@@ -330,5 +454,111 @@ mod tests {
         let notes = repository.list_notes(&query).unwrap();
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title(), "Rust");
+    }
+
+    #[test]
+    fn body_updates_detect_conflicts_but_metadata_does_not_create_them() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+            .unwrap();
+        let mut note = repository.get_note(&id).unwrap();
+        let expected = note.body_version();
+        repository
+            .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+            .unwrap();
+        note.replace_body("# Edited", "2026-05-28T15:00:00Z".parse().unwrap())
+            .unwrap();
+        repository.replace_body(&note, expected).unwrap();
+        assert_eq!(repository.get_note(&id).unwrap().body_version(), 2);
+
+        let mut stale = repository.get_note(&id).unwrap();
+        let stale_version = stale.body_version();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET body_version = body_version + 1 WHERE id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+        stale
+            .replace_body("# Stale", "2026-05-28T16:00:00Z".parse().unwrap())
+            .unwrap();
+        assert!(matches!(
+            repository.replace_body(&stale, stale_version),
+            Err(NtError::ConcurrentEdit(_))
+        ));
+    }
+
+    #[test]
+    fn metadata_changes_are_idempotent_and_touch_only_real_changes() {
+        let mut repository = repository();
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-01T00:00:00Z' WHERE id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+
+        assert!(
+            repository
+                .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+                .unwrap()
+        );
+        let updated = repository.get_note(&id).unwrap().updated().clone();
+        assert!(
+            !repository
+                .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+                .unwrap()
+        );
+        assert_eq!(repository.get_note(&id).unwrap().updated(), &updated);
+        assert!(
+            !repository
+                .change_tag(&id, AddOrRemove::Remove("missing".parse().unwrap()))
+                .unwrap()
+        );
+        assert!(
+            repository
+                .change_link(&id, AddOrRemove::Add(target.clone()))
+                .unwrap()
+        );
+        assert!(
+            !repository
+                .change_link(&id, AddOrRemove::Add(target))
+                .unwrap()
+        );
+        assert!(
+            repository
+                .move_note(&id, &"work/nt".parse().unwrap())
+                .unwrap()
+        );
+        assert!(
+            !repository
+                .move_note(&id, &"work/nt".parse().unwrap())
+                .unwrap()
+        );
+        assert_eq!(
+            repository.get_note(&id).unwrap().collection().as_str(),
+            "work/nt"
+        );
+    }
+
+    #[test]
+    fn links_reject_self_references() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+            .unwrap();
+        assert!(matches!(
+            repository.change_link(&id, AddOrRemove::Add(id.clone())),
+            Err(NtError::SelfLink)
+        ));
     }
 }
