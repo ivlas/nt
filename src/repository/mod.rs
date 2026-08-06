@@ -130,9 +130,12 @@ fn cleanup_created_database(path: &Path) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rusqlite::Connection;
 
     use super::*;
+    use crate::note::{CollectionPath, NewNote};
 
     #[test]
     fn initializes_and_reopens_a_clean_database() {
@@ -206,5 +209,51 @@ mod tests {
             .unwrap();
         drop(connection);
         assert!(matches!(open_at(&path), Err(NtError::UnsupportedSchema(2))));
+    }
+
+    #[test]
+    fn another_application_id_is_rejected_without_schema_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("other.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch("PRAGMA application_id = 1234; CREATE TABLE other(value TEXT)")
+            .unwrap();
+        drop(connection);
+        assert!(matches!(initialize_at(&path), Err(NtError::NotNtDatabase)));
+        let connection = Connection::open(path).unwrap();
+        let application_id: i64 = connection
+            .pragma_query_value(None, "application_id", |row| row.get(0))
+            .unwrap();
+        assert_eq!(application_id, 1234);
+        let table_exists: i64 = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'other')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_exists, 1);
+    }
+
+    #[test]
+    fn writer_contention_returns_the_retryable_busy_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let mut first = open_at(&path).unwrap();
+        let mut second = open_at(&path).unwrap();
+        second
+            .connection
+            .busy_timeout(Duration::from_millis(1))
+            .unwrap();
+        let transaction = first
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        let result =
+            second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
+        assert!(matches!(result, Err(NtError::DatabaseBusy)));
+        transaction.rollback().unwrap();
     }
 }

@@ -12,10 +12,6 @@ impl NoteId {
     pub fn generate() -> Self {
         Self(Uuid::now_v7())
     }
-
-    pub fn as_uuid(&self) -> &Uuid {
-        &self.0
-    }
 }
 
 impl fmt::Display for NoteId {
@@ -47,7 +43,6 @@ mod tests {
         assert_eq!(text.len(), 36);
         assert_eq!(text.as_bytes()[14], b'7');
         assert_eq!(text.parse::<NoteId>().unwrap(), id);
-        assert_eq!(id.as_uuid().get_version_num(), 7);
     }
 
     #[test]

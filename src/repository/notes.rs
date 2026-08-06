@@ -310,7 +310,7 @@ fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet
         connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| Ok(value?.parse()?))
+        .map(|value| value?.parse())
         .collect()
 }
 
@@ -324,7 +324,7 @@ fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSe
     )?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| Ok(value?.parse()?))
+        .map(|value| value?.parse())
         .collect()
 }
 
@@ -420,14 +420,13 @@ mod tests {
             )
             .unwrap();
         let note = repository.get_note(&id).unwrap();
-        assert_eq!(note.id(), &id);
         assert_eq!(note.body(), "# Storage\nBody");
-        assert_eq!(note.tags().len(), 1);
 
         let notes = repository.list_notes(&NoteQuery::default()).unwrap();
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].id(), &id);
-        repository.delete_notes(&[id.clone()]).unwrap();
+        assert_eq!(notes[0].tags().len(), 1);
+        repository.delete_notes(std::slice::from_ref(&id)).unwrap();
         assert!(matches!(
             repository.get_note(&id),
             Err(NtError::NoteNotFound(_))
@@ -564,10 +563,8 @@ mod tests {
                 .move_note(&id, &"work/nt".parse().unwrap())
                 .unwrap()
         );
-        assert_eq!(
-            repository.get_note(&id).unwrap().collection().as_str(),
-            "work/nt"
-        );
+        let query = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
+        assert_eq!(repository.list_notes(&query).unwrap().len(), 1);
     }
 
     #[test]

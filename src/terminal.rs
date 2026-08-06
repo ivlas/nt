@@ -2,18 +2,7 @@ use std::io::{self, IsTerminal};
 
 #[derive(Clone, Copy)]
 pub enum Style {
-    BrightCyan,
-    Dim,
-    Green,
     Red,
-}
-
-pub fn stdout_color_enabled() -> bool {
-    color_enabled(
-        io::stdout().is_terminal(),
-        std::env::var_os("NO_COLOR").is_some(),
-        std::env::var("TERM").ok().as_deref(),
-    )
 }
 
 pub fn stderr_color_enabled() -> bool {
@@ -34,9 +23,6 @@ pub fn paint(text: &str, style: Style, enabled: bool) -> String {
     }
 
     let code = match style {
-        Style::BrightCyan => "96",
-        Style::Dim => "2",
-        Style::Green => "32",
         Style::Red => "31",
     };
 
