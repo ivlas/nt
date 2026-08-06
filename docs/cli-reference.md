@@ -48,9 +48,10 @@ collection is a lowercase `/`-separated path whose segments contain only
 `a-z`, `0-9`, `_`, and `-`. Tags use the same characters without `/`.
 
 The body comes from exactly one source: non-empty arguments after `--`, piped
-stdin, or `$EDITOR`. Trailing arguments are joined with one ASCII space. Piped
-but empty stdin and empty editor output are errors. Combining trailing body text
-with piped stdin is an error.
+stdin, or `$EDITOR`. Trailing arguments are joined with one ASCII space. Without
+trailing arguments, empty redirected stdin and empty editor output are errors.
+Non-empty stdin combined with trailing body text is an error; an empty redirect
+such as `/dev/null` does not conflict with explicit trailing text.
 
 The canonical body normalizes CRLF and CR line endings to LF. Its first line
 must be `# Non-empty title`, with no leading blank line. Success prints
