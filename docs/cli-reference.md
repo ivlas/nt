@@ -107,8 +107,7 @@ a lexicographically sorted JSON array, preserving one physical line per note:
 "<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]
 ```
 
-TTY output may remove JSON quoting and add ANSI color while preserving values
-and column order. Color respects `NO_COLOR` and `TERM=dumb`.
+TTY output removes JSON quoting while preserving values and column order.
 
 ## Mutations
 
