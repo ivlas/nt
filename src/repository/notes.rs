@@ -77,42 +77,13 @@ impl Repository {
         Ok(id)
     }
 
-    pub fn get_note(&self, id: &NoteId) -> Result<Note> {
-        let stored = self
+    pub fn get_note(&mut self, id: &NoteId) -> Result<Note> {
+        let transaction = self
             .connection
-            .query_row(
-                "SELECT pk, collection, body, title, created, updated, body_version
-                 FROM notes WHERE id = ?1",
-                [id.to_string()],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-        let tags = load_tags(&self.connection, stored.0)?;
-        let links = load_links(&self.connection, stored.0)?;
-        let body_version = u64::try_from(stored.6)
-            .map_err(|_| NtError::InvalidBodyVersion(stored.6.cast_unsigned()))?;
-        Note::rehydrate(
-            id.clone(),
-            stored.1.parse()?,
-            stored.2,
-            stored.3,
-            stored.4.parse()?,
-            stored.5.parse()?,
-            body_version,
-            tags,
-            links,
-        )
+            .transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let note = load_note(&transaction, id)?;
+        transaction.commit()?;
+        Ok(note)
     }
 
     pub fn list_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
@@ -341,6 +312,43 @@ fn touch_if_changed(transaction: &Transaction<'_>, id: &NoteId, changed: bool) -
     Ok(())
 }
 
+fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<Note> {
+    let stored = transaction
+        .query_row(
+            "SELECT pk, collection, body, title, created, updated, body_version
+             FROM notes WHERE id = ?1",
+            [id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let tags = load_tags(transaction, stored.0)?;
+    let links = load_links(transaction, stored.0)?;
+    let body_version = u64::try_from(stored.6)
+        .map_err(|_| NtError::InvalidBodyVersion(stored.6.cast_unsigned()))?;
+    Note::rehydrate(
+        id.clone(),
+        stored.1.parse()?,
+        stored.2,
+        stored.3,
+        stored.4.parse()?,
+        stored.5.parse()?,
+        body_version,
+        tags,
+        links,
+    )
+}
+
 fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<Tag>> {
     let mut statement =
         connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
@@ -462,7 +470,7 @@ fn push_parameter(parameters: &mut Vec<Value>, value: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::schema;
+    use crate::repository::{initialize_at, open_at, schema};
 
     fn repository() -> Repository {
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -495,6 +503,50 @@ mod tests {
             repository.get_note(&id),
             Err(NtError::NoteNotFound(_))
         ));
+    }
+
+    #[test]
+    fn complete_note_load_uses_one_read_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let mut writer = open_at(&path).unwrap();
+        let target = writer
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let source = writer
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Source")
+                    .unwrap()
+                    .with_tags(["old".parse().unwrap()])
+                    .with_links([target.clone()]),
+            )
+            .unwrap();
+        let mut reader = open_at(&path).unwrap();
+        let expected = reader.get_note(&source).unwrap();
+
+        let transaction = reader
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .unwrap();
+        transaction
+            .query_row(
+                "SELECT 1 FROM notes WHERE id = ?1",
+                [source.to_string()],
+                |_| Ok(()),
+            )
+            .unwrap();
+        writer
+            .change_tag(&source, AddOrRemove::Remove("old".parse().unwrap()))
+            .unwrap();
+        writer
+            .change_tag(&source, AddOrRemove::Add("new".parse().unwrap()))
+            .unwrap();
+        writer.delete_notes(std::slice::from_ref(&target)).unwrap();
+
+        assert_eq!(load_note(&transaction, &source).unwrap(), expected);
+        transaction.commit().unwrap();
+        assert_ne!(reader.get_note(&source).unwrap(), expected);
     }
 
     #[test]
