@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::query::NoteQuery;
 use crate::repository::{NoteSummary, Repository};
 
-const NOTE_HEADERS: [&str; 5] = ["id", "updated", "collection", "title", "tags"];
+const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
 
 pub(super) fn list(arguments: &[String]) -> Result<()> {
     match arguments {
@@ -36,7 +36,7 @@ pub(super) fn print_notes(notes: Vec<NoteSummary>) -> Result<()> {
     Ok(())
 }
 
-fn note_row(note: &NoteSummary) -> [String; 5] {
+fn note_row(note: &NoteSummary) -> [String; 6] {
     let tags = note
         .tags()
         .iter()
@@ -49,6 +49,7 @@ fn note_row(note: &NoteSummary) -> [String; 5] {
         note.collection().to_string(),
         note.title().to_string(),
         tags,
+        note.outgoing().to_string(),
     ]
 }
 
@@ -59,12 +60,13 @@ fn print_redirected(note: &NoteSummary) -> Result<()> {
         .map(|tag| tag.as_str())
         .collect::<Vec<_>>();
     println!(
-        "{}\t{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}\t{}",
         serde_json::to_string(&note.id().to_string())?,
         serde_json::to_string(note.updated().as_str())?,
         serde_json::to_string(note.collection().as_str())?,
         serde_json::to_string(note.title())?,
         serde_json::to_string(&tags)?,
+        serde_json::to_string(&note.outgoing())?,
     );
     Ok(())
 }

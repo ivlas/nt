@@ -80,11 +80,11 @@ diacritics are removed, so `cafe` matches `café`. Prefixes are not expanded, so
 `owner` does not match `ownership`.
 
 On a terminal, list and find summaries have an aligned header row. Redirected
-list and find rows contain JSON-encoded `id`, `updated`,
-`collection`, `title`, and `tags` cells separated by tabs. Every note occupies
-one physical output line. Metadata inventories contain one current, distinct
-value per line in lexical order; redirected values are JSON strings. `show`
-writes only the exact canonical body.
+list and find rows contain JSON-encoded `id`, `updated`, `collection`, `title`,
+and `tags` cells followed by a numeric `outgoing` link count, separated by tabs.
+Every note occupies one physical output line. Metadata inventories contain one
+current, distinct value per line in lexical order; redirected values are JSON
+strings. `show` writes only the exact canonical body.
 
 ## Edit And Organize
 

@@ -16,6 +16,7 @@ pub struct NoteSummary {
     collection: CollectionPath,
     title: String,
     tags: BTreeSet<Tag>,
+    outgoing: u64,
 }
 
 impl NoteSummary {
@@ -37,6 +38,10 @@ impl NoteSummary {
 
     pub fn tags(&self) -> &BTreeSet<Tag> {
         &self.tags
+    }
+
+    pub fn outgoing(&self) -> u64 {
+        self.outgoing
     }
 }
 
@@ -117,7 +122,8 @@ impl Repository {
     fn query_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
         let (where_sql, parameters) = compile_query(query);
         let sql = format!(
-            "SELECT n.pk, n.id, n.updated, n.collection, n.title
+            "SELECT n.pk, n.id, n.updated, n.collection, n.title,
+                    (SELECT COUNT(*) FROM note_links links WHERE links.note_pk = n.pk)
              FROM notes n {where_sql}
              ORDER BY n.updated DESC, n.id DESC"
         );
@@ -130,6 +136,7 @@ impl Repository {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
                 ))
             })?;
             let mut notes = Vec::new();
@@ -143,6 +150,8 @@ impl Repository {
                         collection: row.3.parse()?,
                         title: row.4,
                         tags: BTreeSet::new(),
+                        outgoing: u64::try_from(row.5)
+                            .expect("SQLite COUNT(*) results are nonnegative"),
                     },
                 ));
             }
@@ -643,6 +652,43 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["inbox", "work/nt"]
         );
+    }
+
+    #[test]
+    fn summaries_count_outgoing_links() {
+        let mut repository = repository();
+        let first_target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# First target").unwrap())
+            .unwrap();
+        let second_target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Second target").unwrap())
+            .unwrap();
+        let source = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Linked source")
+                    .unwrap()
+                    .with_links([first_target, second_target]),
+            )
+            .unwrap();
+
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(
+            notes
+                .iter()
+                .find(|note| note.id() == &source)
+                .unwrap()
+                .outgoing(),
+            2
+        );
+        assert!(
+            notes
+                .iter()
+                .filter(|note| note.id() != &source)
+                .all(|note| note.outgoing() == 0)
+        );
+
+        let query = NoteQuery::parse_find(&["linked source".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&query).unwrap()[0].outgoing(), 2);
     }
 
     #[test]

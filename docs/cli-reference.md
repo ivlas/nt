@@ -100,14 +100,16 @@ fuzzy matching, or metadata substring fallback.
 Results are ordered by `updated DESC, id DESC` and use columns:
 
 ```text
-id    updated    collection    title    tags
+id    updated    collection    title    tags    outgoing
 ```
 
-Redirected output is headerless TSV. Scalar cells are JSON strings and tags are
-a lexicographically sorted JSON array, preserving one physical line per note:
+`outgoing` is the number of directional links from the note. Redirected output
+is headerless TSV. Text cells are JSON strings, tags are a lexicographically
+sorted JSON array, and `outgoing` is a JSON number, preserving one physical line
+per note:
 
 ```text
-"<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]
+"<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]\t<outgoing>
 ```
 
 TTY note output removes JSON quoting, adds a header row, and aligns columns with

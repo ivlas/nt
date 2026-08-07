@@ -102,6 +102,7 @@ fn complete_cli_workflow_matches_the_stable_contract() {
         "research/sqlite",
         "Updated",
         &["rust", "sqlite"],
+        1,
     );
     let found = success(home.path(), &["find", "borrowing cafe", "tag:rust"], None);
     assert_summary_row(
@@ -110,6 +111,7 @@ fn complete_cli_workflow_matches_the_stable_contract() {
         "research/sqlite",
         "Updated",
         &["rust", "sqlite"],
+        1,
     );
     assert_eq!(
         success(home.path(), &["list", "tags"], None),
@@ -196,10 +198,11 @@ fn assert_summary_row(
     expected_collection: &str,
     expected_title: &str,
     expected_tags: &[&str],
+    expected_outgoing: u64,
 ) {
     assert_eq!(row.lines().count(), 1);
     let cells = row.trim_end().split('\t').collect::<Vec<_>>();
-    assert_eq!(cells.len(), 5);
+    assert_eq!(cells.len(), 6);
     assert_eq!(
         serde_json::from_str::<String>(cells[0]).unwrap(),
         expected_id
@@ -217,5 +220,9 @@ fn assert_summary_row(
     assert_eq!(
         serde_json::from_str::<Vec<String>>(cells[4]).unwrap(),
         expected_tags
+    );
+    assert_eq!(
+        serde_json::from_str::<u64>(cells[5]).unwrap(),
+        expected_outgoing
     );
 }

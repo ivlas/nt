@@ -139,7 +139,8 @@ The command and output contract is specified in `cli-reference.md`. `list` and
 exact body.
 
 Redirected list and find output is headerless JSON-encoded TSV with one physical
-line per note. TTY output adds aligned headers and removes JSON quoting without
+line per note. Summaries include the outgoing-link count without loading link
+targets. TTY output adds aligned headers and removes JSON quoting without
 changing values or column order. `list tags` and `list collections` enumerate
 the distinct metadata values currently referenced by notes.
 
