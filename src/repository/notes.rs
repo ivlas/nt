@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter};
@@ -130,28 +130,39 @@ impl Repository {
              FROM notes n {where_sql}
              ORDER BY n.updated DESC, n.id DESC"
         );
-        let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(parameters), |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        })?;
-        let mut notes = Vec::new();
-        for row in rows {
-            let row = row?;
-            notes.push(NoteSummary {
-                id: row.1.parse()?,
-                updated: row.2.parse()?,
-                collection: row.3.parse()?,
-                title: row.4,
-                tags: load_tags(&self.connection, row.0)?,
-            });
+        let mut notes = {
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params_from_iter(parameters), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?;
+            let mut notes = Vec::new();
+            for row in rows {
+                let row = row?;
+                notes.push((
+                    row.0,
+                    NoteSummary {
+                        id: row.1.parse()?,
+                        updated: row.2.parse()?,
+                        collection: row.3.parse()?,
+                        title: row.4,
+                        tags: BTreeSet::new(),
+                    },
+                ));
+            }
+            notes
+        };
+        let note_pks = notes.iter().map(|(pk, _)| *pk).collect::<Vec<_>>();
+        let mut tags_by_note = load_tags_for_notes(&self.connection, &note_pks)?;
+        for (pk, note) in &mut notes {
+            note.tags = tags_by_note.remove(pk).unwrap_or_default();
         }
-        Ok(notes)
+        Ok(notes.into_iter().map(|(_, note)| note).collect())
     }
 
     pub fn delete_notes(&mut self, ids: &[NoteId]) -> Result<()> {
@@ -339,6 +350,34 @@ fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet
         .collect()
 }
 
+fn load_tags_for_notes(
+    connection: &rusqlite::Connection,
+    note_pks: &[i64],
+) -> Result<HashMap<i64, BTreeSet<Tag>>> {
+    if note_pks.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let note_pks = serde_json::to_string(note_pks)?;
+    let mut statement = connection.prepare(
+        "SELECT note_pk, tag
+         FROM note_tags
+         WHERE note_pk IN (SELECT value FROM json_each(?1))
+         ORDER BY note_pk, tag",
+    )?;
+    let rows = statement.query_map([note_pks], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut tags_by_note = HashMap::<_, BTreeSet<_>>::new();
+    for row in rows {
+        let (note_pk, tag) = row?;
+        tags_by_note
+            .entry(note_pk)
+            .or_default()
+            .insert(tag.parse()?);
+    }
+    Ok(tags_by_note)
+}
+
 fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<NoteId>> {
     let mut statement = connection.prepare(
         "SELECT target.id
@@ -456,6 +495,44 @@ mod tests {
             repository.get_note(&id),
             Err(NtError::NoteNotFound(_))
         ));
+    }
+
+    #[test]
+    fn list_and_find_load_all_summary_tags() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# First\nbatched")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap(), "sqlite".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Second\nbatched")
+                    .unwrap()
+                    .with_tags(["cli".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Untagged\nbatched").unwrap())
+            .unwrap();
+
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(notes.len(), 3);
+        let first = notes.iter().find(|note| note.title() == "First").unwrap();
+        assert_eq!(
+            first.tags().iter().map(Tag::as_str).collect::<Vec<_>>(),
+            ["rust", "sqlite"]
+        );
+        let untagged = notes
+            .iter()
+            .find(|note| note.title() == "Untagged")
+            .unwrap();
+        assert!(untagged.tags().is_empty());
+
+        let query = NoteQuery::parse_find(&["batched".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&query).unwrap().len(), 3);
     }
 
     #[test]
