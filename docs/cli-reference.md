@@ -48,10 +48,15 @@ collection is a lowercase `/`-separated path whose segments contain only
 `a-z`, `0-9`, `_`, and `-`. Tags use the same characters without `/`.
 
 The body comes from exactly one source: non-empty arguments after `--`, piped
-stdin, or `$EDITOR`. Trailing arguments are joined with one ASCII space. Without
+stdin, or an editor. Trailing arguments are joined with one ASCII space. Without
 trailing arguments, empty redirected stdin and empty editor output are errors.
 Non-empty stdin combined with trailing body text is an error; an empty redirect
 such as `/dev/null` does not conflict with explicit trailing text.
+
+Editor input uses the first non-empty value of `$VISUAL`, then `$EDITOR`. The
+value is parsed as POSIX words into an executable and fixed arguments, and the
+temporary note path is appended as one final argument. No shell is invoked, so
+expansion, redirection, pipelines, and other shell operators are not evaluated.
 
 The canonical body normalizes CRLF and CR line endings to LF. Its first line
 must be `# Non-empty title`, with no leading blank line. Success prints
@@ -153,7 +158,8 @@ error: invalid <field>: <value>
 error: body is empty
 error: body must begin with '# <title>'
 error: cannot combine body arguments with stdin
-error: EDITOR is not set
+error: VISUAL or EDITOR is not set
+error: invalid VISUAL or EDITOR command
 error: editor exited unsuccessfully
 error: duplicate note id: <id>
 error: cannot link note to itself
@@ -168,4 +174,4 @@ Every mutation uses one short SQLite transaction. Foreign keys are enabled on
 all operational connections. WAL lets readers continue from the last committed
 snapshot while another connection writes. A contending writer waits for the
 bounded busy timeout and then reports the stable retryable error. No transaction
-remains open while reading stdin or waiting for `$EDITOR`.
+remains open while reading stdin or waiting for `$VISUAL`/`$EDITOR`.

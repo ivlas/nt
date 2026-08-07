@@ -377,6 +377,7 @@ dependencies = [
  "directories",
  "rusqlite",
  "serde_json",
+ "shlex",
  "tempfile",
  "thiserror",
  "uuid",

@@ -10,7 +10,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "" => Ok(ROOT),
         "init" => Ok("nt init\n\nInitialize $HOME/.nt/nt.sqlite3.\n"),
         "add" => Ok(
-            "nt add [metadata...] [-- body...]\n\nAdd a CommonMark note from trailing text, stdin, or $EDITOR.\n",
+            "nt add [metadata...] [-- body...]\n\nAdd a CommonMark note from trailing text, stdin, or $VISUAL/$EDITOR.\n",
         ),
         "show" => Ok("nt show <id>\n\nPrint the exact canonical note body.\n"),
         "list" => {

@@ -5,7 +5,7 @@
 `nt` is a local, agent-first note layer for editable CommonMark, deterministic
 metadata, and lexical retrieval. Canonical notes live in one SQLite database.
 Humans and agents use the same shell-friendly commands, stdin, stdout, and
-`$EDITOR`.
+`$VISUAL`/`$EDITOR`.
 
 ## Quick Start
 

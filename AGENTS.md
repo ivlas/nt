@@ -7,8 +7,8 @@ deterministic metadata, and lexical retrieval. It prioritizes fast capture,
 bounded context construction, low LLM token use, and local ownership.
 
 Humans and agents use the same Unix-like interface. Commands read stdin, write
-stdout, use `$EDITOR`, and compose with normal shell tools. User approval is
-required before agent-driven mutations.
+stdout, use `$VISUAL`/`$EDITOR`, and compose with normal shell tools. User
+approval is required before agent-driven mutations.
 
 ## Rules
 
@@ -60,7 +60,7 @@ Enable foreign keys on every operational connection and use WAL with a bounded
 busy timeout.
 
 Markdown exists at the interface boundary: trailing arguments, stdin,
-`$EDITOR`, exact display, and later explicitly approved exports.
+`$VISUAL`/`$EDITOR`, exact display, and later explicitly approved exports.
 
 ## Retrieval
 

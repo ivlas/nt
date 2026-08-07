@@ -38,7 +38,7 @@ Ordinary commands validate existence, application identity, and schema version
 without creating files or objects. Recognized operational connections enable
 foreign keys, use WAL, and apply a bounded busy timeout. Mutations use short
 transactions, and no transaction remains open while reading stdin or waiting
-for `$EDITOR`.
+for `$VISUAL`/`$EDITOR`.
 
 ## Notes
 
@@ -130,8 +130,9 @@ version. Metadata mutations update `updated` only when canonical state changes.
 
 Core workflows are flagless, configless, positional, and shared by humans and
 agents. Capture uses exactly one non-empty body source: trailing arguments after
-`--`, piped stdin, or `$EDITOR`. Input is fully read and validated before a write
-transaction begins.
+`--`, piped stdin, or `$VISUAL`/`$EDITOR`. Editor values are parsed into argv and
+executed directly without a shell. Input is fully read and validated before a
+write transaction begins.
 
 The command and output contract is specified in `cli-reference.md`. `list` and
 `find` retrieve fixed metadata summaries rather than bodies. `show` retrieves one

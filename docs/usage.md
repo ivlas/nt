@@ -31,8 +31,9 @@ nt add collection:work/nt tag:rust,sqlite -- '# Storage decision'
 ```
 
 Run `nt add collection:research/sqlite` with terminal stdin to compose in
-`$EDITOR`. Capture uses exactly one of trailing text, piped stdin, or the editor.
-The first line must be a non-empty `# Title`. Collection defaults to `inbox`.
+`$VISUAL` or `$EDITOR`. Capture uses exactly one of trailing text, piped stdin,
+or the editor. The first line must be a non-empty `# Title`. Collection defaults
+to `inbox`.
 
 Capture metadata is limited to:
 
@@ -88,9 +89,9 @@ Replace the complete body from stdin:
 printf '%s\n' '# Updated title' '' 'Replacement body.' | nt edit <id>
 ```
 
-Run `nt edit <id>` with terminal stdin to edit the current body in `$EDITOR`.
-The update is rejected if another body edit commits first. Tag, collection, and
-link changes do not conflict with an open editor.
+Run `nt edit <id>` with terminal stdin to edit the current body in `$VISUAL` or
+`$EDITOR`. The update is rejected if another body edit commits first. Tag,
+collection, and link changes do not conflict with an open editor.
 
 ```sh
 nt move <id> work/project_a

@@ -38,8 +38,10 @@ pub enum NtError {
     DuplicateNoteId(String),
     #[error("cannot combine body arguments with stdin")]
     ConflictingBodyInput,
-    #[error("EDITOR is not set")]
+    #[error("VISUAL or EDITOR is not set")]
     EditorNotSet,
+    #[error("invalid VISUAL or EDITOR command")]
+    InvalidEditor,
     #[error("editor exited unsuccessfully")]
     EditorFailed,
     #[error("note changed while editing: {0}")]
