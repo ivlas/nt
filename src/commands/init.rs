@@ -1,10 +1,10 @@
 use crate::error::Result;
-use crate::repository::Repository;
+use crate::repository::{InitOutcome, Repository};
 
-pub(super) fn init(vault: &str) -> Result<()> {
-    let repository = Repository::open_for_init()?;
-    let now = crate::note::timestamp_now();
-    repository.create_vault(vault, &now)?;
-    println!("initialized {vault}");
+pub(super) fn init() -> Result<()> {
+    match Repository::initialize()? {
+        InitOutcome::Initialized => println!("initialized"),
+        InitOutcome::AlreadyInitialized => println!("already initialized"),
+    }
     Ok(())
 }

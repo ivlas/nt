@@ -1,672 +1,895 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::str::FromStr;
+use std::collections::{BTreeSet, HashMap};
 
-use rusqlite::{
-    Connection, OptionalExtension, Transaction, TransactionBehavior, params, types::Type,
-};
+use rusqlite::types::Value;
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter};
 
 use crate::error::{NtError, Result};
-use crate::note::{
-    Date, NoteId, NoteKind, Priority, QualifiedCollection, Status, Timestamp, new_id,
-    validate_namespace_part,
-};
+use crate::note::{CollectionPath, NewNote, Note, NoteId, Tag, Timestamp, timestamp_now};
+use crate::query::{Filter, NoteQuery};
 
-use super::{NoteChange, NoteMeta, Repository};
+use super::{AddOrRemove, Repository};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NoteSummary {
+    id: NoteId,
+    updated: Timestamp,
+    collection: CollectionPath,
+    title: String,
+    tags: BTreeSet<Tag>,
+    outgoing: u64,
+}
+
+impl NoteSummary {
+    pub fn id(&self) -> &NoteId {
+        &self.id
+    }
+
+    pub fn updated(&self) -> &Timestamp {
+        &self.updated
+    }
+
+    pub fn collection(&self) -> &CollectionPath {
+        &self.collection
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn tags(&self) -> &BTreeSet<Tag> {
+        &self.tags
+    }
+
+    pub fn outgoing(&self) -> u64 {
+        self.outgoing
+    }
+}
 
 impl Repository {
-    pub fn create_vault(&mut self, name: &str, created: &Timestamp) -> Result<()> {
-        validate_namespace_part(name, "vault")?;
+    pub fn create_note(&mut self, note: NewNote) -> Result<NoteId> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let exists = transaction
-            .query_row("SELECT 1 FROM vaults WHERE name = ?1", [name], |_| Ok(()))
-            .optional()?
-            .is_some();
-        if exists {
-            return Err(NtError::Message(format!("vault `{name}` already exists")));
-        }
-
-        let vault_id = new_id();
+        let id = NoteId::generate();
+        note.validate_links_for(&id)?;
+        let now = timestamp_now();
         transaction.execute(
-            "INSERT INTO vaults (id, name, created) VALUES (?1, ?2, ?3)",
-            params![vault_id, name, created.as_str()],
-        )?;
-        transaction.execute(
-            "INSERT INTO collections (id, vault_id, name, created) VALUES (?1, ?2, 'inbox', ?3)",
-            params![new_id(), vault_id, created.as_str()],
-        )?;
-        transaction.commit()?;
-        Ok(())
-    }
-
-    pub fn default_home_collection(&self) -> Result<QualifiedCollection> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT name FROM vaults ORDER BY name")?;
-        let names = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        match names.as_slice() {
-            [] => Err(NtError::MissingVault),
-            [name] => Ok(format!("{name}/inbox").parse()?),
-            _ => Err(NtError::Message(
-                "specify `home:<vault>/<collection>` when more than one vault exists".to_string(),
-            )),
-        }
-    }
-
-    pub fn note_exists(&self, id: &NoteId) -> Result<bool> {
-        note_exists(&self.connection, id)
-    }
-
-    pub fn insert_note(&mut self, note: &NoteMeta) -> Result<()> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch("PRAGMA defer_foreign_keys = ON")?;
-
-        let mut collection_ids = Vec::new();
-        for collection in &note.collections {
-            let id = ensure_collection(&transaction, collection, &note.created)?;
-            collection_ids.push(id);
-        }
-        let home_id = ensure_collection(&transaction, &note.home_collection, &note.created)?;
-        for link in &note.links {
-            if !note_exists(&transaction, link)? {
-                return Err(NtError::NoteNotFound(link.to_string()));
-            }
-        }
-
-        transaction.execute(
-            "INSERT INTO notes
-             (id, home_collection_id, body, created, updated, title, kind, status,
-              priority, scheduled, due, closed)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO notes(id, collection, body, title, created, updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
             params![
-                note.id.as_str(),
-                home_id,
-                note.body,
-                note.created.as_str(),
-                note.updated.as_str(),
-                note.title,
-                note.kind.as_str(),
-                note.status.map(Status::as_str),
-                note.priority.map(Priority::as_str),
-                note.scheduled.as_ref().map(Date::as_str),
-                note.due.as_ref().map(Date::as_str),
-                note.closed.as_ref().map(Timestamp::as_str)
+                id.to_string(),
+                note.collection().as_str(),
+                note.body(),
+                note.title(),
+                now.as_str(),
             ],
         )?;
-
-        let mut memberships: BTreeSet<String> = collection_ids.into_iter().collect();
-        memberships.insert(home_id);
-        for collection_id in memberships {
+        let source_pk = transaction.last_insert_rowid();
+        for tag in note.tags() {
             transaction.execute(
-                "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)",
-                params![note.id.as_str(), collection_id],
+                "INSERT INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
+                params![source_pk, tag.as_str()],
             )?;
         }
-        insert_values(&transaction, "note_tags", "tag", &note.id, &note.tags)?;
-        insert_values(
-            &transaction,
-            "note_sources",
-            "source",
-            &note.id,
-            &note.sources,
-        )?;
-        insert_note_ids(
-            &transaction,
-            "note_links",
-            "target_id",
-            &note.id,
-            &note.links,
-        )?;
+        for target in note.links() {
+            let target_pk = note_pk(&transaction, target)?;
+            transaction.execute(
+                "INSERT INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
+                params![source_pk, target_pk],
+            )?;
+        }
         transaction.commit()?;
-        Ok(())
+        Ok(id)
     }
 
-    pub fn get_note(&self, id: &NoteId) -> Result<NoteMeta> {
-        let transaction = self.connection.unchecked_transaction()?;
+    pub fn get_note(&mut self, id: &NoteId) -> Result<Note> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)?;
         let note = load_note(&transaction, id)?;
         transaction.commit()?;
         Ok(note)
     }
 
-    pub fn list_notes(&self) -> Result<Vec<NoteMeta>> {
-        let transaction = self.connection.unchecked_transaction()?;
-        let mut statement = transaction.prepare(
-            "SELECT n.id, v.name || '/' || c.name, n.body, n.created, n.updated,
-                    n.title, n.kind, n.status, n.priority, n.scheduled, n.due, n.closed
-             FROM notes n
-             JOIN collections c ON c.id = n.home_collection_id
-             JOIN vaults v ON v.id = c.vault_id
-             ORDER BY n.created DESC, n.id DESC",
-        )?;
-        let rows = statement.query_map([], note_from_row)?;
-        let mut notes = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        drop(statement);
-        for note in &mut notes {
-            load_relationships(&transaction, note)?;
-        }
-        transaction.commit()?;
-        Ok(notes)
+    pub fn list_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        self.query_notes(query)
     }
 
-    pub fn update_note(&mut self, id: &NoteId, change: &NoteChange, now: &Timestamp) -> Result<()> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (kind, status, closed, home) = transaction
-            .query_row(
-                "SELECT n.kind, n.status, n.closed, v.name || '/' || c.name
-                 FROM notes n
-                 JOIN collections c ON c.id = n.home_collection_id
-                 JOIN vaults v ON v.id = c.vault_id
-                 WHERE n.id = ?1",
-                [id.as_str()],
-                |row| {
-                    Ok((
-                        domain_from_row::<NoteKind>(row, 0)?,
-                        optional_domain_from_row::<Status>(row, 1)?,
-                        optional_domain_from_row::<Timestamp>(row, 2)?,
-                        domain_from_row::<QualifiedCollection>(row, 3)?,
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-
-        match change {
-            NoteChange::Kind(value) => {
-                if *value == NoteKind::Note {
-                    transaction.execute(
-                        "UPDATE notes SET kind = ?1, status = NULL, priority = NULL,
-                         scheduled = NULL, due = NULL, closed = NULL WHERE id = ?2",
-                        params![value.as_str(), id.as_str()],
-                    )?;
-                } else {
-                    transaction.execute(
-                        "UPDATE notes SET kind = ?1 WHERE id = ?2",
-                        params![value.as_str(), id.as_str()],
-                    )?;
-                }
-            }
-            NoteChange::Status(value) => {
-                ensure_todo_field(&kind, value.is_some(), "status")?;
-                let next_closed = if value.is_some_and(Status::is_terminal) {
-                    if status == *value {
-                        closed
-                    } else {
-                        Some(now.clone())
-                    }
-                } else {
-                    None
-                };
-                transaction.execute(
-                    "UPDATE notes SET status = ?1, closed = ?2 WHERE id = ?3",
-                    params![
-                        value.map(Status::as_str),
-                        next_closed.as_ref().map(Timestamp::as_str),
-                        id.as_str()
-                    ],
-                )?;
-            }
-            NoteChange::Priority(value) => {
-                ensure_todo_field(&kind, value.is_some(), "priority")?;
-                transaction.execute(
-                    "UPDATE notes SET priority = ?1 WHERE id = ?2",
-                    params![value.map(Priority::as_str), id.as_str()],
-                )?;
-            }
-            NoteChange::Scheduled(value) => {
-                ensure_todo_field(&kind, value.is_some(), "scheduled")?;
-                transaction.execute(
-                    "UPDATE notes SET scheduled = ?1 WHERE id = ?2",
-                    params![value.as_ref().map(Date::as_str), id.as_str()],
-                )?;
-            }
-            NoteChange::Due(value) => {
-                ensure_todo_field(&kind, value.is_some(), "due")?;
-                transaction.execute(
-                    "UPDATE notes SET due = ?1 WHERE id = ?2",
-                    params![value.as_ref().map(Date::as_str), id.as_str()],
-                )?;
-            }
-            NoteChange::Home(collection) => {
-                let collection_id = ensure_collection(&transaction, collection, now)?;
-                transaction.execute(
-                    "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)
-                     ON CONFLICT DO NOTHING",
-                    params![id.as_str(), collection_id],
-                )?;
-                transaction.execute(
-                    "UPDATE notes SET home_collection_id = ?1 WHERE id = ?2",
-                    params![collection_id, id.as_str()],
-                )?;
-            }
-            NoteChange::Collection { add, value } => {
-                if *add {
-                    let collection_id = ensure_collection(&transaction, value, now)?;
-                    transaction.execute(
-                        "INSERT INTO note_collections (note_id, collection_id) VALUES (?1, ?2)
-                         ON CONFLICT DO NOTHING",
-                        params![id.as_str(), collection_id],
-                    )?;
-                } else {
-                    if home == *value {
-                        return Err(NtError::Message(format!(
-                            "cannot remove home collection `{value}`; move home first"
-                        )));
-                    }
-                    if let Some(collection_id) = collection_id(&transaction, value)? {
-                        transaction.execute(
-                            "DELETE FROM note_collections WHERE note_id = ?1 AND collection_id = ?2",
-                            params![id.as_str(), collection_id],
-                        )?;
-                    }
-                }
-            }
-            NoteChange::Tag { add, value } => {
-                change_value(&transaction, "note_tags", "tag", id, value, *add)?;
-            }
-            NoteChange::Source { add, value } => {
-                change_value(&transaction, "note_sources", "source", id, value, *add)?;
-            }
-            NoteChange::Link { add, value } => {
-                if *add && !note_exists(&transaction, value)? {
-                    return Err(NtError::NoteNotFound(value.to_string()));
-                }
-                change_note_id(&transaction, "note_links", "target_id", id, value, *add)?;
-            }
-        }
-
-        transaction.execute(
-            "UPDATE notes SET updated = ?1 WHERE id = ?2",
-            params![now.as_str(), id.as_str()],
-        )?;
-        transaction.commit()?;
-        Ok(())
+    pub fn find_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        self.query_notes(query)
     }
 
-    pub fn update_note_body(
-        &mut self,
-        id: &NoteId,
-        expected_updated: &Timestamp,
-        expected_body: &str,
-        body: &str,
-        title: &str,
-        updated: &Timestamp,
-    ) -> Result<()> {
-        let body_sources = crate::note::sources_from_body(body);
-        let transaction = self
+    pub fn list_tags(&self) -> Result<Vec<Tag>> {
+        let mut statement = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let changed = transaction.execute(
-            "UPDATE notes SET body = ?1, title = ?2, updated = ?3
-             WHERE id = ?4 AND updated = ?5 AND body = ?6",
-            params![
-                body,
-                title,
-                updated.as_str(),
-                id.as_str(),
-                expected_updated.as_str(),
-                expected_body
-            ],
-        )?;
-        if changed == 0 {
-            return Err(NtError::ConcurrentEdit {
-                note_id: id.to_string(),
-            });
+            .prepare("SELECT DISTINCT tag FROM note_tags ORDER BY tag")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|value| value?.parse())
+            .collect()
+    }
+
+    pub fn list_collections(&self) -> Result<Vec<CollectionPath>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT collection FROM notes ORDER BY collection")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|value| value?.parse())
+            .collect()
+    }
+
+    fn query_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
+        let (where_sql, parameters) = compile_query(query);
+        let sql = format!(
+            "SELECT n.pk, n.id, n.updated, n.collection, n.title,
+                    (SELECT COUNT(*) FROM note_links links WHERE links.note_pk = n.pk)
+             FROM notes n {where_sql}
+             ORDER BY n.updated DESC, n.id DESC"
+        );
+        let mut notes = {
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params_from_iter(parameters), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })?;
+            let mut notes = Vec::new();
+            for row in rows {
+                let row = row?;
+                notes.push((
+                    row.0,
+                    NoteSummary {
+                        id: row.1.parse()?,
+                        updated: row.2.parse()?,
+                        collection: row.3.parse()?,
+                        title: row.4,
+                        tags: BTreeSet::new(),
+                        outgoing: u64::try_from(row.5)
+                            .expect("SQLite COUNT(*) results are nonnegative"),
+                    },
+                ));
+            }
+            notes
+        };
+        let note_pks = notes.iter().map(|(pk, _)| *pk).collect::<Vec<_>>();
+        let mut tags_by_note = load_tags_for_notes(&self.connection, &note_pks)?;
+        for (pk, note) in &mut notes {
+            note.tags = tags_by_note.remove(pk).unwrap_or_default();
         }
-        for source in &body_sources {
-            transaction.execute(
-                "INSERT INTO note_sources (note_id, source) VALUES (?1, ?2)
-                 ON CONFLICT DO NOTHING",
-                params![id.as_str(), source],
-            )?;
-        }
-        transaction.commit()?;
-        Ok(())
+        Ok(notes.into_iter().map(|(_, note)| note).collect())
     }
 
     pub fn delete_notes(&mut self, ids: &[NoteId]) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut pks = Vec::with_capacity(ids.len());
         for id in ids {
-            if !note_exists(&transaction, id)? {
-                return Err(NtError::NoteNotFound(id.to_string()));
-            }
+            pks.push(note_pk(&transaction, id)?);
         }
-        for id in ids {
-            transaction.execute("DELETE FROM notes WHERE id = ?1", [id.as_str()])?;
+        for pk in pks {
+            transaction.execute("DELETE FROM notes WHERE pk = ?1", [pk])?;
         }
         transaction.commit()?;
         Ok(())
     }
-}
 
-fn ensure_collection(
-    transaction: &Transaction<'_>,
-    full_name: &QualifiedCollection,
-    created: &Timestamp,
-) -> Result<String> {
-    if let Some(id) = collection_id(transaction, full_name)? {
-        return Ok(id);
+    pub fn replace_body(&mut self, note: &Note, expected_version: u64) -> Result<()> {
+        let expected_version = i64::try_from(expected_version)
+            .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
+        let body_version = i64::try_from(note.body_version())
+            .map_err(|_| NtError::InvalidBodyVersion(note.body_version()))?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE notes
+             SET body = ?1, title = ?2, updated = ?3, body_version = ?4
+             WHERE id = ?5 AND body_version = ?6",
+            params![
+                note.body(),
+                note.title(),
+                note.updated().as_str(),
+                body_version,
+                note.id().to_string(),
+                expected_version,
+            ],
+        )?;
+        if changed == 0 {
+            if note_exists(&transaction, note.id())? {
+                return Err(NtError::ConcurrentEdit(note.id().to_string()));
+            }
+            return Err(NtError::NoteNotFound(note.id().to_string()));
+        }
+        transaction.commit()?;
+        Ok(())
     }
-    let vault_name = full_name.vault();
-    let collection_name = full_name.collection();
-    let vault_id = transaction
-        .query_row(
-            "SELECT id FROM vaults WHERE name = ?1",
-            [vault_name],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| {
-            NtError::Message(format!(
-                "unknown vault `{vault_name}`; run `nt init {vault_name}` first"
-            ))
-        })?;
-    let id = new_id();
-    transaction.execute(
-        "INSERT INTO collections (id, vault_id, name, created) VALUES (?1, ?2, ?3, ?4)",
-        params![id, vault_id, collection_name, created.as_str()],
-    )?;
-    Ok(id)
+
+    pub fn verify_body_version(&mut self, id: &NoteId, expected_version: u64) -> Result<()> {
+        let expected_version = i64::try_from(expected_version)
+            .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let actual_version: i64 = transaction
+            .query_row(
+                "SELECT body_version FROM notes WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+        if actual_version != expected_version {
+            return Err(NtError::ConcurrentEdit(id.to_string()));
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn move_note(&mut self, id: &NoteId, collection: &CollectionPath) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_note_exists(&transaction, id)?;
+        let changed = transaction.execute(
+            "UPDATE notes SET collection = ?1, updated = ?2
+             WHERE id = ?3 AND collection <> ?1",
+            params![
+                collection.as_str(),
+                timestamp_now().as_str(),
+                id.to_string()
+            ],
+        )? != 0;
+        transaction.commit()?;
+        Ok(changed)
+    }
+
+    pub fn change_tag(&mut self, id: &NoteId, operation: AddOrRemove<Tag>) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let pk = note_pk(&transaction, id)?;
+        let changed = match operation {
+            AddOrRemove::Add(tag) => transaction.execute(
+                "INSERT OR IGNORE INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
+                params![pk, tag.as_str()],
+            )?,
+            AddOrRemove::Remove(tag) => transaction.execute(
+                "DELETE FROM note_tags WHERE note_pk = ?1 AND tag = ?2",
+                params![pk, tag.as_str()],
+            )?,
+        } != 0;
+        touch_if_changed(&transaction, id, changed)?;
+        transaction.commit()?;
+        Ok(changed)
+    }
+
+    pub fn change_link(&mut self, id: &NoteId, operation: AddOrRemove<NoteId>) -> Result<bool> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let source_pk = note_pk(&transaction, id)?;
+        let target = match &operation {
+            AddOrRemove::Add(target) | AddOrRemove::Remove(target) => target,
+        };
+        if target == id {
+            return Err(NtError::SelfLink);
+        }
+        let changed = match operation {
+            AddOrRemove::Add(target) => {
+                let target_pk = note_pk(&transaction, &target)?;
+                transaction.execute(
+                    "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
+                    params![source_pk, target_pk],
+                )?
+            }
+            AddOrRemove::Remove(target) => transaction.execute(
+                "DELETE FROM note_links
+                 WHERE note_pk = ?1 AND target_note_pk =
+                     (SELECT pk FROM notes WHERE id = ?2)",
+                params![source_pk, target.to_string()],
+            )?,
+        } != 0;
+        touch_if_changed(&transaction, id, changed)?;
+        transaction.commit()?;
+        Ok(changed)
+    }
 }
 
-fn collection_id(
-    connection: &Connection,
-    full_name: &QualifiedCollection,
-) -> Result<Option<String>> {
-    let vault = full_name.vault();
-    let collection = full_name.collection();
-    connection
+fn note_pk(transaction: &Transaction<'_>, id: &NoteId) -> Result<i64> {
+    transaction
         .query_row(
-            "SELECT c.id FROM collections c JOIN vaults v ON v.id = c.vault_id
-             WHERE v.name = ?1 AND c.name = ?2",
-            params![vault, collection],
+            "SELECT pk FROM notes WHERE id = ?1",
+            [id.to_string()],
             |row| row.get(0),
         )
-        .optional()
+        .optional()?
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))
+}
+
+fn note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<bool> {
+    transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
+            [id.to_string()],
+            |row| row.get(0),
+        )
         .map_err(Into::into)
 }
 
-fn note_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteMeta> {
-    Ok(NoteMeta {
-        id: domain_from_row(row, 0)?,
-        home_collection: domain_from_row(row, 1)?,
-        body: row.get(2)?,
-        created: domain_from_row(row, 3)?,
-        updated: domain_from_row(row, 4)?,
-        title: row.get(5)?,
-        kind: domain_from_row(row, 6)?,
-        status: optional_domain_from_row(row, 7)?,
-        priority: optional_domain_from_row(row, 8)?,
-        scheduled: optional_domain_from_row(row, 9)?,
-        due: optional_domain_from_row(row, 10)?,
-        closed: optional_domain_from_row(row, 11)?,
-        tags: Vec::new(),
-        collections: Vec::new(),
-        links: Vec::new(),
-        sources: Vec::new(),
-    })
+fn ensure_note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<()> {
+    if note_exists(transaction, id)? {
+        Ok(())
+    } else {
+        Err(NtError::NoteNotFound(id.to_string()))
+    }
 }
 
-fn load_note(connection: &Connection, id: &NoteId) -> Result<NoteMeta> {
-    let mut note = connection
+fn touch_if_changed(transaction: &Transaction<'_>, id: &NoteId, changed: bool) -> Result<()> {
+    if changed {
+        transaction.execute(
+            "UPDATE notes SET updated = ?1 WHERE id = ?2",
+            params![timestamp_now().as_str(), id.to_string()],
+        )?;
+    }
+    Ok(())
+}
+
+fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<Note> {
+    let stored = transaction
         .query_row(
-            "SELECT n.id, v.name || '/' || c.name, n.body, n.created, n.updated,
-                    n.title, n.kind, n.status, n.priority, n.scheduled, n.due, n.closed
-             FROM notes n
-             JOIN collections c ON c.id = n.home_collection_id
-             JOIN vaults v ON v.id = c.vault_id
-             WHERE n.id = ?1",
-            [id.as_str()],
-            note_from_row,
+            "SELECT pk, collection, body, title, created, updated, body_version
+             FROM notes WHERE id = ?1",
+            [id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            },
         )
         .optional()?
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-    load_relationships(connection, &mut note)?;
-    Ok(note)
+    let tags = load_tags(transaction, stored.0)?;
+    let links = load_links(transaction, stored.0)?;
+    let body_version = u64::try_from(stored.6)
+        .map_err(|_| NtError::InvalidBodyVersion(stored.6.cast_unsigned()))?;
+    Note::rehydrate(
+        id.clone(),
+        stored.1.parse()?,
+        stored.2,
+        stored.3,
+        stored.4.parse()?,
+        stored.5.parse()?,
+        body_version,
+        tags,
+        links,
+    )
 }
 
-fn load_relationships(connection: &Connection, note: &mut NoteMeta) -> Result<()> {
-    note.tags = load_values(connection, "note_tags", "tag", &note.id)?;
-    note.sources = load_values(connection, "note_sources", "source", &note.id)?;
-    note.links = load_note_ids(connection, "note_links", "target_id", &note.id)?;
+fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<Tag>> {
+    let mut statement =
+        connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
+    statement
+        .query_map([note_pk], |row| row.get::<_, String>(0))?
+        .map(|value| value?.parse())
+        .collect()
+}
+
+fn load_tags_for_notes(
+    connection: &rusqlite::Connection,
+    note_pks: &[i64],
+) -> Result<HashMap<i64, BTreeSet<Tag>>> {
+    if note_pks.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let note_pks = serde_json::to_string(note_pks)?;
     let mut statement = connection.prepare(
-        "SELECT v.name || '/' || c.name
-         FROM note_collections nc
-         JOIN collections c ON c.id = nc.collection_id
-         JOIN vaults v ON v.id = c.vault_id
-         WHERE nc.note_id = ?1
-         ORDER BY v.name, c.name",
+        "SELECT note_pk, tag
+         FROM note_tags
+         WHERE note_pk IN (SELECT value FROM json_each(?1))
+         ORDER BY note_pk, tag",
     )?;
-    note.collections = statement
-        .query_map([note.id.as_str()], |row| domain_from_row(row, 0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(())
-}
-
-fn load_values(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    id: &NoteId,
-) -> Result<Vec<String>> {
-    let sql = format!("SELECT {column} FROM {table} WHERE note_id = ?1 ORDER BY {column}");
-    let mut statement = connection.prepare(&sql)?;
-    let rows = statement.query_map([id.as_str()], |row| row.get(0))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-fn insert_values(
-    transaction: &Transaction<'_>,
-    table: &str,
-    column: &str,
-    note_id: &NoteId,
-    values: &[String],
-) -> Result<()> {
-    let sql = format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2)");
-    for value in values {
-        transaction.execute(&sql, params![note_id.as_str(), value])?;
+    let rows = statement.query_map([note_pks], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut tags_by_note = HashMap::<_, BTreeSet<_>>::new();
+    for row in rows {
+        let (note_pk, tag) = row?;
+        tags_by_note
+            .entry(note_pk)
+            .or_default()
+            .insert(tag.parse()?);
     }
-    Ok(())
+    Ok(tags_by_note)
 }
 
-fn change_value(
-    transaction: &Transaction<'_>,
-    table: &str,
-    column: &str,
-    note_id: &NoteId,
-    value: &str,
-    add: bool,
-) -> Result<()> {
-    let action = if add {
-        format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2) ON CONFLICT DO NOTHING")
-    } else {
-        format!("DELETE FROM {table} WHERE note_id = ?1 AND {column} = ?2")
-    };
-    transaction.execute(&action, params![note_id.as_str(), value])?;
-    Ok(())
+fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<NoteId>> {
+    let mut statement = connection.prepare(
+        "SELECT target.id
+         FROM note_links links
+         JOIN notes target ON target.pk = links.target_note_pk
+         WHERE links.note_pk = ?1
+         ORDER BY target.id",
+    )?;
+    statement
+        .query_map([note_pk], |row| row.get::<_, String>(0))?
+        .map(|value| value?.parse())
+        .collect()
 }
 
-fn insert_note_ids(
-    transaction: &Transaction<'_>,
-    table: &str,
-    column: &str,
-    note_id: &NoteId,
-    values: &[NoteId],
-) -> Result<()> {
-    let sql = format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2)");
-    for value in values {
-        transaction.execute(&sql, params![note_id.as_str(), value.as_str()])?;
+fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
+    if query.filters().is_empty() && query.lexical_terms().is_empty() {
+        return (String::new(), Vec::new());
     }
-    Ok(())
+    let mut parameters = Vec::new();
+    let mut expressions = query
+        .filters()
+        .iter()
+        .map(|filter| compile_filter(filter, &mut parameters))
+        .collect::<Vec<_>>();
+    if !query.lexical_terms().is_empty() {
+        let fts_query = query
+            .lexical_terms()
+            .iter()
+            .map(|term| format!("\"{term}\""))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let parameter = push_parameter(&mut parameters, &fts_query);
+        expressions.push(format!(
+            "n.pk IN (SELECT rowid FROM note_fts WHERE note_fts MATCH ?{parameter})"
+        ));
+    }
+    (format!("WHERE {}", expressions.join(" AND ")), parameters)
 }
 
-fn load_note_ids(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    id: &NoteId,
-) -> Result<Vec<NoteId>> {
-    let sql = format!("SELECT {column} FROM {table} WHERE note_id = ?1 ORDER BY {column}");
-    let mut statement = connection.prepare(&sql)?;
-    let rows = statement.query_map([id.as_str()], |row| domain_from_row(row, 0))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-fn change_note_id(
-    transaction: &Transaction<'_>,
-    table: &str,
-    column: &str,
-    note_id: &NoteId,
-    value: &NoteId,
-    add: bool,
-) -> Result<()> {
-    let action = if add {
-        format!("INSERT INTO {table} (note_id, {column}) VALUES (?1, ?2) ON CONFLICT DO NOTHING")
-    } else {
-        format!("DELETE FROM {table} WHERE note_id = ?1 AND {column} = ?2")
-    };
-    transaction.execute(&action, params![note_id.as_str(), value.as_str()])?;
-    Ok(())
-}
-
-fn note_exists(connection: &Connection, id: &NoteId) -> Result<bool> {
-    Ok(connection
-        .query_row("SELECT 1 FROM notes WHERE id = ?1", [id.as_str()], |_| {
-            Ok(())
-        })
-        .optional()?
-        .is_some())
-}
-
-fn ensure_todo_field(kind: &NoteKind, has_value: bool, field: &str) -> Result<()> {
-    if has_value && *kind != NoteKind::Todo {
-        Err(NtError::Message(format!(
-            "`{field}` metadata is only valid for todo notes"
-        )))
-    } else {
-        Ok(())
+fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
+    match filter {
+        Filter::IdPrefix(prefix) => {
+            let parameter = push_parameter(parameters, prefix);
+            format!("substr(n.id, 1, length(?{parameter})) = ?{parameter}")
+        }
+        Filter::Collection(collection) => {
+            let parameter = push_parameter(parameters, collection.as_str());
+            format!("n.collection = ?{parameter}")
+        }
+        Filter::Tag(tag) => {
+            let parameter = push_parameter(parameters, tag.as_str());
+            format!(
+                "EXISTS (SELECT 1 FROM note_tags filter_tags
+                 WHERE filter_tags.note_pk = n.pk AND filter_tags.tag = ?{parameter})"
+            )
+        }
+        Filter::LinkedTo(target) => {
+            let parameter = push_parameter(parameters, &target.to_string());
+            format!(
+                "EXISTS (SELECT 1 FROM note_links filter_links
+                 JOIN notes filter_target ON filter_target.pk = filter_links.target_note_pk
+                 WHERE filter_links.note_pk = n.pk AND filter_target.id = ?{parameter})"
+            )
+        }
+        Filter::CreatedSince(timestamp) => {
+            let parameter = push_parameter(parameters, timestamp.as_str());
+            format!("n.created >= ?{parameter}")
+        }
+        Filter::UpdatedSince(timestamp) => {
+            let parameter = push_parameter(parameters, timestamp.as_str());
+            format!("n.updated >= ?{parameter}")
+        }
+        Filter::Not(inner) => format!("NOT ({})", compile_filter(inner, parameters)),
     }
 }
 
-fn domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<T>
-where
-    T: FromStr,
-    T::Err: Error + Send + Sync + 'static,
-{
-    let value = row.get::<_, String>(index)?;
-    value.parse().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-    })
-}
-
-fn optional_domain_from_row<T>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<T>>
-where
-    T: FromStr,
-    T::Err: Error + Send + Sync + 'static,
-{
-    row.get::<_, Option<String>>(index)?
-        .map(|value| {
-            value.parse().map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-            })
-        })
-        .transpose()
+fn push_parameter(parameters: &mut Vec<Value>, value: &str) -> usize {
+    parameters.push(Value::Text(value.to_string()));
+    parameters.len()
 }
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
+    use super::*;
+    use crate::repository::{initialize_at, open_at, schema};
 
-    use crate::error::NtError;
-    use crate::repository::{NoteMeta, Repository, schema::configure_and_initialize};
+    fn repository() -> Repository {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        schema::initialize(&mut connection).unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON")
+            .unwrap();
+        Repository { connection }
+    }
 
     #[test]
-    fn loading_rejects_non_uuid_note_ids_persisted_as_text() {
-        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        configure_and_initialize(&mut connection).unwrap();
-        let mut repository = Repository { connection };
-        repository
-            .create_vault("personal", &"2026-05-28T14:30:12Z".parse().unwrap())
-            .unwrap();
-        let collection_id: String = repository
-            .connection
-            .query_row(
-                "SELECT c.id FROM collections c JOIN vaults v ON v.id = c.vault_id
-                 WHERE v.name = 'personal' AND c.name = 'inbox'",
-                [],
-                |row| row.get(0),
+    fn creates_loads_lists_and_deletes_notes() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Storage\nBody")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
             )
             .unwrap();
+        let note = repository.get_note(&id).unwrap();
+        assert_eq!(note.body(), "# Storage\nBody");
 
-        let transaction = repository.connection.transaction().unwrap();
-        transaction
-            .execute_batch("PRAGMA defer_foreign_keys = ON")
-            .unwrap();
-        transaction
-            .execute(
-                "INSERT INTO notes
-                 (id, home_collection_id, body, created, updated, title, kind)
-                 VALUES ('not-a-uuid', ?1, '# Invalid\n', ?2, ?2, 'Invalid', 'note')",
-                params![collection_id, "2026-05-28T14:30:12Z"],
-            )
-            .unwrap();
-        transaction
-            .execute(
-                "INSERT INTO note_collections (note_id, collection_id)
-                 VALUES ('not-a-uuid', ?1)",
-                [collection_id],
-            )
-            .unwrap();
-        transaction.commit().unwrap();
-
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].id(), &id);
+        assert_eq!(notes[0].tags().len(), 1);
+        repository.delete_notes(std::slice::from_ref(&id)).unwrap();
         assert!(matches!(
-            repository.list_notes().unwrap_err(),
-            NtError::Database(rusqlite::Error::FromSqlConversionFailure(0, _, _))
+            repository.get_note(&id),
+            Err(NtError::NoteNotFound(_))
         ));
     }
 
     #[test]
-    fn stale_body_update_returns_concurrent_edit_context() {
-        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        configure_and_initialize(&mut connection).unwrap();
-        let mut repository = Repository { connection };
-        let created = "2026-05-28T14:30:12Z".parse().unwrap();
-        repository.create_vault("personal", &created).unwrap();
-        let note = NoteMeta::new_note(
-            "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap(),
-            "personal/inbox".parse().unwrap(),
-            "# Original\n".to_string(),
-            created.clone(),
-            created,
-            "Original".to_string(),
-        );
-        repository.insert_note(&note).unwrap();
-
-        let error = repository
-            .update_note_body(
-                &note.id,
-                &"2026-05-28T14:31:00Z".parse().unwrap(),
-                &note.body,
-                "# Changed\n",
-                "Changed",
-                &"2026-05-28T14:32:00Z".parse().unwrap(),
+    fn complete_note_load_uses_one_read_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let mut writer = open_at(&path).unwrap();
+        let target = writer
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let source = writer
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Source")
+                    .unwrap()
+                    .with_tags(["old".parse().unwrap()])
+                    .with_links([target.clone()]),
             )
-            .unwrap_err();
+            .unwrap();
+        let mut reader = open_at(&path).unwrap();
+        let expected = reader.get_note(&source).unwrap();
 
+        let transaction = reader
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .unwrap();
+        transaction
+            .query_row(
+                "SELECT 1 FROM notes WHERE id = ?1",
+                [source.to_string()],
+                |_| Ok(()),
+            )
+            .unwrap();
+        writer
+            .change_tag(&source, AddOrRemove::Remove("old".parse().unwrap()))
+            .unwrap();
+        writer
+            .change_tag(&source, AddOrRemove::Add("new".parse().unwrap()))
+            .unwrap();
+        writer.delete_notes(std::slice::from_ref(&target)).unwrap();
+
+        assert_eq!(load_note(&transaction, &source).unwrap(), expected);
+        transaction.commit().unwrap();
+        assert_ne!(reader.get_note(&source).unwrap(), expected);
+    }
+
+    #[test]
+    fn list_and_find_load_all_summary_tags() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# First\nbatched")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap(), "sqlite".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Second\nbatched")
+                    .unwrap()
+                    .with_tags(["cli".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Untagged\nbatched").unwrap())
+            .unwrap();
+
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(notes.len(), 3);
+        let first = notes.iter().find(|note| note.title() == "First").unwrap();
+        assert_eq!(
+            first.tags().iter().map(Tag::as_str).collect::<Vec<_>>(),
+            ["rust", "sqlite"]
+        );
+        let untagged = notes
+            .iter()
+            .find(|note| note.title() == "Untagged")
+            .unwrap();
+        assert!(untagged.tags().is_empty());
+
+        let query = NoteQuery::parse_find(&["batched".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&query).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn lists_current_tags_and_collections_once_in_lexical_order() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new("work/nt".parse().unwrap(), "# Work")
+                    .unwrap()
+                    .with_tags(["sqlite".parse().unwrap(), "rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Inbox")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+
+        assert_eq!(
+            repository
+                .list_tags()
+                .unwrap()
+                .iter()
+                .map(Tag::as_str)
+                .collect::<Vec<_>>(),
+            ["rust", "sqlite"]
+        );
+        assert_eq!(
+            repository
+                .list_collections()
+                .unwrap()
+                .iter()
+                .map(CollectionPath::as_str)
+                .collect::<Vec<_>>(),
+            ["inbox", "work/nt"]
+        );
+    }
+
+    #[test]
+    fn summaries_count_outgoing_links() {
+        let mut repository = repository();
+        let first_target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# First target").unwrap())
+            .unwrap();
+        let second_target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Second target").unwrap())
+            .unwrap();
+        let source = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Linked source")
+                    .unwrap()
+                    .with_links([first_target, second_target]),
+            )
+            .unwrap();
+
+        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        assert_eq!(
+            notes
+                .iter()
+                .find(|note| note.id() == &source)
+                .unwrap()
+                .outgoing(),
+            2
+        );
+        assert!(
+            notes
+                .iter()
+                .filter(|note| note.id() != &source)
+                .all(|note| note.outgoing() == 0)
+        );
+
+        let query = NoteQuery::parse_find(&["linked source".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&query).unwrap()[0].outgoing(), 2);
+    }
+
+    #[test]
+    fn validates_link_targets_and_atomic_deletion() {
+        let mut repository = repository();
+        let missing: NoteId = "018fbe0a-6c00-7000-8000-000000000001".parse().unwrap();
+        let result = repository.create_note(
+            NewNote::new(CollectionPath::inbox(), "# Link")
+                .unwrap()
+                .with_links([missing.clone()]),
+        );
+        assert!(matches!(result, Err(NtError::NoteNotFound(_))));
+
+        let first = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# First").unwrap())
+            .unwrap();
+        let result = repository.delete_notes(&[first.clone(), missing]);
+        assert!(matches!(result, Err(NtError::NoteNotFound(_))));
+        assert!(repository.get_note(&first).is_ok());
+    }
+
+    #[test]
+    fn list_filters_are_and_combined_and_negatable() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new("work/nt".parse().unwrap(), "# Rust")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Other").unwrap())
+            .unwrap();
+        let query = NoteQuery::parse_list(&[
+            "collection:work/nt".to_string(),
+            "not:tag:sqlite".to_string(),
+        ])
+        .unwrap();
+        let notes = repository.list_notes(&query).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].title(), "Rust");
+    }
+
+    #[test]
+    fn body_updates_detect_conflicts_but_metadata_does_not_create_them() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+            .unwrap();
+        let mut note = repository.get_note(&id).unwrap();
+        let expected = note.body_version();
+        repository
+            .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+            .unwrap();
+        note.replace_body("# Edited", "2026-05-28T15:00:00Z".parse().unwrap())
+            .unwrap();
+        repository.replace_body(&note, expected).unwrap();
+        assert_eq!(repository.get_note(&id).unwrap().body_version(), 2);
+
+        let mut stale = repository.get_note(&id).unwrap();
+        let stale_version = stale.body_version();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET body_version = body_version + 1 WHERE id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+        stale
+            .replace_body("# Stale", "2026-05-28T16:00:00Z".parse().unwrap())
+            .unwrap();
         assert!(matches!(
-            error,
-            NtError::ConcurrentEdit { note_id } if note_id == note.id.as_str()
+            repository.replace_body(&stale, stale_version),
+            Err(NtError::ConcurrentEdit(_))
         ));
+        assert!(matches!(
+            repository.verify_body_version(&id, stale_version),
+            Err(NtError::ConcurrentEdit(_))
+        ));
+    }
+
+    #[test]
+    fn metadata_changes_are_idempotent_and_touch_only_real_changes() {
+        let mut repository = repository();
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-01T00:00:00Z' WHERE id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+
+        assert!(
+            repository
+                .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+                .unwrap()
+        );
+        let updated = repository.get_note(&id).unwrap().updated().clone();
+        assert!(
+            !repository
+                .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+                .unwrap()
+        );
+        assert_eq!(repository.get_note(&id).unwrap().updated(), &updated);
+        assert!(
+            !repository
+                .change_tag(&id, AddOrRemove::Remove("missing".parse().unwrap()))
+                .unwrap()
+        );
+        assert!(
+            repository
+                .change_link(&id, AddOrRemove::Add(target.clone()))
+                .unwrap()
+        );
+        assert!(
+            !repository
+                .change_link(&id, AddOrRemove::Add(target))
+                .unwrap()
+        );
+        assert!(
+            repository
+                .move_note(&id, &"work/nt".parse().unwrap())
+                .unwrap()
+        );
+        assert!(
+            !repository
+                .move_note(&id, &"work/nt".parse().unwrap())
+                .unwrap()
+        );
+        let query = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
+        assert_eq!(repository.list_notes(&query).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn links_reject_self_references() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+            .unwrap();
+        assert!(matches!(
+            repository.change_link(&id, AddOrRemove::Add(id.clone())),
+            Err(NtError::SelfLink)
+        ));
+    }
+
+    #[test]
+    fn removing_a_link_to_a_deleted_target_is_idempotent() {
+        let mut repository = repository();
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let source = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Source")
+                    .unwrap()
+                    .with_links([target.clone()]),
+            )
+            .unwrap();
+        repository
+            .delete_notes(std::slice::from_ref(&target))
+            .unwrap();
+        assert!(
+            !repository
+                .change_link(&source, AddOrRemove::Remove(target))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn find_uses_literal_complete_tokens_with_structured_filters() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new(
+                    "work/nt".parse().unwrap(),
+                    "# Café storage\nOwnership and borrowing.",
+                )
+                .unwrap()
+                .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Storage shed").unwrap())
+            .unwrap();
+
+        let query =
+            NoteQuery::parse_find(&["cafe ownership".to_string(), "tag:rust".to_string()]).unwrap();
+        let notes = repository.find_notes(&query).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].title(), "Café storage");
+
+        let prefix = NoteQuery::parse_find(&["stor".to_string()]).unwrap();
+        assert!(repository.find_notes(&prefix).unwrap().is_empty());
+        let punctuation = NoteQuery::parse_find(&["(storage*)".to_string()]).unwrap();
+        assert_eq!(repository.find_notes(&punctuation).unwrap().len(), 2);
     }
 }

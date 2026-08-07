@@ -1,218 +1,279 @@
+use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
-use crate::note::Timestamp;
 
-mod models;
 mod notes;
 mod schema;
-mod search;
 
-pub use models::{AgendaNote, FindRow, NoteChange, NoteMeta};
+pub use notes::NoteSummary;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AddOrRemove<T> {
+    Add(T),
+    Remove(T),
+}
+
+impl<T: fmt::Display> fmt::Display for AddOrRemove<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add(value) => write!(formatter, "+{value}"),
+            Self::Remove(value) => write!(formatter, "-{value}"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitOutcome {
+    Initialized,
+    AlreadyInitialized,
+}
 
 pub struct Repository {
     pub(super) connection: Connection,
 }
 
-pub(crate) struct InitRepository {
-    repository: Option<Repository>,
-    created: Option<CreatedDatabase>,
-}
-
-struct CreatedDatabase {
-    path: PathBuf,
-    remove_parent: bool,
-}
-
 impl Repository {
+    pub fn initialize() -> Result<InitOutcome> {
+        initialize_at(&database_path()?)
+    }
+
     pub fn open() -> Result<Self> {
-        let path = database_path()?;
-        let connection = open_existing(&path)?;
-        if !is_nt_database(&connection, &path)? {
-            return Err(NtError::UninitializedDatabase(path));
-        }
-        schema::configure_existing(&connection)?;
-        let repository = Self { connection };
-        if !repository.has_vault()? {
-            return Err(NtError::MissingVault);
-        }
-        Ok(repository)
-    }
-
-    pub(crate) fn open_for_init() -> Result<InitRepository> {
-        let path = database_path()?;
-        match fs::metadata(&path) {
-            Ok(metadata) => {
-                if !metadata.is_file() {
-                    return Err(NtError::UninitializedDatabase(path));
-                }
-                Self::open_existing_for_init(path)
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::create_for_init(path),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    fn open_existing_for_init(path: PathBuf) -> Result<InitRepository> {
-        let connection = open_existing(&path)?;
-        if !is_nt_database(&connection, &path)? {
-            return Err(NtError::UninitializedDatabase(path));
-        }
-        let mut repository = Self { connection };
-        schema::configure_and_initialize(&mut repository.connection)?;
-        Ok(InitRepository {
-            repository: Some(repository),
-            created: None,
-        })
-    }
-
-    fn create_for_init(path: PathBuf) -> Result<InitRepository> {
-        let parent = path.parent().expect("database path always has a parent");
-        let remove_parent = !parent.exists();
-        fs::create_dir_all(parent)?;
-
-        if let Err(error) = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            if error.kind() == io::ErrorKind::AlreadyExists {
-                return Self::open_existing_for_init(path);
-            }
-            if remove_parent {
-                let _ = fs::remove_dir(parent);
-            }
-            return Err(error.into());
-        }
-
-        let created = CreatedDatabase {
-            path: path.clone(),
-            remove_parent,
-        };
-        let result = (|| {
-            let connection = open_existing(&path)?;
-            let mut repository = Self { connection };
-            schema::configure_and_initialize(&mut repository.connection)?;
-            Ok(repository)
-        })();
-
-        match result {
-            Ok(repository) => Ok(InitRepository {
-                repository: Some(repository),
-                created: Some(created),
-            }),
-            Err(error) => match created.cleanup() {
-                Ok(()) => Err(error),
-                Err(cleanup_error) => Err(cleanup_failed(error, cleanup_error)),
-            },
-        }
-    }
-
-    fn has_vault(&self) -> Result<bool> {
-        self.connection
-            .query_row("SELECT EXISTS(SELECT 1 FROM vaults)", [], |row| row.get(0))
-            .map_err(Into::into)
+        open_at(&database_path()?)
     }
 }
 
-impl InitRepository {
-    pub(crate) fn create_vault(mut self, name: &str, created_at: &Timestamp) -> Result<()> {
-        let result = self
-            .repository
-            .as_mut()
-            .expect("init repository is available")
-            .create_vault(name, created_at);
-        if result.is_ok() {
-            self.created = None;
-            return Ok(());
-        }
+fn initialize_at(path: &Path) -> Result<InitOutcome> {
+    create_empty_if_missing(path)?;
+    let mut connection = open_existing(path)?;
+    let outcome = if schema::initialize(&mut connection)? {
+        InitOutcome::Initialized
+    } else {
+        InitOutcome::AlreadyInitialized
+    };
+    schema::configure(&connection)?;
+    Ok(outcome)
+}
 
-        let error = result.expect_err("failed vault creation has an error");
-        let created = self.created.take();
-        drop(self.repository.take());
-        match created.map(|created| created.cleanup()).transpose() {
-            Ok(_) => Err(error),
-            Err(cleanup_error) => Err(cleanup_failed(error, cleanup_error)),
-        }
+fn open_at(path: &Path) -> Result<Repository> {
+    let connection = open_existing(path)?;
+    match inspect(&connection)? {
+        schema::Identity::Nt => {}
+        schema::Identity::Empty => return Err(NtError::NotNtDatabase),
+    }
+    schema::configure(&connection)?;
+    Ok(Repository { connection })
+}
+
+fn inspect(connection: &Connection) -> Result<schema::Identity> {
+    match schema::inspect(connection) {
+        Err(NtError::Database(_)) => Err(NtError::NotNtDatabase),
+        result => result,
     }
 }
 
-impl Drop for InitRepository {
-    fn drop(&mut self) {
-        drop(self.repository.take());
-        if let Some(created) = self.created.take() {
-            let _ = created.cleanup();
-        }
+fn create_empty_if_missing(path: &Path) -> Result<()> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => return Ok(()),
+        Ok(_) => return Err(NtError::NotNtDatabase),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
-}
 
-impl CreatedDatabase {
-    fn cleanup(self) -> io::Result<()> {
-        for path in database_files(&self.path) {
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-        }
-        if self.remove_parent
-            && let Some(parent) = self.path.parent()
-        {
-            match fs::remove_dir(parent) {
-                Ok(()) => {}
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
-                    ) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(())
+    let parent = path.parent().expect("database path has a parent");
+    fs::create_dir_all(parent)?;
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
 fn open_existing(path: &Path) -> Result<Connection> {
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => return Err(NtError::UninitializedDatabase(path.to_path_buf())),
+        Ok(_) => return Err(NtError::NotNtDatabase),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err(NtError::MissingVault);
+            return Err(NtError::MissingDatabase);
         }
         Err(error) => return Err(error.into()),
     }
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(Into::into)
 }
 
-fn is_nt_database(connection: &Connection, path: &Path) -> Result<bool> {
-    match schema::is_nt_database(connection) {
-        Err(NtError::Database(source)) => Err(NtError::InvalidDatabase {
-            path: path.to_path_buf(),
-            source,
-        }),
-        result => result,
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Barrier};
+    use std::time::Duration;
+
+    use rusqlite::Connection;
+
+    use super::*;
+    use crate::note::{CollectionPath, NewNote};
+
+    #[test]
+    fn initializes_and_reopens_a_clean_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".nt/nt.sqlite3");
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        assert_eq!(
+            initialize_at(&path).unwrap(),
+            InitOutcome::AlreadyInitialized
+        );
+        let repository = open_at(&path).unwrap();
+        let foreign_keys: i64 = repository
+            .connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        let journal: String = repository
+            .connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(foreign_keys, 1);
+        assert_eq!(journal, "wal");
     }
-}
 
-fn database_files(path: &Path) -> Vec<PathBuf> {
-    ["-wal", "-shm", "-journal", ""]
-        .into_iter()
-        .map(|suffix| {
-            let mut value = path.as_os_str().to_os_string();
-            value.push(suffix);
-            PathBuf::from(value)
-        })
-        .collect()
-}
+    #[test]
+    fn ordinary_open_does_not_create_storage() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".nt/nt.sqlite3");
+        assert!(matches!(open_at(&path), Err(NtError::MissingDatabase)));
+        assert!(!path.exists());
+    }
 
-fn cleanup_failed(error: NtError, cleanup_error: io::Error) -> NtError {
-    NtError::Message(format!(
-        "{error}; failed to clean up incomplete initialization: {cleanup_error}"
-    ))
+    #[test]
+    fn initialization_accepts_zero_length_and_empty_sqlite_files() {
+        for name in ["zero.sqlite3", "empty.sqlite3"] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(name);
+            if name == "zero.sqlite3" {
+                fs::write(&path, []).unwrap();
+            } else {
+                drop(Connection::open(&path).unwrap());
+            }
+            assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+            assert!(open_at(&path).is_ok());
+        }
+    }
+
+    #[test]
+    fn unrelated_databases_are_rejected_without_modification() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("other.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch("CREATE TABLE other(value TEXT)")
+            .unwrap();
+        drop(connection);
+        let before = fs::read(&path).unwrap();
+        assert!(matches!(initialize_at(&path), Err(NtError::NotNtDatabase)));
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn incompatible_nt_versions_are_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA ignore_check_constraints = ON; UPDATE schema_version SET version = 2",
+            )
+            .unwrap();
+        drop(connection);
+        assert!(matches!(open_at(&path), Err(NtError::UnsupportedSchema(2))));
+    }
+
+    #[test]
+    fn another_application_id_is_rejected_without_schema_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("other.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch("PRAGMA application_id = 1234; CREATE TABLE other(value TEXT)")
+            .unwrap();
+        drop(connection);
+        assert!(matches!(initialize_at(&path), Err(NtError::NotNtDatabase)));
+        let connection = Connection::open(path).unwrap();
+        let application_id: i64 = connection
+            .pragma_query_value(None, "application_id", |row| row.get(0))
+            .unwrap();
+        assert_eq!(application_id, 1234);
+        let table_exists: i64 = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'other')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_exists, 1);
+    }
+
+    #[test]
+    fn writer_contention_returns_the_retryable_busy_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let mut first = open_at(&path).unwrap();
+        let mut second = open_at(&path).unwrap();
+        second
+            .connection
+            .busy_timeout(Duration::from_millis(1))
+            .unwrap();
+        let transaction = first
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        let result =
+            second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
+        assert!(matches!(result, Err(NtError::DatabaseBusy)));
+        transaction.rollback().unwrap();
+    }
+
+    #[test]
+    fn concurrent_initializers_preserve_the_winning_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".nt/nt.sqlite3");
+        let barrier = Arc::new(Barrier::new(8));
+        let handles = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    initialize_at(&path)
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == InitOutcome::Initialized)
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == InitOutcome::AlreadyInitialized)
+                .count(),
+            7
+        );
+        assert!(open_at(&path).is_ok());
+    }
 }

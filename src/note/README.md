@@ -1,4 +1,4 @@
 # note
 
-Owns UUIDv7 note identity, UTC timestamps and calendar validation, CommonMark
-title extraction, and body source extraction.
+Owns UUIDv7 note identity, UTC timestamps, normalized collection and tag values,
+CommonMark body validation, title extraction, and valid note construction.

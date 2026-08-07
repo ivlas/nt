@@ -2,40 +2,40 @@
 
 > **Status: alpha** `nt` is functional but experimental; expect breaking changes.
 
-`nt` is a local, agent-first knowledge and memory layer optimized for fast
-capture, deterministic retrieval, low-cost context construction, and full local
-ownership. Notes and metadata live in one portable SQLite database. Humans and
-agents use the same shell-friendly commands, stdin, stdout, and `$EDITOR`.
+`nt` is a local, agent-first note layer for editable CommonMark, deterministic
+metadata, and lexical retrieval. Canonical notes live in one SQLite database.
+Humans and agents use the same shell-friendly commands, stdin, stdout, and
+`$VISUAL`/`$EDITOR`.
 
 ## Quick Start
 
 ```sh
-nt init personal
-printf '%s\n' '# First Note' '' 'body text' | nt note tag:example
-nt find example
-```
-
-`nt note` prints a canonical UUIDv7 id like
-`018fbe0a-6c00-7000-8000-000000000001`.
-
-```sh
+nt init
+printf '%s\n' '# First note' '' 'SQLite is canonical.' | nt add tag:example
+nt list tag:example
+nt find sqlite
 nt show <id>
-nt list
-nt agenda
 ```
 
-Collections are logical `<vault>/<collection>` namespaces:
+`nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
+`inbox`; use `collection:work/nt` to place a note elsewhere.
 
 ```sh
-nt init work
-printf '%s\n' '# Shared' | nt note home:personal/rust collection:work/project_a
+printf '%s\n' '# Updated' '' 'Replacement body.' | nt edit <id>
+nt move <id> work/nt
+nt tag <id> +decision
+nt link <id> +<target-id>
+nt rm <id>
 ```
+
+SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
+configuration files, daemons, embeddings, or hidden agent-only commands.
 
 ## Documentation
 
-- [docs/usage.md](docs/usage.md)
-- [docs/cli-reference.md](docs/cli-reference.md)
-- [docs/design.md](docs/design.md)
+- [Usage](docs/usage.md)
+- [CLI reference](docs/cli-reference.md)
+- [Design](docs/design.md)
 
 ## License
 
