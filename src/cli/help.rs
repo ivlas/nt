@@ -13,9 +13,9 @@ fn topic_text(key: &str) -> Result<&'static str> {
             "nt add [metadata...] [-- body...]\n\nAdd a CommonMark note from trailing text, stdin, or $VISUAL/$EDITOR.\n",
         ),
         "show" => Ok("nt show <id>\n\nPrint the exact canonical note body.\n"),
-        "list" => {
-            Ok("nt list [filter...]\n\nList fixed note summaries using structured filters.\n")
-        }
+        "list" => Ok(
+            "nt list [filter...]\nnt list tags\nnt list collections\n\nList fixed note summaries or current metadata values.\n",
+        ),
         "find" => Ok(
             "nt find <term-or-filter...>\n\nFind note summaries using literal lexical terms and structured filters.\n",
         ),
@@ -42,7 +42,7 @@ Commands:
   init                                 initialize canonical storage
   add [metadata...] [-- body...]       add a CommonMark note
   show <id>                            print one exact body
-  list [filter...]                     list fixed note summaries
+  list [filter...]|tags|collections    list note summaries or metadata values
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
   edit <id> [-- body...]               replace one body

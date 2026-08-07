@@ -94,6 +94,26 @@ impl Repository {
         self.query_notes(query)
     }
 
+    pub fn list_tags(&self) -> Result<Vec<Tag>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT tag FROM note_tags ORDER BY tag")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|value| value?.parse())
+            .collect()
+    }
+
+    pub fn list_collections(&self) -> Result<Vec<CollectionPath>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT collection FROM notes ORDER BY collection")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|value| value?.parse())
+            .collect()
+    }
+
     fn query_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
         let (where_sql, parameters) = compile_query(query);
         let sql = format!(
@@ -585,6 +605,44 @@ mod tests {
 
         let query = NoteQuery::parse_find(&["batched".to_string()]).unwrap();
         assert_eq!(repository.find_notes(&query).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn lists_current_tags_and_collections_once_in_lexical_order() {
+        let mut repository = repository();
+        repository
+            .create_note(
+                NewNote::new("work/nt".parse().unwrap(), "# Work")
+                    .unwrap()
+                    .with_tags(["sqlite".parse().unwrap(), "rust".parse().unwrap()]),
+            )
+            .unwrap();
+        repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Inbox")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+
+        assert_eq!(
+            repository
+                .list_tags()
+                .unwrap()
+                .iter()
+                .map(Tag::as_str)
+                .collect::<Vec<_>>(),
+            ["rust", "sqlite"]
+        );
+        assert_eq!(
+            repository
+                .list_collections()
+                .unwrap()
+                .iter()
+                .map(CollectionPath::as_str)
+                .collect::<Vec<_>>(),
+            ["inbox", "work/nt"]
+        );
     }
 
     #[test]

@@ -86,6 +86,8 @@ mod tests {
             ],
             &["nt", "show", ID],
             &["nt", "list", "tag:rust"],
+            &["nt", "list", "tags"],
+            &["nt", "list", "collections"],
             &["nt", "find", "sqlite", "tag:rust"],
             &["nt", "rm", ID],
             &["nt", "edit", ID, "--", "# Updated"],

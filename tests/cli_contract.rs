@@ -111,6 +111,14 @@ fn complete_cli_workflow_matches_the_stable_contract() {
         "Updated",
         &["rust", "sqlite"],
     );
+    assert_eq!(
+        success(home.path(), &["list", "tags"], None),
+        "\"rust\"\n\"sqlite\"\n"
+    );
+    assert_eq!(
+        success(home.path(), &["list", "collections"], None),
+        "\"inbox\"\n\"research/sqlite\"\n"
+    );
 
     assert_eq!(success(home.path(), &["rm", &target], None), "removed 1\n");
     let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();

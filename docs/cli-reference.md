@@ -10,6 +10,8 @@ nt init
 nt add [metadata...] [-- body...]
 nt show <id>
 nt list [filter...]
+nt list tags
+nt list collections
 nt find <term-or-filter...>
 nt rm <id...>
 nt edit <id> [-- body...]
@@ -72,8 +74,9 @@ nt add collection:work/nt
 
 `show <id>` writes the exact canonical body with no metadata wrapper.
 
-`list` accepts structured filters. `find` accepts the same filters and one or
-more lexical terms:
+`list` accepts structured filters. `list tags` and `list collections` print the
+distinct values currently used by notes, in lexical order. `find` accepts the
+same filters and one or more lexical terms:
 
 ```text
 id:<prefix>
@@ -107,7 +110,10 @@ a lexicographically sorted JSON array, preserving one physical line per note:
 "<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]
 ```
 
-TTY output removes JSON quoting while preserving values and column order.
+TTY note output removes JSON quoting, adds a header row, and aligns columns with
+two spaces between them while preserving values and column order. Metadata
+inventories use one `tag` or `collection` column with a TTY header. Redirected
+inventory output is headerless and contains one JSON string per line.
 
 ## Mutations
 

@@ -35,7 +35,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt init`
 - `nt add [metadata...] [-- body...]`
 - `nt show <id>`
-- `nt list [filter...]`
+- `nt list [filter...]|tags|collections`
 - `nt find <term-or-filter...>`
 - `nt rm <id...>`
 - `nt edit <id> [-- body...]`

@@ -55,6 +55,8 @@ Use summaries before loading exact bodies:
 nt list
 nt list collection:work/nt tag:rust
 nt list not:tag:archived
+nt list tags
+nt list collections
 nt find 'ownership borrow' tag:rust
 nt show <id>
 ```
@@ -77,9 +79,12 @@ has no FTS operator meaning. Terms may occur in any order. Supported Latin
 diacritics are removed, so `cafe` matches `café`. Prefixes are not expanded, so
 `owner` does not match `ownership`.
 
-Redirected list and find rows contain JSON-encoded `id`, `updated`,
+On a terminal, list and find summaries have an aligned header row. Redirected
+list and find rows contain JSON-encoded `id`, `updated`,
 `collection`, `title`, and `tags` cells separated by tabs. Every note occupies
-one physical output line. `show` writes only the exact canonical body.
+one physical output line. Metadata inventories contain one current, distinct
+value per line in lexical order; redirected values are JSON strings. `show`
+writes only the exact canonical body.
 
 ## Edit And Organize
 
