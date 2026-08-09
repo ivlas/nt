@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter};
@@ -91,14 +91,6 @@ impl Repository {
         Ok(note)
     }
 
-    pub fn list_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
-        self.query_notes(query)
-    }
-
-    pub fn find_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
-        self.query_notes(query)
-    }
-
     pub fn list_tags(&self) -> Result<Vec<Tag>> {
         let mut statement = self
             .connection
@@ -119,50 +111,50 @@ impl Repository {
             .collect()
     }
 
-    fn query_notes(&self, query: &NoteQuery) -> Result<Vec<NoteSummary>> {
-        let (where_sql, parameters) = compile_query(query);
+    pub fn visit_note_summaries(
+        &self,
+        query: &NoteQuery,
+        mut visit: impl FnMut(NoteSummary) -> Result<()>,
+    ) -> Result<()> {
+        let (where_sql, mut parameters) = compile_query(query);
+        let limit_sql = if let Some(limit) = query.limit() {
+            parameters.push(Value::Integer(limit));
+            format!("LIMIT ?{}", parameters.len())
+        } else {
+            String::new()
+        };
         let sql = format!(
-            "SELECT n.pk, n.id, n.updated, n.collection, n.title,
+            "SELECT n.id, n.updated, n.collection, n.title,
+                    COALESCE(
+                        (SELECT json_group_array(tag)
+                         FROM note_tags summary_tags
+                         WHERE summary_tags.note_pk = n.pk),
+                        '[]'
+                    ),
                     (SELECT COUNT(*) FROM note_links links WHERE links.note_pk = n.pk)
              FROM notes n {where_sql}
-             ORDER BY n.updated DESC, n.id DESC"
+             ORDER BY n.updated DESC, n.id DESC
+             {limit_sql}"
         );
-        let mut notes = {
-            let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params_from_iter(parameters), |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, i64>(5)?,
-                ))
+        let mut statement = self.connection.prepare(&sql)?;
+        let mut rows = statement.query(params_from_iter(parameters))?;
+        while let Some(row) = rows.next()? {
+            let stored_tags = row.get::<_, String>(4)?;
+            let tags = serde_json::from_str::<Vec<String>>(&stored_tags)?
+                .into_iter()
+                .map(|tag| tag.parse())
+                .collect::<Result<BTreeSet<_>>>()?;
+            let outgoing = row.get::<_, i64>(5)?;
+            visit(NoteSummary {
+                id: row.get::<_, String>(0)?.parse()?,
+                updated: row.get::<_, String>(1)?.parse()?,
+                collection: row.get::<_, String>(2)?.parse()?,
+                title: row.get(3)?,
+                tags,
+                outgoing: u64::try_from(outgoing).expect("SQLite COUNT(*) results are nonnegative"),
             })?;
-            let mut notes = Vec::new();
-            for row in rows {
-                let row = row?;
-                notes.push((
-                    row.0,
-                    NoteSummary {
-                        id: row.1.parse()?,
-                        updated: row.2.parse()?,
-                        collection: row.3.parse()?,
-                        title: row.4,
-                        tags: BTreeSet::new(),
-                        outgoing: u64::try_from(row.5)
-                            .expect("SQLite COUNT(*) results are nonnegative"),
-                    },
-                ));
-            }
-            notes
-        };
-        let note_pks = notes.iter().map(|(pk, _)| *pk).collect::<Vec<_>>();
-        let mut tags_by_note = load_tags_for_notes(&self.connection, &note_pks)?;
-        for (pk, note) in &mut notes {
-            note.tags = tags_by_note.remove(pk).unwrap_or_default();
         }
-        Ok(notes.into_iter().map(|(_, note)| note).collect())
+        Ok(())
     }
 
     pub fn delete_notes(&mut self, ids: &[NoteId]) -> Result<()> {
@@ -387,34 +379,6 @@ fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet
         .collect()
 }
 
-fn load_tags_for_notes(
-    connection: &rusqlite::Connection,
-    note_pks: &[i64],
-) -> Result<HashMap<i64, BTreeSet<Tag>>> {
-    if note_pks.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let note_pks = serde_json::to_string(note_pks)?;
-    let mut statement = connection.prepare(
-        "SELECT note_pk, tag
-         FROM note_tags
-         WHERE note_pk IN (SELECT value FROM json_each(?1))
-         ORDER BY note_pk, tag",
-    )?;
-    let rows = statement.query_map([note_pks], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
-    let mut tags_by_note = HashMap::<_, BTreeSet<_>>::new();
-    for row in rows {
-        let (note_pk, tag) = row?;
-        tags_by_note
-            .entry(note_pk)
-            .or_default()
-            .insert(tag.parse()?);
-    }
-    Ok(tags_by_note)
-}
-
 fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<NoteId>> {
     let mut statement = connection.prepare(
         "SELECT target.id
@@ -510,6 +474,17 @@ mod tests {
         Repository { connection }
     }
 
+    fn summaries(repository: &Repository, query: &NoteQuery) -> Vec<NoteSummary> {
+        let mut summaries = Vec::new();
+        repository
+            .visit_note_summaries(query, |summary| {
+                summaries.push(summary);
+                Ok(())
+            })
+            .unwrap();
+        summaries
+    }
+
     #[test]
     fn creates_loads_lists_and_deletes_notes() {
         let mut repository = repository();
@@ -523,7 +498,7 @@ mod tests {
         let note = repository.get_note(&id).unwrap();
         assert_eq!(note.body(), "# Storage\nBody");
 
-        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        let notes = summaries(&repository, &NoteQuery::default());
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].id(), &id);
         assert_eq!(notes[0].tags().len(), 1);
@@ -599,7 +574,7 @@ mod tests {
             .create_note(NewNote::new(CollectionPath::inbox(), "# Untagged\nbatched").unwrap())
             .unwrap();
 
-        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        let notes = summaries(&repository, &NoteQuery::default());
         assert_eq!(notes.len(), 3);
         let first = notes.iter().find(|note| note.title() == "First").unwrap();
         assert_eq!(
@@ -613,7 +588,59 @@ mod tests {
         assert!(untagged.tags().is_empty());
 
         let query = NoteQuery::parse_find(&["batched".to_string()]).unwrap();
-        assert_eq!(repository.find_notes(&query).unwrap().len(), 3);
+        assert_eq!(summaries(&repository, &query).len(), 3);
+    }
+
+    #[test]
+    fn list_and_find_are_complete_by_default() {
+        let mut repository = repository();
+        for index in 0..1101 {
+            repository
+                .create_note(
+                    NewNote::new(
+                        CollectionPath::inbox(),
+                        format!("# Note {index}\nshared limit term"),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        }
+
+        let list = NoteQuery::parse_list(&[]).unwrap();
+        assert_eq!(summaries(&repository, &list).len(), 1101);
+        let find = NoteQuery::parse_find(&["shared".to_string()]).unwrap();
+        assert_eq!(summaries(&repository, &find).len(), 1101);
+
+        let list = NoteQuery::parse_list(&["limit:7".to_string()]).unwrap();
+        assert_eq!(summaries(&repository, &list).len(), 7);
+        let find = NoteQuery::parse_find(&["shared".to_string(), "limit:5".to_string()]).unwrap();
+        assert_eq!(summaries(&repository, &find).len(), 5);
+    }
+
+    #[test]
+    fn summary_visiting_stops_before_later_rows_are_decoded() {
+        let mut repository = repository();
+        repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Valid").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "INSERT INTO notes(id, collection, body, title, created, updated)
+                 VALUES ('malformed', 'inbox', '# Invalid', 'Invalid',
+                         '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+
+        let mut visited = 0;
+        let result = repository.visit_note_summaries(&NoteQuery::default(), |_| {
+            visited += 1;
+            Err(NtError::Message("stop visiting".to_string()))
+        });
+
+        assert!(matches!(result, Err(NtError::Message(_))));
+        assert_eq!(visited, 1);
     }
 
     #[test]
@@ -671,7 +698,7 @@ mod tests {
             )
             .unwrap();
 
-        let notes = repository.list_notes(&NoteQuery::default()).unwrap();
+        let notes = summaries(&repository, &NoteQuery::default());
         assert_eq!(
             notes
                 .iter()
@@ -688,7 +715,7 @@ mod tests {
         );
 
         let query = NoteQuery::parse_find(&["linked source".to_string()]).unwrap();
-        assert_eq!(repository.find_notes(&query).unwrap()[0].outgoing(), 2);
+        assert_eq!(summaries(&repository, &query)[0].outgoing(), 2);
     }
 
     #[test]
@@ -728,7 +755,7 @@ mod tests {
             "not:tag:sqlite".to_string(),
         ])
         .unwrap();
-        let notes = repository.list_notes(&query).unwrap();
+        let notes = summaries(&repository, &query);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title(), "Rust");
     }
@@ -826,7 +853,7 @@ mod tests {
                 .unwrap()
         );
         let query = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
-        assert_eq!(repository.list_notes(&query).unwrap().len(), 1);
+        assert_eq!(summaries(&repository, &query).len(), 1);
     }
 
     #[test]
@@ -883,13 +910,63 @@ mod tests {
 
         let query =
             NoteQuery::parse_find(&["cafe ownership".to_string(), "tag:rust".to_string()]).unwrap();
-        let notes = repository.find_notes(&query).unwrap();
+        let notes = summaries(&repository, &query);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title(), "Café storage");
 
         let prefix = NoteQuery::parse_find(&["stor".to_string()]).unwrap();
-        assert!(repository.find_notes(&prefix).unwrap().is_empty());
+        assert!(summaries(&repository, &prefix).is_empty());
         let punctuation = NoteQuery::parse_find(&["(storage*)".to_string()]).unwrap();
-        assert_eq!(repository.find_notes(&punctuation).unwrap().len(), 2);
+        assert_eq!(summaries(&repository, &punctuation).len(), 2);
+    }
+
+    #[test]
+    fn list_find_and_explicit_limits_preserve_deterministic_ordering() {
+        let mut repository = repository();
+        let first = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# First\nordered").unwrap())
+            .unwrap();
+        let second = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Second\nordered").unwrap())
+            .unwrap();
+        let newest = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Newest\nordered").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-02T00:00:00Z' WHERE id IN (?1, ?2)",
+                params![first.to_string(), second.to_string()],
+            )
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-03T00:00:00Z' WHERE id = ?1",
+                [newest.to_string()],
+            )
+            .unwrap();
+
+        let mut tied = [first, second];
+        tied.sort_by_key(|id| std::cmp::Reverse(id.to_string()));
+        let expected = vec![newest, tied[0].clone(), tied[1].clone()];
+        for query in [
+            NoteQuery::parse_list(&[]).unwrap(),
+            NoteQuery::parse_find(&["ordered".to_string()]).unwrap(),
+        ] {
+            let actual = summaries(&repository, &query)
+                .into_iter()
+                .map(|summary| summary.id().clone())
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected);
+        }
+
+        let limited =
+            NoteQuery::parse_find(&["ordered".to_string(), "limit:2".to_string()]).unwrap();
+        let actual = summaries(&repository, &limited)
+            .into_iter()
+            .map(|summary| summary.id().clone())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected[..2]);
     }
 }

@@ -54,10 +54,12 @@ Use summaries before loading exact bodies:
 ```sh
 nt list
 nt list collection:work/nt tag:rust
+nt list collection:work/nt limit:50
 nt list not:tag:archived
 nt list tags
 nt list collections
 nt find 'ownership borrow' tag:rust
+nt find rust limit:100
 nt show <id>
 ```
 
@@ -72,7 +74,11 @@ link:<id>
 created-since:<timestamp>
 updated-since:<timestamp>
 not:<filter>
+limit:<positive-integer>
 ```
+
+`list` and `find` return every match unless an explicit `limit:` is supplied.
+The limit selects the first N summaries in the normal deterministic order.
 
 Lexical search uses complete Unicode tokens. Punctuation separates terms and
 has no FTS operator meaning. Terms may occur in any order. Supported Latin
@@ -124,9 +130,13 @@ links.
 
 ```sh
 nt find rust | less
+nt find rust | head -100
 nt find rust | fzf --preview 'nt show {1}'
 nt list tag:decision | cut -f1
 ```
+
+Redirected note summaries stream as they are read. If a consumer such as `head`
+closes the pipe early, `nt` stops retrieval without reporting an error.
 
 Agents use the same CLI. Prefer `list` or `find` for candidate construction,
 then `show` only selected IDs to bound context. Obtain user approval before

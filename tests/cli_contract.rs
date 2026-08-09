@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
 fn run(home: &Path, arguments: &[&str], stdin: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nt"));
@@ -44,6 +44,30 @@ fn add(home: &Path, body: &str, metadata: &[&str]) -> String {
         .strip_prefix("saved ")
         .unwrap()
         .to_string()
+}
+
+fn seed_matching_notes(home: &Path, count: usize) {
+    let mut connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
+    let transaction = connection.transaction().unwrap();
+    {
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO notes(id, collection, body, title, created, updated)
+                 VALUES (?1, 'inbox', ?2, ?3, '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z')",
+            )
+            .unwrap();
+        for index in 0..count {
+            statement
+                .execute(params![
+                    format!("018fbe0a-6c00-7000-8000-{index:012x}"),
+                    format!("# Note {index}\nrust streaming"),
+                    format!("Note {index}"),
+                ])
+                .unwrap();
+        }
+    }
+    transaction.commit().unwrap();
 }
 
 #[test]
@@ -190,6 +214,44 @@ fn trailing_body_arguments_accept_empty_redirected_stdin() {
     );
     let id = output.trim().strip_prefix("saved ").unwrap();
     assert_eq!(success(home.path(), &["show", id], None), "# Argument body");
+}
+
+#[test]
+fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    seed_matching_notes(home.path(), 5000);
+    Connection::open(home.path().join(".nt/nt.sqlite3"))
+        .unwrap()
+        .execute(
+            "INSERT INTO notes(id, collection, body, title, created, updated)
+             VALUES ('malformed', 'inbox', '# Invalid\nrust streaming', 'Invalid',
+                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+    let mut nt = Command::new(env!("CARGO_BIN_EXE_nt"))
+        .env("HOME", home.path())
+        .args(["find", "rust"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let head = Command::new("head")
+        .args(["-n", "100"])
+        .stdin(nt.stdout.take().unwrap())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    let output = nt.wait_with_output().unwrap();
+
+    assert!(head.status.success());
+    assert!(head.stderr.is_empty());
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
 }
 
 fn assert_summary_row(

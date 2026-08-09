@@ -69,6 +69,8 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 - Use `nt show <id>` only for exact body retrieval.
 - Keep output stable and one record per line.
 - Redirected list and find output is JSON-encoded, headerless TSV.
+- List and find are complete by default; `limit:` is explicit and SQL-backed.
+- Stream redirected note summaries and stop cleanly when a downstream pipe closes.
 - Unknown query fields are errors.
 - Avoid scoring, fuzzy matching, embeddings, vector search, and hidden retrieval.
 

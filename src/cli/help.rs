@@ -14,10 +14,10 @@ fn topic_text(key: &str) -> Result<&'static str> {
         ),
         "show" => Ok("nt show <id>\n\nPrint the exact canonical note body.\n"),
         "list" => Ok(
-            "nt list [filter...]\nnt list tags\nnt list collections\n\nList fixed note summaries or current metadata values.\n",
+            "nt list [filter...]\nnt list tags\nnt list collections\n\nList complete fixed note summaries or current metadata values. Use limit:<n> for an explicit result bound.\n",
         ),
         "find" => Ok(
-            "nt find <term-or-filter...>\n\nFind note summaries using literal lexical terms and structured filters.\n",
+            "nt find <term-or-filter...>\n\nFind complete note summaries using literal lexical terms and structured filters. Use limit:<n> for an explicit result bound.\n",
         ),
         "rm" => Ok("nt rm <id...>\n\nRemove notes atomically.\n"),
         "edit" => Ok("nt edit <id> [-- body...]\n\nReplace a complete note body.\n"),

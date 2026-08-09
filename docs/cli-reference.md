@@ -86,10 +86,15 @@ link:<id>
 created-since:<timestamp>
 updated-since:<timestamp>
 not:<filter>
+limit:<positive-integer>
 ```
 
 Expressions are AND-combined. `not:` wraps exactly one structured filter.
-Unknown fields, malformed filters, and negated lexical terms are errors.
+`limit:` controls result count rather than filtering notes and cannot be repeated
+or negated. Without `limit:`, `list` and `find` return every matching note. An
+explicit limit selects the first N results in normal order and is applied by
+SQLite. Unknown fields, malformed filters, invalid limits, and negated lexical
+terms are errors.
 
 Bare `find` arguments are split into Unicode letter-or-digit runs, deduplicated,
 quoted as FTS literals, and AND-combined. Matching is complete-token,
@@ -115,7 +120,9 @@ per note:
 TTY note output removes JSON quoting, adds a header row, and aligns columns with
 two spaces between them while preserving values and column order. Metadata
 inventories use one `tag` or `collection` column with a TTY header. Redirected
-inventory output is headerless and contains one JSON string per line.
+inventory output is headerless and contains one JSON string per line. Redirected
+note summaries are streamed as SQLite rows are read. A downstream pipe closing
+early ends note retrieval successfully; other output errors remain failures.
 
 ## Mutations
 

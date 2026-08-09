@@ -16,25 +16,33 @@ pub enum Filter {
 pub struct NoteQuery {
     filters: Vec<Filter>,
     lexical_terms: Vec<String>,
+    limit: Option<i64>,
 }
 
 impl NoteQuery {
     pub fn parse_list(expressions: &[String]) -> Result<Self> {
-        let filters = expressions
-            .iter()
-            .map(|expression| parse_filter(expression))
-            .collect::<Result<_>>()?;
+        let mut filters = Vec::new();
+        let mut limit = None;
+        for expression in expressions {
+            if !parse_limit(expression, &mut limit)? {
+                filters.push(parse_filter(expression)?);
+            }
+        }
         Ok(Self {
             filters,
             lexical_terms: Vec::new(),
+            limit,
         })
     }
 
     pub fn parse_find(expressions: &[String]) -> Result<Self> {
         let mut filters = Vec::new();
         let mut lexical_terms = Vec::new();
+        let mut limit = None;
         for expression in expressions {
-            if is_filter_expression(expression) {
+            if parse_limit(expression, &mut limit)? {
+                continue;
+            } else if is_filter_expression(expression) {
                 filters.push(parse_filter(expression)?);
             } else {
                 lexical_terms.extend(literal_tokens(expression));
@@ -51,6 +59,7 @@ impl NoteQuery {
         Ok(Self {
             filters,
             lexical_terms,
+            limit,
         })
     }
 
@@ -61,6 +70,34 @@ impl NoteQuery {
     pub fn lexical_terms(&self) -> &[String] {
         &self.lexical_terms
     }
+
+    pub fn limit(&self) -> Option<i64> {
+        self.limit
+    }
+}
+
+fn parse_limit(expression: &str, limit: &mut Option<i64>) -> Result<bool> {
+    let Some(value) = expression.strip_prefix("limit:") else {
+        return Ok(false);
+    };
+    if limit.is_some() {
+        return Err(NtError::InvalidValue {
+            field: "limit",
+            value: "duplicate".to_string(),
+        });
+    }
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return invalid_limit(value);
+    }
+    let parsed = value.parse::<i64>().map_err(|_| NtError::InvalidValue {
+        field: "limit",
+        value: value.to_string(),
+    })?;
+    if parsed == 0 {
+        return invalid_limit(value);
+    }
+    *limit = Some(parsed);
+    Ok(true)
 }
 
 fn is_filter_expression(expression: &str) -> bool {
@@ -123,6 +160,13 @@ fn invalid_filter<T>(expression: &str) -> Result<T> {
     })
 }
 
+fn invalid_limit<T>(value: &str) -> Result<T> {
+    Err(NtError::InvalidValue {
+        field: "limit",
+        value: value.to_string(),
+    })
+}
+
 fn literal_tokens(value: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut start = None;
@@ -149,10 +193,12 @@ mod tests {
             "id:018fbe0a-6c00-7".to_string(),
             "collection:work/nt".to_string(),
             "not:tag:rust".to_string(),
+            "limit:50".to_string(),
         ])
         .unwrap();
         assert_eq!(query.filters().len(), 3);
         assert!(matches!(query.filters()[2], Filter::Not(_)));
+        assert_eq!(query.limit(), Some(50));
     }
 
     #[test]
@@ -168,10 +214,46 @@ mod tests {
             "ownership-borrow".to_string(),
             "tag:rust".to_string(),
             "ownership".to_string(),
+            "limit:25".to_string(),
         ])
         .unwrap();
         assert_eq!(query.filters().len(), 1);
         assert_eq!(query.lexical_terms(), ["borrow", "ownership"]);
+        assert_eq!(query.limit(), Some(25));
+    }
+
+    #[test]
+    fn queries_have_no_implicit_limit() {
+        assert_eq!(NoteQuery::default().limit(), None);
+        assert_eq!(NoteQuery::parse_list(&[]).unwrap().limit(), None);
+        assert_eq!(
+            NoteQuery::parse_find(&["rust".to_string()])
+                .unwrap()
+                .limit(),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_and_duplicate_limits() {
+        for value in [
+            "limit:",
+            "limit:0",
+            "limit:-1",
+            "limit:9223372036854775808",
+            "limit:all",
+        ] {
+            assert!(NoteQuery::parse_list(&[value.to_string()]).is_err());
+        }
+        assert!(
+            NoteQuery::parse_find(&[
+                "rust".to_string(),
+                "limit:10".to_string(),
+                "limit:20".to_string(),
+            ])
+            .is_err()
+        );
+        assert!(NoteQuery::parse_list(&["not:limit:10".to_string()]).is_err());
     }
 
     #[test]

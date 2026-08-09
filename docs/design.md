@@ -142,14 +142,27 @@ Redirected list and find output is headerless JSON-encoded TSV with one physical
 line per note. Summaries include the outgoing-link count without loading link
 targets. TTY output adds aligned headers and removes JSON quoting without
 changing values or column order. `list tags` and `list collections` enumerate
-the distinct metadata values currently referenced by notes.
+the distinct metadata values currently referenced by notes. Redirected summary
+output is streamed and treats a closed downstream pipe as successful early
+termination.
 
 ## Retrieval
 
 Structured filters and lexical terms are parsed into one query model and
 compiled to bound SQL parameters. `list` accepts only structured filters;
 `find` adds literal lexical terms. Expressions are AND-combined and ordered by
-`updated DESC, id DESC`.
+`updated DESC, id DESC`. Note retrieval is complete by default. An optional,
+strictly positive `limit:` applies an explicit SQL result bound.
+
+Each summary query returns the note fields, its complete tag set, and outgoing
+link count in one SQLite row without selecting the body. Redirected commands
+consume and encode those rows incrementally, so Rust memory does not grow with
+the total match count and output errors stop the active query. SQLite performs
+indexed correlated metadata lookups within the single statement, avoiding
+application-level N+1 queries. TTY output spools rendered rows to an unnamed
+temporary file while computing column widths, then replays them with full-table
+alignment. Memory remains bounded by one summary row and I/O buffers; temporary
+disk use grows with rendered output size.
 
 Users cannot submit raw FTS5 syntax. Lexical input is split into Unicode
 letter-or-digit runs, deduplicated, quoted as literals, and AND-combined.
