@@ -152,10 +152,9 @@ nt link <id> -01989abc-...
 ```
 
 Moves, tag changes, and link changes are transactional. A real `nt link`
-addition or removal assigns the same new `updated` timestamp to both source and
-target. Adding an existing set value or removing a missing one succeeds without
-changing `updated` on either endpoint. Self-links are errors. Links remain
-directional.
+addition or removal updates the source note; the target is unchanged. Adding an
+existing set value or removing a missing one succeeds without changing
+`updated`. Self-links are errors. Links remain directional.
 
 Success output is exact:
 
@@ -169,7 +168,9 @@ removed <count>
 
 `rm` rejects duplicate IDs and validates every ID in one transaction before
 deleting anything. Any missing or invalid ID leaves all requested notes intact.
-Foreign-key cascades remove tags and incoming and outgoing links.
+Before foreign-key cascades remove incoming links, each surviving source note is
+updated because its canonical outgoing-link set changed. Deleting a source does
+not update its outgoing targets.
 
 ## Errors
 

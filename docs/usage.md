@@ -119,10 +119,9 @@ nt link <id> +<target-id>
 nt link <id> -<target-id>
 ```
 
-A real `nt link` addition or removal assigns the same update timestamp to its
-source and target notes. Adding an existing tag or link and removing a missing
-one succeeds without changing update timestamps. Self-links are rejected; links
-remain directional.
+A real `nt link` addition or removal updates its source note, not its target.
+Adding an existing tag or link and removing a missing one succeeds without
+changing update timestamps. Self-links are rejected; links remain directional.
 
 ## Remove
 
@@ -132,8 +131,9 @@ nt rm <id> <id> <id>
 ```
 
 Removal validates every ID before deleting any note. Missing or duplicate IDs
-leave all requested notes intact. Cascades remove tags and incoming and outgoing
-links.
+leave all requested notes intact. Before cascades remove incoming links,
+surviving source notes receive a new update timestamp because their outgoing-link
+sets changed. Deleting a source does not update its outgoing targets.
 
 ## Shell Composition
 

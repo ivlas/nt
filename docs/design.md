@@ -125,8 +125,9 @@ Command handlers orchestrate narrow repository operations and do not issue SQL.
 Existence and conflict checks happen inside each mutation transaction. Body
 replacement uses an expected body version; only body changes increment that
 version. Metadata mutations update `updated` only when canonical state changes.
-A real `nt link` change assigns the same timestamp to both endpoint notes
-without creating a reverse link.
+A real `nt link` change updates only the source that owns the outgoing-link set.
+Deleting a target updates surviving sources before foreign-key cascades remove
+their outgoing edges; deleting a source does not update its outgoing targets.
 
 ## Interface
 

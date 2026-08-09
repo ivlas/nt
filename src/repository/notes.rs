@@ -165,6 +165,16 @@ impl Repository {
         for id in ids {
             pks.push(note_pk(&transaction, id)?);
         }
+        let updated = timestamp_now();
+        for pk in &pks {
+            transaction.execute(
+                "UPDATE notes SET updated = ?1
+                 WHERE pk IN (
+                     SELECT note_pk FROM note_links WHERE target_note_pk = ?2
+                 )",
+                params![updated.as_str(), pk],
+            )?;
+        }
         for pk in pks {
             transaction.execute("DELETE FROM notes WHERE pk = ?1", [pk])?;
         }
@@ -273,9 +283,9 @@ impl Repository {
         if target == id {
             return Err(NtError::SelfLink);
         }
-        let changed = match &operation {
+        let changed = match operation {
             AddOrRemove::Add(target) => {
-                let target_pk = note_pk(&transaction, target)?;
+                let target_pk = note_pk(&transaction, &target)?;
                 transaction.execute(
                     "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
                     params![source_pk, target_pk],
@@ -284,17 +294,11 @@ impl Repository {
             AddOrRemove::Remove(target) => transaction.execute(
                 "DELETE FROM note_links
                  WHERE note_pk = ?1 AND target_note_pk =
-                      (SELECT pk FROM notes WHERE id = ?2)",
+                     (SELECT pk FROM notes WHERE id = ?2)",
                 params![source_pk, target.to_string()],
             )?,
         } != 0;
-        if changed {
-            let updated = timestamp_now();
-            transaction.execute(
-                "UPDATE notes SET updated = ?1 WHERE id IN (?2, ?3)",
-                params![updated.as_str(), id.to_string(), target.to_string()],
-            )?;
-        }
+        touch_if_changed(&transaction, id, changed)?;
         transaction.commit()?;
         Ok(changed)
     }
@@ -963,7 +967,7 @@ mod tests {
     }
 
     #[test]
-    fn link_changes_touch_both_endpoints_only_when_the_edge_changes() {
+    fn link_changes_touch_only_the_source_when_the_edge_changes() {
         let mut repository = repository();
         let target = repository
             .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
@@ -986,9 +990,11 @@ mod tests {
                 .unwrap()
         );
         let source_updated = repository.get_note(&source).unwrap().updated().clone();
-        let target_updated = repository.get_note(&target).unwrap().updated().clone();
-        assert_eq!(source_updated, target_updated);
         assert_ne!(source_updated.as_str(), old);
+        assert_eq!(
+            repository.get_note(&target).unwrap().updated().as_str(),
+            old
+        );
 
         assert!(
             !repository
@@ -1000,8 +1006,8 @@ mod tests {
             &source_updated
         );
         assert_eq!(
-            repository.get_note(&target).unwrap().updated(),
-            &target_updated
+            repository.get_note(&target).unwrap().updated().as_str(),
+            old
         );
 
         repository
@@ -1017,9 +1023,11 @@ mod tests {
                 .unwrap()
         );
         let source_updated = repository.get_note(&source).unwrap().updated().clone();
-        let target_updated = repository.get_note(&target).unwrap().updated().clone();
-        assert_eq!(source_updated, target_updated);
         assert_ne!(source_updated.as_str(), old);
+        assert_eq!(
+            repository.get_note(&target).unwrap().updated().as_str(),
+            old
+        );
 
         assert!(
             !repository
@@ -1031,8 +1039,8 @@ mod tests {
             &source_updated
         );
         assert_eq!(
-            repository.get_note(&target).unwrap().updated(),
-            &target_updated
+            repository.get_note(&target).unwrap().updated().as_str(),
+            old
         );
     }
 
@@ -1049,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_link_to_a_deleted_target_is_idempotent() {
+    fn deleting_a_target_touches_surviving_sources_but_not_outgoing_targets() {
         let mut repository = repository();
         let target = repository
             .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
@@ -1061,13 +1069,56 @@ mod tests {
                     .with_links([target.clone()]),
             )
             .unwrap();
+        let old = "2026-01-01T00:00:00Z";
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = ?1 WHERE id IN (?2, ?3)",
+                params![old, source.to_string(), target.to_string()],
+            )
+            .unwrap();
         repository
             .delete_notes(std::slice::from_ref(&target))
             .unwrap();
+        let source_updated = repository.get_note(&source).unwrap().updated().clone();
+        assert_ne!(source_updated.as_str(), old);
         assert!(
             !repository
                 .change_link(&source, AddOrRemove::Remove(target))
                 .unwrap()
+        );
+        assert_eq!(
+            repository.get_note(&source).unwrap().updated(),
+            &source_updated
+        );
+
+        let outgoing_target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Outgoing target").unwrap())
+            .unwrap();
+        let deleted_source = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# Deleted source")
+                    .unwrap()
+                    .with_links([outgoing_target.clone()]),
+            )
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = ?1 WHERE id = ?2",
+                params![old, outgoing_target.to_string()],
+            )
+            .unwrap();
+        repository
+            .delete_notes(std::slice::from_ref(&deleted_source))
+            .unwrap();
+        assert_eq!(
+            repository
+                .get_note(&outgoing_target)
+                .unwrap()
+                .updated()
+                .as_str(),
+            old
         );
     }
 
