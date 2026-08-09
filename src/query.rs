@@ -235,7 +235,15 @@ mod tests {
 
     #[test]
     fn rejects_bare_unknown_and_malformed_filters() {
-        for value in ["rust", "kind:note", "id:", "id:ABC", "not:"] {
+        for value in [
+            "rust",
+            "kind:note",
+            "id:",
+            "id:ABC",
+            "id:0198abcd0",
+            "id:0198abcd-0000-7000-8000-0000000000000",
+            "not:",
+        ] {
             assert!(NoteQuery::parse_list(&[value.to_string()]).is_err());
         }
     }

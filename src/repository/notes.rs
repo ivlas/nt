@@ -431,8 +431,9 @@ fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
 fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
     match filter {
         Filter::IdPrefix(prefix) => {
-            let parameter = push_parameter(parameters, prefix);
-            format!("substr(n.id, 1, length(?{parameter})) = ?{parameter}")
+            let lower = push_parameter(parameters, prefix);
+            let upper = push_parameter(parameters, &prefix_upper_bound(prefix));
+            format!("n.id >= ?{lower} AND n.id < ?{upper}")
         }
         Filter::Collection(collection) => {
             let parameter = push_parameter(parameters, collection.as_str());
@@ -474,6 +475,14 @@ fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
     }
 }
 
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut upper = prefix.as_bytes().to_vec();
+    *upper
+        .last_mut()
+        .expect("validated ID prefixes are nonempty") += 1;
+    String::from_utf8(upper).expect("validated ID prefixes are ASCII")
+}
+
 fn push_parameter(parameters: &mut Vec<Value>, value: &str) -> usize {
     parameters.push(Value::Text(value.to_string()));
     parameters.len()
@@ -502,6 +511,20 @@ mod tests {
             })
             .unwrap();
         summaries
+    }
+
+    fn query_plan(
+        connection: &rusqlite::Connection,
+        sql: &str,
+        parameters: impl rusqlite::Params,
+    ) -> Vec<String> {
+        connection
+            .prepare(sql)
+            .unwrap()
+            .query_map(parameters, |row| row.get(3))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
     }
 
     #[test]
@@ -777,6 +800,159 @@ mod tests {
         let notes = summaries(&repository, &query);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title(), "Rust");
+    }
+
+    #[test]
+    fn id_prefix_filters_preserve_matching_composition_and_ordering() {
+        let repository = repository();
+        let first: NoteId = "0198abcd-0000-7000-8000-000000000001".parse().unwrap();
+        let second: NoteId = "0198abcd-0000-7000-8000-000000000002".parse().unwrap();
+        let third: NoteId = "0198abcd-1000-7000-8000-000000000003".parse().unwrap();
+        repository
+            .connection
+            .execute_batch(
+                "INSERT INTO notes(id, collection, body, title, created, updated) VALUES
+                     ('0198abcd-0000-7000-8000-000000000001', 'work/nt',
+                      '# First\nSQLite prefix audit', 'First',
+                      '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z'),
+                     ('0198abcd-0000-7000-8000-000000000002', 'inbox',
+                      '# Second\nOther prefix audit', 'Second',
+                      '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'),
+                     ('0198abcd-1000-7000-8000-000000000003', 'work/nt',
+                      '# Third\nSQLite prefix audit', 'Third',
+                      '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z');
+                 INSERT INTO note_tags(note_pk, tag)
+                 SELECT pk, 'rust' FROM notes
+                 WHERE id IN (
+                     '0198abcd-0000-7000-8000-000000000001',
+                     '0198abcd-1000-7000-8000-000000000003'
+                 )",
+            )
+            .unwrap();
+
+        let ids = |query: NoteQuery| {
+            summaries(&repository, &query)
+                .into_iter()
+                .map(|summary| summary.id().clone())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            ids(NoteQuery::parse_list(&["id:0198".to_string()]).unwrap()),
+            [third.clone(), first.clone(), second.clone()]
+        );
+        assert_eq!(
+            ids(NoteQuery::parse_list(&["id:0198abcd-0".to_string()]).unwrap()),
+            [first.clone(), second]
+        );
+        assert_eq!(
+            ids(NoteQuery::parse_list(&[format!("id:{first}")]).unwrap()),
+            std::slice::from_ref(&first)
+        );
+        assert!(ids(NoteQuery::parse_list(&["id:0199".to_string()]).unwrap()).is_empty());
+
+        let tagged =
+            NoteQuery::parse_list(&["id:0198".to_string(), "tag:rust".to_string()]).unwrap();
+        assert_eq!(ids(tagged), [third.clone(), first.clone()]);
+
+        let found = NoteQuery::parse_find(&["sqlite".to_string(), "id:0198".to_string()]).unwrap();
+        assert_eq!(ids(found), [third, first]);
+    }
+
+    #[test]
+    #[ignore = "manual 20,000-note query-plan audit"]
+    fn audit_id_prefix_query_plans_at_representative_scale() {
+        let repository = repository();
+        repository
+            .connection
+            .execute_batch(
+                "WITH RECURSIVE generated(x) AS (
+                     VALUES(0)
+                     UNION ALL
+                     SELECT x + 1 FROM generated WHERE x < 19999
+                 )
+                 INSERT INTO notes(id, collection, body, title, created, updated)
+                 SELECT printf(
+                            '0198abcd-%04x-7%03x-8%03x-%012x',
+                            x, x % 4096, x / 4096, x
+                        ),
+                        CASE x % 3
+                            WHEN 0 THEN 'inbox'
+                            WHEN 1 THEN 'work/nt'
+                            ELSE 'research/sqlite'
+                        END,
+                        printf('# Audit note %d\nSQLite prefix retrieval', x),
+                        printf('Audit note %d', x),
+                        strftime('%Y-%m-%dT%H:%M:%SZ', 1767225600 + x, 'unixepoch'),
+                        strftime(
+                            '%Y-%m-%dT%H:%M:%SZ',
+                            1767225600 + ((x * 7919) % 20000),
+                            'unixepoch'
+                        )
+                 FROM generated",
+            )
+            .unwrap();
+        assert_eq!(
+            repository
+                .connection
+                .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            20_000
+        );
+
+        println!("SQLite {}", rusqlite::version());
+        let baseline = query_plan(
+            &repository.connection,
+            "EXPLAIN QUERY PLAN
+             SELECT n.id, n.updated FROM notes n
+             ORDER BY n.updated DESC, n.id DESC",
+            [],
+        );
+        println!("unfiltered baseline: {baseline:?}");
+        for (name, prefix) in [
+            ("short", "0198"),
+            ("medium", "0198abcd-1"),
+            ("almost-full", "0198abcd-1234-7234-8001-00000000123"),
+            ("full", "0198abcd-1234-7234-8001-000000001234"),
+        ] {
+            let before = query_plan(
+                &repository.connection,
+                "EXPLAIN QUERY PLAN
+                 SELECT n.id, n.updated FROM notes n
+                 WHERE substr(n.id, 1, length(?1)) = ?1
+                 ORDER BY n.updated DESC, n.id DESC",
+                [prefix],
+            );
+            let upper = prefix_upper_bound(prefix);
+            let after = query_plan(
+                &repository.connection,
+                "EXPLAIN QUERY PLAN
+                 SELECT n.id, n.updated FROM notes n
+                 WHERE n.id >= ?1 AND n.id < ?2
+                 ORDER BY n.updated DESC, n.id DESC",
+                params![prefix, upper],
+            );
+            let before_count = repository
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM notes
+                     WHERE substr(id, 1, length(?1)) = ?1",
+                    [prefix],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap();
+            let after_count = repository
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM notes WHERE id >= ?1 AND id < ?2",
+                    params![prefix, prefix_upper_bound(prefix)],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap();
+
+            assert_eq!(before_count, after_count);
+            println!("{name} ({before_count} matches)\n  before: {before:?}\n  after: {after:?}");
+        }
     }
 
     #[test]
