@@ -82,7 +82,8 @@ same filters and one or more lexical terms:
 id:<prefix>
 collection:<path>
 tag:<tag>
-link:<id>
+links-to:<id>
+linked-from:<id>
 created-since:<timestamp>
 updated-since:<timestamp>
 not:<filter>
@@ -95,6 +96,18 @@ or negated. Without `limit:`, `list` and `find` return every matching note. An
 explicit limit selects the first N results in normal order and is applied by
 SQLite. Unknown fields, malformed filters, invalid limits, and negated lexical
 terms are errors.
+
+Directional link filters select opposite sides of the same stored edge:
+
+```text
+links-to:<target>      notes that point to target
+linked-from:<source>   notes pointed to by source
+```
+
+Both require a full canonical lowercase UUIDv7 note ID. A valid source ID that
+does not exist, or identifies a note with no outgoing links, produces zero
+matches. Directional filtering remains non-recursive and does not add incoming
+link metadata or link targets to summary columns.
 
 Bare `find` arguments are split into Unicode letter-or-digit runs, deduplicated,
 quoted as FTS literals, and AND-combined. Matching is complete-token,
@@ -138,9 +151,11 @@ nt link <id> +01989abc-...
 nt link <id> -01989abc-...
 ```
 
-Moves, tag changes, and link changes are transactional. Adding an existing set
-value or removing a missing one succeeds without changing `updated`. Self-links
-are errors. Links are directional.
+Moves, tag changes, and link changes are transactional. A real `nt link`
+addition or removal assigns the same new `updated` timestamp to both source and
+target. Adding an existing set value or removing a missing one succeeds without
+changing `updated` on either endpoint. Self-links are errors. Links remain
+directional.
 
 Success output is exact:
 

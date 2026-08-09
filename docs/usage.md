@@ -56,6 +56,7 @@ nt list
 nt list collection:work/nt tag:rust
 nt list collection:work/nt limit:50
 nt list not:tag:archived
+nt list linked-from:<source-id>
 nt list tags
 nt list collections
 nt find 'ownership borrow' tag:rust
@@ -70,7 +71,8 @@ lexical terms. All expressions are AND-combined. Filters are:
 id:<prefix>
 collection:<path>
 tag:<tag>
-link:<id>
+links-to:<id>
+linked-from:<id>
 created-since:<timestamp>
 updated-since:<timestamp>
 not:<filter>
@@ -79,6 +81,11 @@ limit:<positive-integer>
 
 `list` and `find` return every match unless an explicit `limit:` is supplied.
 The limit selects the first N summaries in the normal deterministic order.
+`links-to:<target>` finds notes that point to a target; `linked-from:<source>`
+finds notes pointed to by a source. These filters describe the returned notes,
+inspect direct edges only, and require full canonical note IDs. A missing source
+or a source with no outgoing links returns no matches. Summaries keep the
+existing `outgoing` count column; they do not add an incoming-link count.
 
 Lexical search uses complete Unicode tokens. Punctuation separates terms and
 has no FTS operator meaning. Terms may occur in any order. Supported Latin
@@ -112,8 +119,10 @@ nt link <id> +<target-id>
 nt link <id> -<target-id>
 ```
 
-Adding an existing tag or link and removing a missing one succeeds without
-changing the note's update timestamp. Self-links are rejected.
+A real `nt link` addition or removal assigns the same update timestamp to its
+source and target notes. Adding an existing tag or link and removing a missing
+one succeeds without changing update timestamps. Self-links are rejected; links
+remain directional.
 
 ## Remove
 

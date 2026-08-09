@@ -6,7 +6,8 @@ pub enum Filter {
     IdPrefix(String),
     Collection(CollectionPath),
     Tag(Tag),
-    LinkedTo(NoteId),
+    LinksTo(NoteId),
+    LinkedFrom(NoteId),
     CreatedSince(Timestamp),
     UpdatedSince(Timestamp),
     Not(Box<Filter>),
@@ -128,7 +129,8 @@ fn parse_filter(expression: &str) -> Result<Filter> {
         "id" => Ok(Filter::IdPrefix(parse_id_prefix(value)?)),
         "collection" => Ok(Filter::Collection(value.parse()?)),
         "tag" => Ok(Filter::Tag(value.parse()?)),
-        "link" => Ok(Filter::LinkedTo(value.parse()?)),
+        "links-to" => Ok(Filter::LinksTo(value.parse()?)),
+        "linked-from" => Ok(Filter::LinkedFrom(value.parse()?)),
         "created-since" => Ok(Filter::CreatedSince(value.parse()?)),
         "updated-since" => Ok(Filter::UpdatedSince(value.parse()?)),
         _ => invalid_filter(expression),
@@ -199,6 +201,36 @@ mod tests {
         assert_eq!(query.filters().len(), 3);
         assert!(matches!(query.filters()[2], Filter::Not(_)));
         assert_eq!(query.limit(), Some(50));
+    }
+
+    #[test]
+    fn parses_directional_link_filters_with_canonical_note_ids() {
+        let id = "018fbe0a-6c00-7000-8000-000000000001";
+        let query = NoteQuery::parse_list(&[format!("links-to:{id}"), format!("linked-from:{id}")])
+            .unwrap();
+
+        assert_eq!(
+            query.filters(),
+            [
+                Filter::LinksTo(id.parse().unwrap()),
+                Filter::LinkedFrom(id.parse().unwrap()),
+            ]
+        );
+        assert!(NoteQuery::parse_list(&[format!("link:{id}")]).is_err());
+        assert!(NoteQuery::parse_list(&[format!("incoming:{id}")]).is_err());
+        assert!(NoteQuery::parse_list(&[format!("outgoing:{id}")]).is_err());
+    }
+
+    #[test]
+    fn directional_link_filters_share_exact_note_id_validation() {
+        for id in [
+            "not-an-id",
+            "018fbe0a-6c00-4000-8000-000000000001",
+            "018FBE0A-6C00-7000-8000-000000000001",
+        ] {
+            assert!(NoteQuery::parse_list(&[format!("links-to:{id}")]).is_err());
+            assert!(NoteQuery::parse_list(&[format!("linked-from:{id}")]).is_err());
+        }
     }
 
     #[test]

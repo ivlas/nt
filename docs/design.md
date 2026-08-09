@@ -125,6 +125,8 @@ Command handlers orchestrate narrow repository operations and do not issue SQL.
 Existence and conflict checks happen inside each mutation transaction. Body
 replacement uses an expected body version; only body changes increment that
 version. Metadata mutations update `updated` only when canonical state changes.
+A real `nt link` change assigns the same timestamp to both endpoint notes
+without creating a reverse link.
 
 ## Interface
 
@@ -153,6 +155,15 @@ compiled to bound SQL parameters. `list` accepts only structured filters;
 `find` adds literal lexical terms. Expressions are AND-combined and ordered by
 `updated DESC, id DESC`. Note retrieval is complete by default. An optional,
 strictly positive `limit:` applies an explicit SQL result bound.
+
+Directional link filters operate on one edge only and describe the returned
+notes. `links-to:<target>` selects notes that point to the target, while
+`linked-from:<source>` selects notes pointed to by the source. Both compile
+through the shared query model to SQL over the integer note primary keys and
+`note_links`; links are not loaded into Rust for filtering. A canonical source
+ID absent from `notes` has normal query semantics and returns no matches.
+Summaries retain only the outgoing-link count; incoming-link metadata is not
+projected into every result row.
 
 Each summary query returns the note fields, its complete tag set, and outgoing
 link count in one SQLite row without selecting the body. Redirected commands

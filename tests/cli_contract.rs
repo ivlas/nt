@@ -116,7 +116,7 @@ fn complete_cli_workflow_matches_the_stable_contract() {
             "list",
             "collection:research/sqlite",
             "tag:rust",
-            &format!("link:{target}"),
+            &format!("links-to:{target}"),
         ],
         None,
     );
@@ -137,6 +137,18 @@ fn complete_cli_workflow_matches_the_stable_contract() {
         &["rust", "sqlite"],
         1,
     );
+    let linked_target = success(
+        home.path(),
+        &["list", &format!("linked-from:{source}")],
+        None,
+    );
+    assert_summary_row(&linked_target, &target, "inbox", "Target", &[], 0);
+    let found_target = success(
+        home.path(),
+        &["find", "target", &format!("linked-from:{source}")],
+        None,
+    );
+    assert_summary_row(&found_target, &target, "inbox", "Target", &[], 0);
     assert_eq!(
         success(home.path(), &["list", "tags"], None),
         "\"rust\"\n\"sqlite\"\n"

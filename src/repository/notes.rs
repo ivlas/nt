@@ -273,9 +273,9 @@ impl Repository {
         if target == id {
             return Err(NtError::SelfLink);
         }
-        let changed = match operation {
+        let changed = match &operation {
             AddOrRemove::Add(target) => {
-                let target_pk = note_pk(&transaction, &target)?;
+                let target_pk = note_pk(&transaction, target)?;
                 transaction.execute(
                     "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
                     params![source_pk, target_pk],
@@ -284,11 +284,17 @@ impl Repository {
             AddOrRemove::Remove(target) => transaction.execute(
                 "DELETE FROM note_links
                  WHERE note_pk = ?1 AND target_note_pk =
-                     (SELECT pk FROM notes WHERE id = ?2)",
+                      (SELECT pk FROM notes WHERE id = ?2)",
                 params![source_pk, target.to_string()],
             )?,
         } != 0;
-        touch_if_changed(&transaction, id, changed)?;
+        if changed {
+            let updated = timestamp_now();
+            transaction.execute(
+                "UPDATE notes SET updated = ?1 WHERE id IN (?2, ?3)",
+                params![updated.as_str(), id.to_string(), target.to_string()],
+            )?;
+        }
         transaction.commit()?;
         Ok(changed)
     }
@@ -435,12 +441,21 @@ fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {
                  WHERE filter_tags.note_pk = n.pk AND filter_tags.tag = ?{parameter})"
             )
         }
-        Filter::LinkedTo(target) => {
+        Filter::LinksTo(target) => {
             let parameter = push_parameter(parameters, &target.to_string());
             format!(
                 "EXISTS (SELECT 1 FROM note_links filter_links
                  JOIN notes filter_target ON filter_target.pk = filter_links.target_note_pk
                  WHERE filter_links.note_pk = n.pk AND filter_target.id = ?{parameter})"
+            )
+        }
+        Filter::LinkedFrom(source) => {
+            let parameter = push_parameter(parameters, &source.to_string());
+            format!(
+                "n.pk IN (SELECT filter_links.target_note_pk
+                 FROM notes filter_source
+                 JOIN note_links filter_links ON filter_links.note_pk = filter_source.pk
+                 WHERE filter_source.id = ?{parameter})"
             )
         }
         Filter::CreatedSince(timestamp) => {
@@ -761,6 +776,97 @@ mod tests {
     }
 
     #[test]
+    fn directional_link_filters_compose_and_preserve_order_and_limits() {
+        let mut repository = repository();
+        let b = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# B\nsqlite target")
+                    .unwrap()
+                    .with_tags(["rust".parse().unwrap()]),
+            )
+            .unwrap();
+        let c = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# C\nother target").unwrap())
+            .unwrap();
+        let a = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# A\nsource")
+                    .unwrap()
+                    .with_links([b.clone(), c.clone()]),
+            )
+            .unwrap();
+        let d = repository
+            .create_note(
+                NewNote::new(CollectionPath::inbox(), "# D\nsource")
+                    .unwrap()
+                    .with_links([b.clone()]),
+            )
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-01T00:00:00Z' WHERE id IN (?1, ?2)",
+                params![b.to_string(), c.to_string()],
+            )
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = '2026-01-02T00:00:00Z' WHERE id IN (?1, ?2)",
+                params![a.to_string(), d.to_string()],
+            )
+            .unwrap();
+
+        let ids = |query: NoteQuery| {
+            summaries(&repository, &query)
+                .into_iter()
+                .map(|summary| summary.id().clone())
+                .collect::<Vec<_>>()
+        };
+        let mut expected_sources = vec![a.clone(), d.clone()];
+        expected_sources.sort_by_key(|id| std::cmp::Reverse(id.to_string()));
+        let mut expected_targets = vec![b.clone(), c.clone()];
+        expected_targets.sort_by_key(|id| std::cmp::Reverse(id.to_string()));
+
+        assert_eq!(
+            ids(NoteQuery::parse_list(&[format!("links-to:{b}")]).unwrap()),
+            expected_sources
+        );
+        assert_eq!(
+            ids(NoteQuery::parse_list(&[format!("linked-from:{a}")]).unwrap()),
+            expected_targets
+        );
+        assert_eq!(
+            ids(NoteQuery::parse_list(&[format!("linked-from:{d}")]).unwrap()),
+            std::slice::from_ref(&b)
+        );
+        assert!(ids(NoteQuery::parse_list(&[format!("linked-from:{c}")]).unwrap()).is_empty());
+
+        let tagged =
+            NoteQuery::parse_list(&[format!("linked-from:{a}"), "tag:rust".to_string()]).unwrap();
+        assert_eq!(ids(tagged), std::slice::from_ref(&b));
+
+        let found =
+            NoteQuery::parse_find(&["sqlite".to_string(), format!("linked-from:{a}")]).unwrap();
+        assert_eq!(ids(found), std::slice::from_ref(&b));
+
+        let excluded = NoteQuery::parse_list(&[format!("not:linked-from:{a}")]).unwrap();
+        assert_eq!(
+            ids(excluded).into_iter().collect::<BTreeSet<_>>(),
+            [a.clone(), d.clone()].into_iter().collect()
+        );
+
+        let limited =
+            NoteQuery::parse_list(&[format!("linked-from:{a}"), "limit:1".to_string()]).unwrap();
+        assert_eq!(ids(limited), expected_targets[..1]);
+
+        let missing = "018fbe0a-6c00-7000-8000-000000000001";
+        assert!(
+            ids(NoteQuery::parse_list(&[format!("linked-from:{missing}")]).unwrap()).is_empty()
+        );
+    }
+
+    #[test]
     fn body_updates_detect_conflicts_but_metadata_does_not_create_them() {
         let mut repository = repository();
         let id = repository
@@ -854,6 +960,80 @@ mod tests {
         );
         let query = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
         assert_eq!(summaries(&repository, &query).len(), 1);
+    }
+
+    #[test]
+    fn link_changes_touch_both_endpoints_only_when_the_edge_changes() {
+        let mut repository = repository();
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        let source = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+            .unwrap();
+        let old = "2026-01-01T00:00:00Z";
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = ?1 WHERE id IN (?2, ?3)",
+                params![old, source.to_string(), target.to_string()],
+            )
+            .unwrap();
+
+        assert!(
+            repository
+                .change_link(&source, AddOrRemove::Add(target.clone()))
+                .unwrap()
+        );
+        let source_updated = repository.get_note(&source).unwrap().updated().clone();
+        let target_updated = repository.get_note(&target).unwrap().updated().clone();
+        assert_eq!(source_updated, target_updated);
+        assert_ne!(source_updated.as_str(), old);
+
+        assert!(
+            !repository
+                .change_link(&source, AddOrRemove::Add(target.clone()))
+                .unwrap()
+        );
+        assert_eq!(
+            repository.get_note(&source).unwrap().updated(),
+            &source_updated
+        );
+        assert_eq!(
+            repository.get_note(&target).unwrap().updated(),
+            &target_updated
+        );
+
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET updated = ?1 WHERE id IN (?2, ?3)",
+                params![old, source.to_string(), target.to_string()],
+            )
+            .unwrap();
+        assert!(
+            repository
+                .change_link(&source, AddOrRemove::Remove(target.clone()))
+                .unwrap()
+        );
+        let source_updated = repository.get_note(&source).unwrap().updated().clone();
+        let target_updated = repository.get_note(&target).unwrap().updated().clone();
+        assert_eq!(source_updated, target_updated);
+        assert_ne!(source_updated.as_str(), old);
+
+        assert!(
+            !repository
+                .change_link(&source, AddOrRemove::Remove(target.clone()))
+                .unwrap()
+        );
+        assert_eq!(
+            repository.get_note(&source).unwrap().updated(),
+            &source_updated
+        );
+        assert_eq!(
+            repository.get_note(&target).unwrap().updated(),
+            &target_updated
+        );
     }
 
     #[test]
