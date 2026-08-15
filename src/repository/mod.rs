@@ -8,10 +8,15 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{NtError, Result};
 use crate::fs::database_path;
 
-mod notes;
+#[cfg(test)]
+mod behavior_tests;
+mod note_store;
+mod query_sql;
+mod relationships;
 mod schema;
+mod summaries;
 
-pub use notes::NoteSummary;
+pub use summaries::NoteSummary;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AddOrRemove<T> {
