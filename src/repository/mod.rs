@@ -65,19 +65,12 @@ fn initialize_at(path: &Path) -> Result<InitOutcome> {
 
 fn open_at(path: &Path) -> Result<Repository> {
     let connection = open_existing(path)?;
-    match inspect(&connection)? {
+    match schema::inspect(&connection)? {
         schema::Identity::Nt => {}
         schema::Identity::Empty => return Err(NtError::NotNtDatabase),
     }
     schema::configure(&connection)?;
     Ok(Repository { connection })
-}
-
-fn inspect(connection: &Connection) -> Result<schema::Identity> {
-    match schema::inspect(connection) {
-        Err(NtError::Database(_)) => Err(NtError::NotNtDatabase),
-        result => result,
-    }
 }
 
 fn create_empty_if_missing(path: &Path) -> Result<()> {
@@ -181,6 +174,19 @@ mod tests {
         let before = fs::read(&path).unwrap();
         assert!(matches!(initialize_at(&path), Err(NtError::NotNtDatabase)));
         assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn corrupt_database_errors_are_not_reported_as_foreign_schema() {
+        for operation in [initialize_at as fn(&Path) -> Result<InitOutcome>, |path| {
+            open_at(path).map(|_| InitOutcome::AlreadyInitialized)
+        }] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("corrupt.sqlite3");
+            fs::write(&path, b"not a sqlite database").unwrap();
+
+            assert!(matches!(operation(&path), Err(NtError::CorruptDatabase(_))));
+        }
     }
 
     #[test]

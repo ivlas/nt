@@ -9,9 +9,11 @@ pub enum NtError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("database error: {0}")]
-    Database(rusqlite::Error),
+    Database(#[source] rusqlite::Error),
     #[error("database is busy; retry")]
     DatabaseBusy,
+    #[error("database is corrupt")]
+    CorruptDatabase(#[source] rusqlite::Error),
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run nt init first")]
@@ -50,17 +52,51 @@ pub enum NtError {
 
 impl From<rusqlite::Error> for NtError {
     fn from(error: rusqlite::Error) -> Self {
-        if let rusqlite::Error::SqliteFailure(sqlite_error, _) = &error
-            && matches!(
-                sqlite_error.code,
-                rusqlite::ffi::ErrorCode::DatabaseBusy | rusqlite::ffi::ErrorCode::DatabaseLocked
-            )
-        {
-            Self::DatabaseBusy
-        } else {
-            Self::Database(error)
+        if let rusqlite::Error::SqliteFailure(sqlite_error, _) = &error {
+            match sqlite_error.code {
+                rusqlite::ffi::ErrorCode::DatabaseBusy
+                | rusqlite::ffi::ErrorCode::DatabaseLocked => return Self::DatabaseBusy,
+                rusqlite::ffi::ErrorCode::DatabaseCorrupt
+                | rusqlite::ffi::ErrorCode::NotADatabase => {
+                    return Self::CorruptDatabase(error);
+                }
+                _ => {}
+            }
         }
+        Self::Database(error)
     }
 }
 
 pub type Result<T> = std::result::Result<T, NtError>;
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use super::NtError;
+
+    #[test]
+    fn sqlite_failures_keep_stable_operational_categories() {
+        for code in [rusqlite::ffi::SQLITE_BUSY, rusqlite::ffi::SQLITE_LOCKED] {
+            assert!(matches!(
+                NtError::from(sqlite_failure(code)),
+                NtError::DatabaseBusy
+            ));
+        }
+        for code in [rusqlite::ffi::SQLITE_CORRUPT, rusqlite::ffi::SQLITE_NOTADB] {
+            let error = NtError::from(sqlite_failure(code));
+            assert!(matches!(error, NtError::CorruptDatabase(_)));
+            assert_eq!(error.to_string(), "database is corrupt");
+            assert!(error.source().is_some());
+        }
+
+        assert!(matches!(
+            NtError::from(sqlite_failure(rusqlite::ffi::SQLITE_IOERR)),
+            NtError::Database(_)
+        ));
+    }
+
+    fn sqlite_failure(code: i32) -> rusqlite::Error {
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None)
+    }
+}
