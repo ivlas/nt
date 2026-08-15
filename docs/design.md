@@ -15,6 +15,8 @@ SQLite at `$HOME/.nt/nt.sqlite3` is canonical. Markdown exists at the interface
 boundary; there is no canonical Markdown filesystem or rebuild workflow. Public
 note IDs are lowercase UUIDv7 values. Internal integer keys may be used for
 joins and FTS row IDs.
+The home-directory environment path must be non-empty and absolute so canonical
+storage cannot resolve relative to the working directory.
 
 There are no note kinds, todos, agenda behavior, vaults, collection entities,
 many-to-many memberships, sources, generic metadata, configurable projections,
@@ -148,6 +150,9 @@ version. Metadata mutations update `updated` only when canonical state changes.
 A real `nt link` change updates only the source that owns the outgoing-link set.
 Deleting a target updates surviving sources before foreign-key cascades remove
 their outgoing edges; deleting a source does not update its outgoing targets.
+Timestamps are UTC wall-clock values with one-second resolution and are not a
+monotonic mutation sequence. Multiple changes may share `updated`, and system
+clock adjustments may move it backward.
 
 `Repository` remains a concrete facade rather than a trait hierarchy. Note
 storage and rehydration, relationship mutations, summary projection, and query

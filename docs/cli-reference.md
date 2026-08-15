@@ -30,6 +30,7 @@ UUID prefix and return every match.
 `nt init` is the only command that creates `$HOME/.nt`, the database file, or
 schema objects. It prints `initialized` for a new database and
 `already initialized` for a valid existing database.
+`HOME`, or the `USERPROFILE` fallback, must be a non-empty absolute path.
 
 Ordinary commands do not create storage. They validate application ID
 `0x4e544e54` and clean-sheet schema version `1` before operating.
@@ -115,7 +116,9 @@ case-folded, and Latin-diacritic-insensitive where supported by SQLite
 `unicode61`. There is no raw FTS syntax, prefix expansion, ranking, scoring,
 fuzzy matching, or metadata substring fallback.
 
-Results are ordered by `updated DESC, id DESC` and use columns:
+Results are ordered by `updated DESC, id DESC`. Timestamps have one-second
+resolution, so changes within one second can tie. Descending ID makes those ties
+deterministic but does not represent their mutation order. Results use columns:
 
 ```text
 id    updated    collection    title    tags    outgoing
@@ -174,11 +177,12 @@ not update its outgoing targets.
 
 ## Errors
 
-Operational errors write `error: <message>` to stderr, return nonzero, and do
-not print to stdout. Stable messages are:
+Operational errors write `error: <message>` to stderr and return nonzero. Errors
+before success-output writing do not print to stdout. Stable messages are:
 
 ```text
 error: run nt init first
+error: home directory not found
 error: database is not an nt database
 error: database is corrupt
 error: system clock is outside the supported timestamp range
@@ -197,6 +201,12 @@ error: editor exited unsuccessfully
 error: duplicate note id: <id>
 error: cannot link note to itself
 ```
+
+Database commits and success-output writes cannot be atomic. If success output
+fails after a mutation commits, nt returns nonzero with `error: operation
+committed but success output failed: <io error>`. The mutation remains committed,
+stdout may contain a partial acknowledgment, and blindly retrying `add` can
+create a duplicate note.
 
 During SQLite inspection, `database is not an nt database` is reserved for
 recognized application-identity or schema-shape mismatches. Corrupt or malformed

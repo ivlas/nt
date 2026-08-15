@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::note::{NoteId, timestamp_now};
 use crate::repository::Repository;
 
-use super::App;
+use super::{App, write_commit_output};
 
 pub(super) fn edit(app: &mut App<'_>, id: &str, body_arguments: &[String]) -> Result<()> {
     let id: NoteId = id.parse()?;
@@ -15,6 +15,6 @@ pub(super) fn edit(app: &mut App<'_>, id: &str, body_arguments: &[String]) -> Re
     } else {
         repository.verify_body_version(&id, expected_version)?;
     }
-    writeln!(app.output, "updated {id}")?;
+    write_commit_output(app.output, format_args!("updated {id}\n"))?;
     Ok(())
 }

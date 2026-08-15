@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -61,6 +62,12 @@ where
     })
 }
 
+fn write_commit_output(output: &mut dyn Write, arguments: fmt::Arguments<'_>) -> Result<()> {
+    output
+        .write_fmt(arguments)
+        .map_err(NtError::CommittedButOutputFailed)
+}
+
 pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
     match cli.command {
         None => crate::cli::help::print(&[], app.output),
@@ -81,6 +88,7 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::io::{self, Cursor, Write};
+    use std::path::Path;
 
     use clap::Parser;
 
@@ -88,6 +96,8 @@ mod tests {
     use crate::cli::Cli;
     use crate::error::NtError;
     use crate::input::Input;
+    use crate::note::{CollectionPath, NewNote};
+    use crate::query::NoteQuery;
     use crate::repository::Repository;
 
     #[test]
@@ -142,18 +152,100 @@ mod tests {
     }
 
     #[test]
-    fn command_output_failures_are_returned() {
+    fn mutations_remain_committed_when_success_output_fails() {
         let directory = tempfile::tempdir().unwrap();
         let database_path = directory.path().join(".nt/nt.sqlite3");
-        let mut stdin = Cursor::new(Vec::new());
+
+        assert_committed_output_failure(&database_path, &["init"], "");
+        let repository = Repository::open_at(&database_path).unwrap();
+        drop(repository);
+
+        assert_committed_output_failure(&database_path, &["add"], "# Added");
+        let mut repository = Repository::open_at(&database_path).unwrap();
+        let mut summaries = Vec::new();
+        repository
+            .visit_note_summaries(&NoteQuery::default(), |summary| {
+                summaries.push(summary);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(summaries.len(), 1);
+        let id = summaries[0].id().clone();
+        assert_eq!(repository.get_note(&id).unwrap().body(), "# Added");
+        let target = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+            .unwrap();
+        drop(repository);
+
+        assert_committed_output_failure(&database_path, &["edit", &id.to_string()], "# Edited");
+        let mut repository = Repository::open_at(&database_path).unwrap();
+        assert_eq!(repository.get_note(&id).unwrap().body(), "# Edited");
+        drop(repository);
+
+        assert_committed_output_failure(&database_path, &["move", &id.to_string(), "work/nt"], "");
+        let repository = Repository::open_at(&database_path).unwrap();
+        let moved = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
+        let mut moved_ids = Vec::new();
+        repository
+            .visit_note_summaries(&moved, |summary| {
+                moved_ids.push(summary.id().clone());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(moved_ids.as_slice(), std::slice::from_ref(&id));
+        drop(repository);
+
+        assert_committed_output_failure(&database_path, &["tag", &id.to_string(), "+rust"], "");
+        let repository = Repository::open_at(&database_path).unwrap();
+        let tagged = NoteQuery::parse_list(&["tag:rust".to_string()]).unwrap();
+        let mut tagged_ids = Vec::new();
+        repository
+            .visit_note_summaries(&tagged, |summary| {
+                tagged_ids.push(summary.id().clone());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(tagged_ids.as_slice(), std::slice::from_ref(&id));
+        drop(repository);
+
+        assert_committed_output_failure(
+            &database_path,
+            &["link", &id.to_string(), &format!("+{target}")],
+            "",
+        );
+        let repository = Repository::open_at(&database_path).unwrap();
+        let mut outgoing = None;
+        repository
+            .visit_note_summaries(&NoteQuery::default(), |summary| {
+                if summary.id() == &id {
+                    outgoing = Some(summary.outgoing());
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(outgoing, Some(1));
+        drop(repository);
+
+        assert_committed_output_failure(&database_path, &["rm", &id.to_string()], "");
+        let mut repository = Repository::open_at(&database_path).unwrap();
+        assert!(matches!(
+            repository.get_note(&id),
+            Err(NtError::NoteNotFound(_))
+        ));
+        assert!(repository.get_note(&target).is_ok());
+    }
+
+    fn assert_committed_output_failure(path: &Path, arguments: &[&str], body: &str) {
+        let mut stdin = Cursor::new(body.as_bytes());
         let mut editor = |_| panic!("editor should not run");
         let input = Input::new(&mut stdin, false, &mut editor);
         let mut output = FailingWriter;
-        let mut app = App::new(Some(database_path), input, &mut output, false);
+        let mut app = App::new(Some(path.to_path_buf()), input, &mut output, false);
+        let cli = Cli::parse_from(std::iter::once("nt").chain(arguments.iter().copied()));
 
         assert!(matches!(
-            run(Cli::parse_from(["nt", "init"]), &mut app),
-            Err(NtError::Io(_))
+            run(cli, &mut app),
+            Err(NtError::CommittedButOutputFailed(_))
         ));
     }
 

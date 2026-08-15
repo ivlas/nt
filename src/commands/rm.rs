@@ -4,7 +4,7 @@ use crate::error::{NtError, Result};
 use crate::note::NoteId;
 use crate::repository::Repository;
 
-use super::App;
+use super::{App, write_commit_output};
 
 pub(super) fn rm(app: &mut App<'_>, ids: &[String]) -> Result<()> {
     let mut parsed = Vec::with_capacity(ids.len());
@@ -18,6 +18,6 @@ pub(super) fn rm(app: &mut App<'_>, ids: &[String]) -> Result<()> {
     }
     let mut repository = Repository::open_at(app.database_path()?)?;
     repository.delete_notes(&parsed)?;
-    writeln!(app.output, "removed {}", parsed.len())?;
+    write_commit_output(app.output, format_args!("removed {}\n", parsed.len()))?;
     Ok(())
 }

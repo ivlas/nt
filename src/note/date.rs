@@ -130,6 +130,14 @@ mod tests {
     }
 
     #[test]
+    fn timestamps_have_one_second_resolution() {
+        let first = timestamp_from_system_time(UNIX_EPOCH + Duration::from_millis(1_000)).unwrap();
+        let last = timestamp_from_system_time(UNIX_EPOCH + Duration::from_millis(1_999)).unwrap();
+        assert_eq!(first, last);
+        assert_eq!(first.as_str(), "1970-01-01T00:00:01Z");
+    }
+
+    #[test]
     fn rejects_system_times_before_the_unix_epoch() {
         assert!(matches!(
             timestamp_from_system_time(UNIX_EPOCH - Duration::from_secs(1)),

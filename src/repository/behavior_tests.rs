@@ -739,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn list_find_and_explicit_limits_preserve_deterministic_ordering() {
+    fn list_find_and_limits_break_timestamp_ties_by_descending_id() {
         let mut repository = repository();
         let first = repository
             .create_note(NewNote::new(CollectionPath::inbox(), "# First\nordered").unwrap())

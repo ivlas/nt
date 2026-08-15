@@ -71,6 +71,25 @@ fn seed_matching_notes(home: &Path, count: usize) {
 }
 
 #[test]
+fn invalid_home_values_cannot_create_working_directory_storage() {
+    for home in ["", "relative/home"] {
+        let working_directory = tempfile::tempdir().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_nt"))
+            .current_dir(working_directory.path())
+            .env("HOME", home)
+            .env_remove("USERPROFILE")
+            .arg("init")
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success());
+        assert_eq!(output.stdout, b"");
+        assert_eq!(output.stderr, b"error: home directory not found\n");
+        assert_eq!(working_directory.path().read_dir().unwrap().count(), 0);
+    }
+}
+
+#[test]
 fn complete_cli_workflow_matches_the_stable_contract() {
     let home = tempfile::tempdir().unwrap();
     assert_eq!(success(home.path(), &["init"], None), "initialized\n");

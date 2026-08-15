@@ -6,6 +6,8 @@ pub enum NtError {
     Message(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("operation committed but success output failed: {0}")]
+    CommittedButOutputFailed(#[source] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("database error: {0}")]

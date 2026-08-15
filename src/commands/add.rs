@@ -2,7 +2,7 @@ use crate::error::{NtError, Result};
 use crate::note::{CollectionPath, NewNote, NoteId, Tag};
 use crate::repository::Repository;
 
-use super::App;
+use super::{App, write_commit_output};
 
 pub(super) fn add(app: &mut App<'_>, metadata: &[String], body_arguments: &[String]) -> Result<()> {
     let mut repository = Repository::open_at(app.database_path()?)?;
@@ -12,7 +12,7 @@ pub(super) fn add(app: &mut App<'_>, metadata: &[String], body_arguments: &[Stri
         .with_tags(metadata.tags)
         .with_links(metadata.links);
     let id = repository.create_note(note)?;
-    writeln!(app.output, "saved {id}")?;
+    write_commit_output(app.output, format_args!("saved {id}\n"))?;
     Ok(())
 }
 

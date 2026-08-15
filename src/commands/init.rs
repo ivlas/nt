@@ -1,12 +1,13 @@
 use crate::error::Result;
 use crate::repository::{InitOutcome, Repository};
 
-use super::App;
+use super::{App, write_commit_output};
 
 pub(super) fn init(app: &mut App<'_>) -> Result<()> {
-    match Repository::initialize_at(app.database_path()?)? {
-        InitOutcome::Initialized => writeln!(app.output, "initialized")?,
-        InitOutcome::AlreadyInitialized => writeln!(app.output, "already initialized")?,
-    }
+    let message = match Repository::initialize_at(app.database_path()?)? {
+        InitOutcome::Initialized => "initialized",
+        InitOutcome::AlreadyInitialized => "already initialized",
+    };
+    write_commit_output(app.output, format_args!("{message}\n"))?;
     Ok(())
 }
