@@ -21,17 +21,33 @@ const SCHEMA_STEPS: &[&str] = &[
          created TEXT NOT NULL,
          updated TEXT NOT NULL,
          body_version INTEGER NOT NULL DEFAULT 1,
-         CHECK(length(collection) > 0),
+         CHECK(length(id) = 36
+               AND substr(id, 9, 1) = '-'
+               AND substr(id, 14, 1) = '-'
+               AND substr(id, 15, 1) = '7'
+               AND substr(id, 19, 1) = '-'
+               AND substr(id, 20, 1) IN ('8', '9', 'a', 'b')
+               AND substr(id, 24, 1) = '-'
+               AND length(replace(id, '-', '')) = 32
+               AND replace(id, '-', '') NOT GLOB '*[^0-9a-f]*'),
+         CHECK(length(collection) > 0
+               AND collection NOT GLOB '*[^a-z0-9_/-]*'
+               AND substr(collection, 1, 1) <> '/'
+               AND substr(collection, -1, 1) <> '/'
+               AND instr(collection, '//') = 0),
          CHECK(length(body) > 0),
          CHECK(length(title) > 0),
-         CHECK(length(created) = 20),
-         CHECK(length(updated) = 20),
+         CHECK(created GLOB
+               '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+         CHECK(updated GLOB
+               '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
          CHECK(body_version > 0)
      )",
     "CREATE TABLE note_tags (
          note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
          tag TEXT NOT NULL,
-         PRIMARY KEY(note_pk, tag)
+         PRIMARY KEY(note_pk, tag),
+         CHECK(length(tag) > 0 AND tag NOT GLOB '*[^a-z0-9_-]*')
      )",
     "CREATE TABLE note_links (
          note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
@@ -293,10 +309,12 @@ mod tests {
         connection
             .execute_batch(
                 "INSERT INTO notes(id, collection, body, title, created, updated)
-                     VALUES ('a', 'inbox', '# A', 'A', '2026-05-28T14:30:12Z',
+                     VALUES ('018fbe0a-6c00-7000-8000-000000000001',
+                             'inbox', '# A', 'A', '2026-05-28T14:30:12Z',
                              '2026-05-28T14:30:12Z');
                  INSERT INTO notes(id, collection, body, title, created, updated)
-                     VALUES ('b', 'inbox', '# B', 'B', '2026-05-28T14:30:12Z',
+                     VALUES ('018fbe0a-6c00-7000-8000-000000000002',
+                             'inbox', '# B', 'B', '2026-05-28T14:30:12Z',
                              '2026-05-28T14:30:12Z');
                  INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust');
                  INSERT INTO note_links(note_pk, target_note_pk) VALUES (1, 2);",
@@ -323,12 +341,71 @@ mod tests {
     }
 
     #[test]
+    fn schema_enforces_cheap_canonical_value_shapes() {
+        let connection = initialized();
+        let insert_note = |id: &str, collection: &str, created: &str, updated: &str| {
+            connection.execute(
+                "INSERT INTO notes(id, collection, body, title, created, updated)
+                 VALUES (?1, ?2, '# Valid', 'Valid', ?3, ?4)",
+                (id, collection, created, updated),
+            )
+        };
+        let valid_id = "018fbe0a-6c00-7000-8000-000000000001";
+        let valid_timestamp = "2026-05-28T14:30:12Z";
+
+        for id in [
+            "018fbe0a6c0070008000000000000001",
+            "018FBE0A-6C00-7000-8000-000000000001",
+            "018fbe0a-6c00-4000-8000-000000000001",
+            "018fbe0a-6c00-7000-c000-000000000001",
+        ] {
+            assert!(
+                insert_note(id, "inbox", valid_timestamp, valid_timestamp).is_err(),
+                "accepted invalid id {id:?}"
+            );
+        }
+        for collection in ["", "/inbox", "inbox/", "work//nt", "Work/nt", "work/a.b"] {
+            assert!(
+                insert_note(valid_id, collection, valid_timestamp, valid_timestamp).is_err(),
+                "accepted invalid collection {collection:?}"
+            );
+        }
+        for timestamp in ["2026/05/28T14:30:12Z", "2026-05-28 14:30:12Z"] {
+            assert!(
+                insert_note(valid_id, "inbox", timestamp, valid_timestamp).is_err(),
+                "accepted invalid timestamp {timestamp:?}"
+            );
+            assert!(
+                insert_note(valid_id, "inbox", valid_timestamp, timestamp).is_err(),
+                "accepted invalid timestamp {timestamp:?}"
+            );
+        }
+
+        insert_note(valid_id, "work/nt", valid_timestamp, valid_timestamp).unwrap();
+        for tag in ["", "Rust", "rust/sqlite", "rust.sqlite"] {
+            assert!(
+                connection
+                    .execute("INSERT INTO note_tags(note_pk, tag) VALUES (1, ?1)", [tag])
+                    .is_err(),
+                "accepted invalid tag {tag:?}"
+            );
+        }
+        connection
+            .execute(
+                "INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust_2026')",
+                [],
+            )
+            .unwrap();
+    }
+
+    #[test]
     fn fts_triggers_follow_content_changes_only() {
         let connection = initialized();
         connection
             .execute_batch(
                 "INSERT INTO notes(id, collection, body, title, created, updated)
-                     VALUES ('a', 'inbox', '# Storage', 'Storage',
+                     VALUES ('018fbe0a-6c00-7000-8000-000000000001',
+                             'inbox', '# Storage', 'Storage',
                              '2026-05-28T14:30:12Z', '2026-05-28T14:30:12Z');",
             )
             .unwrap();

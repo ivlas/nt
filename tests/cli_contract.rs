@@ -235,11 +235,12 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
     seed_matching_notes(home.path(), 5000);
     Connection::open(home.path().join(".nt/nt.sqlite3"))
         .unwrap()
-        .execute(
-            "INSERT INTO notes(id, collection, body, title, created, updated)
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             INSERT INTO notes(id, collection, body, title, created, updated)
              VALUES ('malformed', 'inbox', '# Invalid\nrust streaming', 'Invalid',
-                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
-            [],
+                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+             PRAGMA ignore_check_constraints = OFF;",
         )
         .unwrap();
 

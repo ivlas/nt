@@ -173,11 +173,12 @@ mod tests {
             .unwrap();
         repository
             .connection
-            .execute(
-                "INSERT INTO notes(id, collection, body, title, created, updated)
+            .execute_batch(
+                "PRAGMA ignore_check_constraints = ON;
+                 INSERT INTO notes(id, collection, body, title, created, updated)
                  VALUES ('malformed', 'inbox', '# Invalid', 'Invalid',
-                         '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
-                [],
+                         '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+                 PRAGMA ignore_check_constraints = OFF;",
             )
             .unwrap();
 

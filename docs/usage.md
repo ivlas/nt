@@ -2,8 +2,8 @@
 
 `nt` stores canonical CommonMark notes and metadata in
 `$HOME/.nt/nt.sqlite3`. The database is local and directly inspectable with
-SQLite tools. Markdown remains ordinary CommonMark without nt-specific body
-syntax.
+SQLite tools. Direct database writes are unsupported; use `nt` commands for
+mutations. Markdown remains ordinary CommonMark without nt-specific body syntax.
 
 ## Install And Initialize
 

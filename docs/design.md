@@ -79,18 +79,34 @@ CREATE TABLE notes (
     created TEXT NOT NULL,
     updated TEXT NOT NULL,
     body_version INTEGER NOT NULL DEFAULT 1,
-    CHECK(length(collection) > 0),
+    CHECK(length(id) = 36
+          AND substr(id, 9, 1) = '-'
+          AND substr(id, 14, 1) = '-'
+          AND substr(id, 15, 1) = '7'
+          AND substr(id, 19, 1) = '-'
+          AND substr(id, 20, 1) IN ('8', '9', 'a', 'b')
+          AND substr(id, 24, 1) = '-'
+          AND length(replace(id, '-', '')) = 32
+          AND replace(id, '-', '') NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(collection) > 0
+          AND collection NOT GLOB '*[^a-z0-9_/-]*'
+          AND substr(collection, 1, 1) <> '/'
+          AND substr(collection, -1, 1) <> '/'
+          AND instr(collection, '//') = 0),
     CHECK(length(body) > 0),
     CHECK(length(title) > 0),
-    CHECK(length(created) = 20),
-    CHECK(length(updated) = 20),
+    CHECK(created GLOB
+          '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
+    CHECK(updated GLOB
+          '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
     CHECK(body_version > 0)
 );
 
 CREATE TABLE note_tags (
     note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
     tag TEXT NOT NULL,
-    PRIMARY KEY(note_pk, tag)
+    PRIMARY KEY(note_pk, tag),
+    CHECK(length(tag) > 0 AND tag NOT GLOB '*[^a-z0-9_-]*')
 );
 
 CREATE TABLE note_links (
@@ -110,7 +126,8 @@ CREATE VIRTUAL TABLE note_fts USING fts5(
 ```
 
 Indexes support created and updated ordering, collection filtering, tag lookup,
-and target-link lookup. Timestamps are fixed-width UTC RFC 3339 seconds.
+and target-link lookup. Cheap schema checks enforce canonical UUIDv7, collection,
+tag, and timestamp shapes. Full domain validation remains in Rust.
 
 External-content FTS5 state is maintained by isolated SQLite triggers. Inserts
 add an FTS row, body/title changes replace it, and deletion removes it.
