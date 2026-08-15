@@ -5,22 +5,32 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     name: stable (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+
       - if: matrix.os == 'ubuntu-latest'
         run: rustup component add clippy rustfmt
+
       - if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --check
+
       - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test
-      - run: cargo run -- help
+
+      - run: cargo test --locked
+      - run: cargo run --locked -- help
