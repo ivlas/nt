@@ -14,6 +14,12 @@ pub enum NtError {
     DatabaseBusy,
     #[error("database is corrupt")]
     CorruptDatabase(#[source] rusqlite::Error),
+    #[error("invalid database path")]
+    InvalidDatabasePath,
+    #[error("system clock is outside the supported timestamp range")]
+    ClockOutOfRange,
+    #[error("stored note has invalid body or title")]
+    InvalidStoredNote,
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run nt init first")]

@@ -14,7 +14,7 @@ impl Repository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = NoteId::generate();
         note.validate_links_for(&id)?;
-        let now = timestamp_now();
+        let now = timestamp_now()?;
         transaction.execute(
             "INSERT INTO notes(id, collection, body, title, created, updated)
              VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
@@ -61,7 +61,7 @@ impl Repository {
         for id in ids {
             pks.push(note_pk(&transaction, id)?);
         }
-        let updated = timestamp_now();
+        let updated = timestamp_now()?;
         for pk in &pks {
             transaction.execute(
                 "UPDATE notes SET updated = ?1
@@ -135,14 +135,11 @@ impl Repository {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         ensure_note_exists(&transaction, id)?;
+        let updated = timestamp_now()?;
         let changed = transaction.execute(
             "UPDATE notes SET collection = ?1, updated = ?2
              WHERE id = ?3 AND collection <> ?1",
-            params![
-                collection.as_str(),
-                timestamp_now().as_str(),
-                id.to_string()
-            ],
+            params![collection.as_str(), updated.as_str(), id.to_string()],
         )? != 0;
         transaction.commit()?;
         Ok(changed)

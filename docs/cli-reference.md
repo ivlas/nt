@@ -181,6 +181,8 @@ not print to stdout. Stable messages are:
 error: run nt init first
 error: database is not an nt database
 error: database is corrupt
+error: system clock is outside the supported timestamp range
+error: stored note has invalid body or title
 error: unsupported nt schema version <version>; delete ~/.nt/nt.sqlite3 and run nt init
 error: database is busy; retry
 error: note not found: <id>

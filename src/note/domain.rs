@@ -130,9 +130,7 @@ impl Note {
     ) -> Result<Self> {
         let (normalized_body, derived_title) = normalize_body(&body)?;
         if normalized_body != body || derived_title != title {
-            return Err(NtError::Message(
-                "invalid stored note body or title".to_string(),
-            ));
+            return Err(NtError::InvalidStoredNote);
         }
         if body_version == 0 {
             return Err(NtError::InvalidBodyVersion(body_version));
@@ -230,6 +228,19 @@ mod tests {
     #[test]
     fn notes_reject_invalid_rehydration_and_self_links() {
         let note_id = id("018fbe0a-6c00-7000-8000-000000000001");
+        let result = Note::rehydrate(
+            note_id.clone(),
+            CollectionPath::inbox(),
+            "# Title".to_string(),
+            "Wrong title".to_string(),
+            timestamp("2026-05-28T14:30:12Z"),
+            timestamp("2026-05-28T14:30:12Z"),
+            1,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        );
+        assert!(matches!(result, Err(NtError::InvalidStoredNote)));
+
         let links = BTreeSet::from([note_id.clone()]);
         let result = Note::rehydrate(
             note_id.clone(),

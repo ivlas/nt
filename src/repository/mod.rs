@@ -81,7 +81,7 @@ fn create_empty_if_missing(path: &Path) -> Result<()> {
         Err(error) => return Err(error.into()),
     }
 
-    let parent = path.parent().expect("database path has a parent");
+    let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
     fs::create_dir_all(parent)?;
     match OpenOptions::new()
         .read(true)
@@ -145,6 +145,14 @@ mod tests {
         let path = directory.path().join(".nt/nt.sqlite3");
         assert!(matches!(open_at(&path), Err(NtError::MissingDatabase)));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn initialization_rejects_paths_without_a_parent() {
+        assert!(matches!(
+            initialize_at(Path::new("")),
+            Err(NtError::InvalidDatabasePath)
+        ));
     }
 
     #[test]

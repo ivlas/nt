@@ -61,9 +61,10 @@ impl Repository {
 
 fn touch_if_changed(transaction: &Transaction<'_>, id: &NoteId, changed: bool) -> Result<()> {
     if changed {
+        let updated = timestamp_now()?;
         transaction.execute(
             "UPDATE notes SET updated = ?1 WHERE id = ?2",
-            params![timestamp_now().as_str(), id.to_string()],
+            params![updated.as_str(), id.to_string()],
         )?;
     }
     Ok(())

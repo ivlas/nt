@@ -63,7 +63,7 @@ impl FromStr for Timestamp {
     }
 }
 
-pub fn timestamp_now() -> Timestamp {
+pub fn timestamp_now() -> Result<Timestamp> {
     timestamp_from_system_time(SystemTime::now())
 }
 
@@ -84,11 +84,12 @@ fn days_in_month(year: u32, month: u32) -> u32 {
     }
 }
 
-fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
+fn timestamp_from_system_time(time: SystemTime) -> Result<Timestamp> {
     let seconds = time
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0);
+        .map_err(|_| NtError::ClockOutOfRange)?
+        .as_secs();
+    let seconds = i64::try_from(seconds).map_err(|_| NtError::ClockOutOfRange)?;
     let days = seconds.div_euclid(SECONDS_PER_DAY);
     let second_of_day = seconds.rem_euclid(SECONDS_PER_DAY);
     let (year, month, day) = civil_from_days(days);
@@ -98,7 +99,7 @@ fn timestamp_from_system_time(time: SystemTime) -> Timestamp {
 
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
         .parse()
-        .expect("civil timestamp formatting is valid")
+        .map_err(|_| NtError::ClockOutOfRange)
 }
 
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
@@ -120,11 +121,20 @@ mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
     use super::{Timestamp, timestamp_from_system_time};
+    use crate::error::NtError;
 
     #[test]
     fn formats_unix_epoch_timestamp() {
-        let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0));
+        let timestamp = timestamp_from_system_time(UNIX_EPOCH + Duration::from_secs(0)).unwrap();
         assert_eq!(timestamp.as_str(), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn rejects_system_times_before_the_unix_epoch() {
+        assert!(matches!(
+            timestamp_from_system_time(UNIX_EPOCH - Duration::from_secs(1)),
+            Err(NtError::ClockOutOfRange)
+        ));
     }
 
     #[test]
