@@ -1,10 +1,12 @@
 use crate::error::Result;
 use crate::repository::{InitOutcome, Repository};
 
-pub(super) fn init() -> Result<()> {
-    match Repository::initialize()? {
-        InitOutcome::Initialized => println!("initialized"),
-        InitOutcome::AlreadyInitialized => println!("already initialized"),
+use super::App;
+
+pub(super) fn init(app: &mut App<'_>) -> Result<()> {
+    match Repository::initialize_at(app.database_path()?)? {
+        InitOutcome::Initialized => writeln!(app.output, "initialized")?,
+        InitOutcome::AlreadyInitialized => writeln!(app.output, "already initialized")?,
     }
     Ok(())
 }

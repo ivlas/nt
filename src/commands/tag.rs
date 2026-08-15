@@ -2,12 +2,14 @@ use crate::error::{NtError, Result};
 use crate::note::{NoteId, Tag};
 use crate::repository::{AddOrRemove, Repository};
 
-pub(super) fn tag(id: &str, operation: &str) -> Result<()> {
+use super::App;
+
+pub(super) fn tag(app: &mut App<'_>, id: &str, operation: &str) -> Result<()> {
     let id: NoteId = id.parse()?;
     let operation = parse_operation(operation)?;
-    let mut repository = Repository::open()?;
+    let mut repository = Repository::open_at(app.database_path()?)?;
     repository.change_tag(&id, operation.clone())?;
-    println!("tagged {id} {operation}");
+    writeln!(app.output, "tagged {id} {operation}")?;
     Ok(())
 }
 

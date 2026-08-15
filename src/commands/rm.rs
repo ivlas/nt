@@ -4,7 +4,9 @@ use crate::error::{NtError, Result};
 use crate::note::NoteId;
 use crate::repository::Repository;
 
-pub(super) fn rm(ids: &[String]) -> Result<()> {
+use super::App;
+
+pub(super) fn rm(app: &mut App<'_>, ids: &[String]) -> Result<()> {
     let mut parsed = Vec::with_capacity(ids.len());
     let mut unique = BTreeSet::new();
     for value in ids {
@@ -14,8 +16,8 @@ pub(super) fn rm(ids: &[String]) -> Result<()> {
         }
         parsed.push(id);
     }
-    let mut repository = Repository::open()?;
+    let mut repository = Repository::open_at(app.database_path()?)?;
     repository.delete_notes(&parsed)?;
-    println!("removed {}", parsed.len());
+    writeln!(app.output, "removed {}", parsed.len())?;
     Ok(())
 }

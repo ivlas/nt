@@ -1,40 +1,60 @@
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{Read, Write};
+use std::path::Path;
 use std::process::Command;
 
 use crate::error::{NtError, Result};
-use crate::fs::nt_home;
 
-pub fn read_body(arguments: &[String], seed: Option<&str>) -> Result<String> {
-    let stdin_is_terminal = io::stdin().is_terminal();
-    if !arguments.is_empty() {
-        if !stdin_is_terminal {
-            let mut stdin = String::new();
-            io::stdin().read_to_string(&mut stdin)?;
-            if !stdin.is_empty() {
-                return Err(NtError::ConflictingBodyInput);
-            }
-        }
-        return Ok(arguments.join(" "));
-    }
-
-    if !stdin_is_terminal {
-        let mut body = String::new();
-        io::stdin().read_to_string(&mut body)?;
-        if body.is_empty() {
-            return Err(NtError::EmptyBody);
-        }
-        return Ok(body);
-    }
-
-    read_editor(seed)
+pub struct Input<'a> {
+    stdin: &'a mut dyn Read,
+    stdin_is_terminal: bool,
+    editor: &'a mut dyn FnMut(Option<String>) -> Result<String>,
 }
 
-fn read_editor(seed: Option<&str>) -> Result<String> {
-    let visual = std::env::var("VISUAL").ok();
-    let editor = std::env::var("EDITOR").ok();
-    let editor = parse_editor(visual.as_deref(), editor.as_deref())?;
+impl<'a> Input<'a> {
+    pub fn new(
+        stdin: &'a mut dyn Read,
+        stdin_is_terminal: bool,
+        editor: &'a mut dyn FnMut(Option<String>) -> Result<String>,
+    ) -> Self {
+        Self {
+            stdin,
+            stdin_is_terminal,
+            editor,
+        }
+    }
 
-    let directory = nt_home()?;
+    pub fn read_body(&mut self, arguments: &[String], seed: Option<&str>) -> Result<String> {
+        if !arguments.is_empty() {
+            if !self.stdin_is_terminal {
+                let mut stdin = String::new();
+                self.stdin.read_to_string(&mut stdin)?;
+                if !stdin.is_empty() {
+                    return Err(NtError::ConflictingBodyInput);
+                }
+            }
+            return Ok(arguments.join(" "));
+        }
+
+        if !self.stdin_is_terminal {
+            let mut body = String::new();
+            self.stdin.read_to_string(&mut body)?;
+            if body.is_empty() {
+                return Err(NtError::EmptyBody);
+            }
+            return Ok(body);
+        }
+
+        (self.editor)(seed.map(str::to_string))
+    }
+}
+
+pub fn read_editor(
+    seed: Option<&str>,
+    directory: &Path,
+    visual: Option<&str>,
+    editor: Option<&str>,
+) -> Result<String> {
+    let editor = parse_editor(visual, editor)?;
     let mut file = tempfile::NamedTempFile::new_in(directory)?;
     if let Some(seed) = seed {
         file.write_all(seed.as_bytes())?;
@@ -77,8 +97,42 @@ fn parse_editor(visual: Option<&str>, editor: Option<&str>) -> Result<EditorComm
 
 #[cfg(test)]
 mod tests {
-    use super::{EditorCommand, parse_editor};
+    use std::io::{self, Cursor, Read};
+
+    use super::{EditorCommand, Input, parse_editor};
     use crate::error::NtError;
+
+    #[test]
+    fn body_input_uses_supplied_reader_and_editor() {
+        let mut stdin = Cursor::new("# From stdin");
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, false, &mut editor);
+        assert_eq!(input.read_body(&[], None).unwrap(), "# From stdin");
+
+        let mut stdin = Cursor::new(Vec::new());
+        let mut editor = |seed: Option<String>| Ok(format!("{} edited", seed.unwrap()));
+        let mut input = Input::new(&mut stdin, true, &mut editor);
+        assert_eq!(
+            input.read_body(&[], Some("# Original")).unwrap(),
+            "# Original edited"
+        );
+    }
+
+    #[test]
+    fn body_input_propagates_reader_failures() {
+        let mut stdin = FailingReader;
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, false, &mut editor);
+        assert!(matches!(input.read_body(&[], None), Err(NtError::Io(_))));
+    }
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("input failed"))
+        }
+    }
 
     #[test]
     fn visual_precedes_editor_and_values_are_parsed_as_argv() {

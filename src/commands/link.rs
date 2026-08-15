@@ -2,12 +2,14 @@ use crate::error::{NtError, Result};
 use crate::note::NoteId;
 use crate::repository::{AddOrRemove, Repository};
 
-pub(super) fn link(id: &str, operation: &str) -> Result<()> {
+use super::App;
+
+pub(super) fn link(app: &mut App<'_>, id: &str, operation: &str) -> Result<()> {
     let id: NoteId = id.parse()?;
     let operation = parse_operation(operation)?;
-    let mut repository = Repository::open()?;
+    let mut repository = Repository::open_at(app.database_path()?)?;
     repository.change_link(&id, operation.clone())?;
-    println!("linked {id} {operation}");
+    writeln!(app.output, "linked {id} {operation}")?;
     Ok(())
 }
 

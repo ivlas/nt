@@ -1,7 +1,9 @@
+use std::io::Write;
+
 use crate::error::{NtError, Result};
 
-pub fn print(topic: &[String]) -> Result<()> {
-    print!("{}", topic_text(&topic.join(" "))?);
+pub fn print(topic: &[String], output: &mut dyn Write) -> Result<()> {
+    output.write_all(topic_text(&topic.join(" "))?.as_bytes())?;
     Ok(())
 }
 

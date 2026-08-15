@@ -1,17 +1,18 @@
 use crate::error::{NtError, Result};
-use crate::input::read_body;
 use crate::note::{CollectionPath, NewNote, NoteId, Tag};
 use crate::repository::Repository;
 
-pub(super) fn add(metadata: &[String], body_arguments: &[String]) -> Result<()> {
-    let mut repository = Repository::open()?;
+use super::App;
+
+pub(super) fn add(app: &mut App<'_>, metadata: &[String], body_arguments: &[String]) -> Result<()> {
+    let mut repository = Repository::open_at(app.database_path()?)?;
     let metadata = CaptureMetadata::parse(metadata)?;
-    let body = read_body(body_arguments, None)?;
+    let body = app.input.read_body(body_arguments, None)?;
     let note = NewNote::new(metadata.collection, body)?
         .with_tags(metadata.tags)
         .with_links(metadata.links);
     let id = repository.create_note(note)?;
-    println!("saved {id}");
+    writeln!(app.output, "saved {id}")?;
     Ok(())
 }
 

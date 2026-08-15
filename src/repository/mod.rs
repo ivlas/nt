@@ -6,8 +6,6 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{NtError, Result};
-use crate::fs::database_path;
-
 #[cfg(test)]
 mod behavior_tests;
 mod note_store;
@@ -44,12 +42,12 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn initialize() -> Result<InitOutcome> {
-        initialize_at(&database_path()?)
+    pub fn initialize_at(path: &Path) -> Result<InitOutcome> {
+        initialize_at(path)
     }
 
-    pub fn open() -> Result<Self> {
-        open_at(&database_path()?)
+    pub fn open_at(path: &Path) -> Result<Self> {
+        open_at(path)
     }
 }
 

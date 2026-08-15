@@ -18,7 +18,3 @@ pub fn home_dir() -> Result<PathBuf> {
 pub fn nt_home() -> Result<PathBuf> {
     Ok(home_dir()?.join(".nt"))
 }
-
-pub fn database_path() -> Result<PathBuf> {
-    Ok(nt_home()?.join("nt.sqlite3"))
-}

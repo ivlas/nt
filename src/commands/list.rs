@@ -1,40 +1,55 @@
-use std::io::{self, BufRead, BufReader, BufWriter, IsTerminal, Seek, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use crate::error::Result;
 use crate::query::NoteQuery;
 use crate::repository::{NoteSummary, Repository};
 
+use super::App;
+
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
 
-pub(super) fn list(arguments: &[String]) -> Result<()> {
+pub(super) fn list(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
     match arguments {
         [target] if target == "tags" => {
-            let repository = Repository::open()?;
-            print_values("tag", repository.list_tags()?)
+            let repository = Repository::open_at(app.database_path()?)?;
+            print_values(
+                app.output,
+                app.output_is_terminal,
+                "tag",
+                repository.list_tags()?,
+            )
         }
         [target] if target == "collections" => {
-            let repository = Repository::open()?;
-            print_values("collection", repository.list_collections()?)
+            let repository = Repository::open_at(app.database_path()?)?;
+            print_values(
+                app.output,
+                app.output_is_terminal,
+                "collection",
+                repository.list_collections()?,
+            )
         }
         filters => {
             let query = NoteQuery::parse_list(filters)?;
-            let repository = Repository::open()?;
-            print_notes(&repository, &query)
+            let repository = Repository::open_at(app.database_path()?)?;
+            print_notes(&repository, &query, app.output, app.output_is_terminal)
         }
     }
 }
 
-pub(super) fn print_notes(repository: &Repository, query: &NoteQuery) -> Result<()> {
-    if io::stdout().is_terminal() {
-        let stdout = io::stdout();
-        let mut output = BufWriter::new(stdout.lock());
+pub(super) fn print_notes(
+    repository: &Repository,
+    query: &NoteQuery,
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+) -> Result<()> {
+    if output_is_terminal {
+        let mut output = BufWriter::new(output);
         write_spooled_table(&mut output, NOTE_HEADERS, |write_row| {
             repository.visit_note_summaries(query, |note| write_row(note_row(&note)))
         })?;
         output.flush()?;
     } else {
-        let stdout = io::stdout();
-        let mut output = BufWriter::new(stdout.lock());
+        let mut output = BufWriter::new(output);
         match repository.visit_note_summaries(query, |note| print_redirected(&mut output, &note)) {
             Err(crate::error::NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => {
                 return Ok(());
@@ -141,16 +156,21 @@ fn write_table_row<const N: usize>(
     output.write_all(b"\n")
 }
 
-fn print_values<T: AsRef<str>>(header: &str, values: Vec<T>) -> Result<()> {
-    if io::stdout().is_terminal() {
+fn print_values<T: AsRef<str>>(
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+    header: &str,
+    values: Vec<T>,
+) -> Result<()> {
+    if output_is_terminal {
         let rows = values
             .iter()
             .map(|value| [value.as_ref().to_string()])
             .collect::<Vec<_>>();
-        print!("{}", format_table([header], &rows));
+        output.write_all(format_table([header], &rows).as_bytes())?;
     } else {
         for value in values {
-            println!("{}", serde_json::to_string(value.as_ref())?);
+            writeln!(output, "{}", serde_json::to_string(value.as_ref())?)?;
         }
     }
     Ok(())

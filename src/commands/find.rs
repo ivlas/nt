@@ -2,8 +2,10 @@ use crate::error::Result;
 use crate::query::NoteQuery;
 use crate::repository::Repository;
 
-pub(super) fn find(expressions: &[String]) -> Result<()> {
+use super::App;
+
+pub(super) fn find(app: &mut App<'_>, expressions: &[String]) -> Result<()> {
     let query = NoteQuery::parse_find(expressions)?;
-    let repository = Repository::open()?;
-    super::list::print_notes(&repository, &query)
+    let repository = Repository::open_at(app.database_path()?)?;
+    super::list::print_notes(&repository, &query, app.output, app.output_is_terminal)
 }
