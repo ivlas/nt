@@ -37,6 +37,12 @@ pub enum InitOutcome {
     AlreadyInitialized,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OpenMode {
+    ReadOnly,
+    ReadWrite,
+}
+
 pub struct Repository {
     pub(super) connection: Connection,
 }
@@ -47,29 +53,36 @@ impl Repository {
     }
 
     pub fn open_at(path: &Path) -> Result<Self> {
-        open_at(path)
+        open_at(path, OpenMode::ReadWrite)
+    }
+
+    pub fn open_read_only(path: &Path) -> Result<Self> {
+        open_at(path, OpenMode::ReadOnly)
     }
 }
 
 fn initialize_at(path: &Path) -> Result<InitOutcome> {
     create_empty_if_missing(path)?;
-    let mut connection = open_existing(path)?;
+    let mut connection = open_existing(path, OpenMode::ReadWrite)?;
     let outcome = if schema::initialize(&mut connection)? {
         InitOutcome::Initialized
     } else {
         InitOutcome::AlreadyInitialized
     };
-    schema::configure(&connection)?;
+    schema::configure_wal(&connection)?;
     Ok(outcome)
 }
 
-fn open_at(path: &Path) -> Result<Repository> {
-    let connection = open_existing(path)?;
+fn open_at(path: &Path, mode: OpenMode) -> Result<Repository> {
+    let connection = open_existing(path, mode)?;
     match schema::inspect(&connection)? {
         schema::Identity::Nt => {}
         schema::Identity::Empty => return Err(NtError::NotNtDatabase),
     }
-    schema::configure(&connection)?;
+    match mode {
+        OpenMode::ReadOnly => schema::configure(&connection)?,
+        OpenMode::ReadWrite => schema::configure_wal(&connection)?,
+    }
     Ok(Repository { connection })
 }
 
@@ -95,7 +108,7 @@ fn create_empty_if_missing(path: &Path) -> Result<()> {
     }
 }
 
-fn open_existing(path: &Path) -> Result<Connection> {
+fn open_existing(path: &Path, mode: OpenMode) -> Result<Connection> {
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_) => return Err(NtError::NotNtDatabase),
@@ -104,7 +117,11 @@ fn open_existing(path: &Path) -> Result<Connection> {
         }
         Err(error) => return Err(error.into()),
     }
-    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(Into::into)
+    let flags = match mode {
+        OpenMode::ReadOnly => OpenFlags::SQLITE_OPEN_READ_ONLY,
+        OpenMode::ReadWrite => OpenFlags::SQLITE_OPEN_READ_WRITE,
+    };
+    Connection::open_with_flags(path, flags).map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -116,6 +133,7 @@ mod tests {
 
     use super::*;
     use crate::note::{CollectionPath, NewNote};
+    use crate::query::NoteQuery;
 
     #[test]
     fn initializes_and_reopens_a_clean_database() {
@@ -126,7 +144,7 @@ mod tests {
             initialize_at(&path).unwrap(),
             InitOutcome::AlreadyInitialized
         );
-        let repository = open_at(&path).unwrap();
+        let repository = open_at(&path, OpenMode::ReadWrite).unwrap();
         let foreign_keys: i64 = repository
             .connection
             .pragma_query_value(None, "foreign_keys", |row| row.get(0))
@@ -143,8 +161,63 @@ mod tests {
     fn ordinary_open_does_not_create_storage() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".nt/nt.sqlite3");
-        assert!(matches!(open_at(&path), Err(NtError::MissingDatabase)));
+        assert!(matches!(
+            open_at(&path, OpenMode::ReadWrite),
+            Err(NtError::MissingDatabase)
+        ));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn read_only_opens_read_notes_from_non_writable_databases() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let id = {
+            let mut writer = open_at(&path, OpenMode::ReadWrite).unwrap();
+            writer
+                .create_note(
+                    NewNote::new(CollectionPath::inbox(), "# Read only")
+                        .unwrap()
+                        .with_tags(["rust".parse().unwrap()]),
+                )
+                .unwrap()
+        };
+
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions).unwrap();
+
+        let reader = open_at(&path, OpenMode::ReadOnly).unwrap();
+        let foreign_keys: i64 = reader
+            .connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        let journal: String = reader
+            .connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!((foreign_keys, journal.as_str()), (1, "wal"));
+        drop(reader);
+
+        let mut reader = open_at(&path, OpenMode::ReadOnly).unwrap();
+        assert_eq!(reader.get_note(&id).unwrap().body(), "# Read only");
+        assert_eq!(reader.list_tags().unwrap(), vec!["rust".parse().unwrap()]);
+        let mut visited = 0;
+        reader
+            .visit_note_summaries(&NoteQuery::default(), |_| {
+                visited += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(visited, 1);
+
+        assert!(
+            open_at(&path, OpenMode::ReadWrite)
+                .unwrap()
+                .create_note(NewNote::new(CollectionPath::inbox(), "# Denied").unwrap())
+                .is_err()
+        );
     }
 
     #[test]
@@ -166,7 +239,7 @@ mod tests {
                 drop(Connection::open(&path).unwrap());
             }
             assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
-            assert!(open_at(&path).is_ok());
+            assert!(open_at(&path, OpenMode::ReadWrite).is_ok());
         }
     }
 
@@ -187,7 +260,7 @@ mod tests {
     #[test]
     fn corrupt_database_errors_are_not_reported_as_foreign_schema() {
         for operation in [initialize_at as fn(&Path) -> Result<InitOutcome>, |path| {
-            open_at(path).map(|_| InitOutcome::AlreadyInitialized)
+            open_at(path, OpenMode::ReadWrite).map(|_| InitOutcome::AlreadyInitialized)
         }] {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("corrupt.sqlite3");
@@ -209,7 +282,10 @@ mod tests {
             )
             .unwrap();
         drop(connection);
-        assert!(matches!(open_at(&path), Err(NtError::UnsupportedSchema(2))));
+        assert!(matches!(
+            open_at(&path, OpenMode::ReadWrite),
+            Err(NtError::UnsupportedSchema(2))
+        ));
     }
 
     #[test]
@@ -242,8 +318,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("nt.sqlite3");
         initialize_at(&path).unwrap();
-        let mut first = open_at(&path).unwrap();
-        let mut second = open_at(&path).unwrap();
+        let mut first = open_at(&path, OpenMode::ReadWrite).unwrap();
+        let mut second = open_at(&path, OpenMode::ReadWrite).unwrap();
         second
             .connection
             .busy_timeout(Duration::from_millis(1))
@@ -291,6 +367,6 @@ mod tests {
                 .count(),
             7
         );
-        assert!(open_at(&path).is_ok());
+        assert!(open_at(&path, OpenMode::ReadWrite).is_ok());
     }
 }

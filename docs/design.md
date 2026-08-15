@@ -41,9 +41,10 @@ inspection failures retain their underlying database diagnostics.
 
 Ordinary commands validate existence, application identity, and schema version
 without creating files or objects. Recognized operational connections enable
-foreign keys, use WAL, and apply a bounded busy timeout. Mutations use short
-transactions, and no transaction remains open while reading stdin or waiting
-for `$VISUAL`/`$EDITOR`.
+foreign keys and apply a bounded busy timeout. Retrieval commands open the
+database read-only; initialization and mutation commands open read-write and
+establish WAL. Mutations use short transactions, and no transaction remains
+open while reading stdin or waiting for `$VISUAL`/`$EDITOR`.
 
 ## Notes
 

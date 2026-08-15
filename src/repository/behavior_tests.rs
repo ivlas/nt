@@ -11,7 +11,7 @@ use super::{AddOrRemove, NoteSummary, Repository};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::{initialize_at, open_at, schema};
+    use crate::repository::{OpenMode, initialize_at, open_at, schema};
 
     fn repository() -> Repository {
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -62,7 +62,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("nt.sqlite3");
         initialize_at(&path).unwrap();
-        let mut writer = open_at(&path).unwrap();
+        let mut writer = open_at(&path, OpenMode::ReadWrite).unwrap();
         let target = writer
             .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
             .unwrap();
@@ -74,7 +74,7 @@ mod tests {
                     .with_links([target.clone()]),
             )
             .unwrap();
-        let mut reader = open_at(&path).unwrap();
+        let mut reader = open_at(&path, OpenMode::ReadWrite).unwrap();
         let expected = reader.get_note(&source).unwrap();
 
         let transaction = reader

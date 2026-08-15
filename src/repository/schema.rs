@@ -180,10 +180,13 @@ fn initialize_transaction(
 
 pub(super) fn configure(connection: &Connection) -> Result<()> {
     connection.busy_timeout(Duration::from_secs(5))?;
-    connection.execute_batch(
-        "PRAGMA foreign_keys = ON;
-         PRAGMA journal_mode = WAL;",
-    )?;
+    connection.execute_batch("PRAGMA foreign_keys = ON")?;
+    Ok(())
+}
+
+pub(super) fn configure_wal(connection: &Connection) -> Result<()> {
+    configure(connection)?;
+    connection.execute_batch("PRAGMA journal_mode = WAL")?;
     Ok(())
 }
 

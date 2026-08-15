@@ -11,7 +11,7 @@ const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags",
 pub(super) fn list(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
     match arguments {
         [target] if target == "tags" => {
-            let repository = Repository::open_at(app.database_path()?)?;
+            let repository = Repository::open_read_only(app.database_path()?)?;
             print_values(
                 app.output,
                 app.output_is_terminal,
@@ -20,7 +20,7 @@ pub(super) fn list(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
             )
         }
         [target] if target == "collections" => {
-            let repository = Repository::open_at(app.database_path()?)?;
+            let repository = Repository::open_read_only(app.database_path()?)?;
             print_values(
                 app.output,
                 app.output_is_terminal,
@@ -30,7 +30,7 @@ pub(super) fn list(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
         }
         filters => {
             let query = NoteQuery::parse_list(filters)?;
-            let repository = Repository::open_at(app.database_path()?)?;
+            let repository = Repository::open_read_only(app.database_path()?)?;
             print_notes(&repository, &query, app.output, app.output_is_terminal)
         }
     }

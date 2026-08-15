@@ -218,7 +218,11 @@ grammar errors use clap's stderr diagnostics and exit code.
 ## Operation
 
 Every mutation uses one short SQLite transaction. Foreign keys are enabled on
-all operational connections. WAL lets readers continue from the last committed
-snapshot while another connection writes. A contending writer waits for the
-bounded busy timeout and then reports the stable retryable error. No transaction
-remains open while reading stdin or waiting for `$VISUAL`/`$EDITOR`.
+all operational connections. `show`, `list`, and `find` open the database in
+SQLite read-only mode and work when the database file is not writable, provided
+SQLite can read the database and any WAL state it references. `nt init` and
+mutation commands require a writable database and establish WAL. WAL lets
+readers continue from the last committed snapshot while another connection
+writes. A contending writer waits for the bounded busy timeout and then reports
+the stable retryable error. No transaction remains open while reading stdin or
+waiting for `$VISUAL`/`$EDITOR`.

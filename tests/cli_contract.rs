@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -72,21 +73,65 @@ fn seed_matching_notes(home: &Path, count: usize) {
 
 #[test]
 fn invalid_home_values_cannot_create_working_directory_storage() {
-    for home in ["", "relative/home"] {
+    for (home, user_profile) in [
+        (Some(""), None),
+        (Some("relative/home"), None),
+        (Some(""), Some("relative/home")),
+        (None, Some("")),
+        (None, None),
+    ] {
         let working_directory = tempfile::tempdir().unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_nt"))
-            .current_dir(working_directory.path())
-            .env("HOME", home)
-            .env_remove("USERPROFILE")
-            .arg("init")
-            .output()
-            .unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nt"));
+        command.current_dir(working_directory.path()).arg("init");
+        match home {
+            Some(value) => {
+                command.env("HOME", value);
+            }
+            None => {
+                command.env_remove("HOME");
+            }
+        }
+        match user_profile {
+            Some(value) => {
+                command.env("USERPROFILE", value);
+            }
+            None => {
+                command.env_remove("USERPROFILE");
+            }
+        }
+        let output = command.output().unwrap();
 
         assert!(!output.status.success());
         assert_eq!(output.stdout, b"");
         assert_eq!(output.stderr, b"error: home directory not found\n");
         assert_eq!(working_directory.path().read_dir().unwrap().count(), 0);
     }
+}
+
+#[test]
+fn read_only_commands_work_on_non_writable_databases() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let id = add(home.path(), "# Read only", &["tag:rust"]);
+    let database = home.path().join(".nt/nt.sqlite3");
+    let mut permissions = fs::metadata(&database).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&database, permissions).unwrap();
+
+    assert_eq!(success(home.path(), &["show", &id], None), "# Read only");
+    let listed = success(home.path(), &["list", "tag:rust"], None);
+    assert_summary_row(&listed, &id, "inbox", "Read only", &["rust"], 0);
+    let found = success(home.path(), &["find", "read"], None);
+    assert_summary_row(&found, &id, "inbox", "Read only", &["rust"], 0);
+    assert_eq!(success(home.path(), &["list", "tags"], None), "\"rust\"\n");
+    assert_eq!(
+        success(home.path(), &["list", "collections"], None),
+        "\"inbox\"\n"
+    );
+
+    let output = run(home.path(), &["tag", &id, "+sqlite"], None);
+    assert!(!output.status.success());
+    assert_eq!(output.stdout, b"");
 }
 
 #[test]
