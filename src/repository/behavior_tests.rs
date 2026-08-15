@@ -58,6 +58,34 @@ mod tests {
     }
 
     #[test]
+    fn invalid_persisted_body_versions_are_stored_note_errors() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Invalid version").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        repository
+            .connection
+            .execute(
+                "UPDATE notes SET body_version = -1 WHERE id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+        repository
+            .connection
+            .execute_batch("PRAGMA ignore_check_constraints = OFF")
+            .unwrap();
+
+        assert!(matches!(
+            repository.get_note(&id),
+            Err(NtError::InvalidStoredNote)
+        ));
+    }
+
+    #[test]
     fn complete_note_load_uses_one_read_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("nt.sqlite3");
@@ -185,10 +213,10 @@ mod tests {
         let mut visited = 0;
         let result = repository.visit_note_summaries(&NoteQuery::default(), |_| {
             visited += 1;
-            Err(NtError::Message("stop visiting".to_string()))
+            Err(NtError::Io(std::io::Error::other("stop visiting")))
         });
 
-        assert!(matches!(result, Err(NtError::Message(_))));
+        assert!(matches!(result, Err(NtError::Io(_))));
         assert_eq!(visited, 1);
     }
 

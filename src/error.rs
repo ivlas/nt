@@ -2,8 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum NtError {
-    #[error("{0}")]
-    Message(String),
+    #[error("unknown help topic `{0}`; run nt help")]
+    UnknownHelpTopic(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("operation committed but success output failed: {0}")]
@@ -52,10 +52,33 @@ pub enum NtError {
     EditorNotSet,
     #[error("invalid VISUAL or EDITOR command")]
     InvalidEditor,
-    #[error("editor exited unsuccessfully")]
-    EditorFailed,
+    #[error("failed to launch editor: {0}")]
+    EditorLaunch(#[source] std::io::Error),
+    #[error("editor exited unsuccessfully with status {0}")]
+    EditorExit(std::process::ExitStatus),
     #[error("note changed while editing: {0}")]
     ConcurrentEdit(String),
+}
+
+impl NtError {
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Self::UnknownHelpTopic(_)
+            | Self::InvalidNoteId(_)
+            | Self::InvalidValue { .. }
+            | Self::DuplicateNoteId(_)
+            | Self::EmptyBody
+            | Self::InvalidTitle
+            | Self::SelfLink
+            | Self::InvalidBodyVersion(_)
+            | Self::ConflictingBodyInput
+            | Self::EditorNotSet
+            | Self::InvalidEditor => 2,
+            Self::MissingDatabase | Self::NoteNotFound(_) => 3,
+            Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
+            _ => 1,
+        }
+    }
 }
 
 impl From<rusqlite::Error> for NtError {
@@ -102,6 +125,18 @@ mod tests {
             NtError::from(sqlite_failure(rusqlite::ffi::SQLITE_IOERR)),
             NtError::Database(_)
         ));
+    }
+
+    #[test]
+    fn errors_have_stable_process_categories() {
+        assert_eq!(NtError::InvalidTitle.exit_code(), 2);
+        assert_eq!(NtError::DuplicateNoteId("id".to_string()).exit_code(), 2);
+        assert_eq!(NtError::MissingDatabase.exit_code(), 3);
+        assert_eq!(NtError::DatabaseBusy.exit_code(), 4);
+        assert_eq!(
+            NtError::Io(std::io::Error::other("unexpected")).exit_code(),
+            1
+        );
     }
 
     fn sqlite_failure(code: i32) -> rusqlite::Error {

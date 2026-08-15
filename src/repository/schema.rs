@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::{NtError, Result};
@@ -133,11 +132,15 @@ pub(super) fn inspect(connection: &Connection) -> Result<Identity> {
     }
 
     validate_version(connection)?;
-    validate_schema(connection)?;
+    validate_required_schema(connection)?;
     Ok(Identity::Nt)
 }
 
 pub(super) fn initialize(connection: &mut Connection) -> Result<bool> {
+    if inspect(connection)? == Identity::Nt {
+        return Ok(false);
+    }
+
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     match inspect(&transaction)? {
         Identity::Nt => {
@@ -153,7 +156,7 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<bool> {
 }
 
 #[cfg(test)]
-fn initialize_with(
+pub(super) fn initialize_with(
     connection: &mut Connection,
     mut after_step: impl FnMut(usize) -> Result<()>,
 ) -> Result<()> {
@@ -174,19 +177,7 @@ fn initialize_transaction(
     transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
     after_step(SCHEMA_STEPS.len())?;
     validate_version(transaction)?;
-    validate_schema(transaction)?;
-    Ok(())
-}
-
-pub(super) fn configure(connection: &Connection) -> Result<()> {
-    connection.busy_timeout(Duration::from_secs(5))?;
-    connection.execute_batch("PRAGMA foreign_keys = ON")?;
-    Ok(())
-}
-
-pub(super) fn configure_wal(connection: &Connection) -> Result<()> {
-    configure(connection)?;
-    connection.execute_batch("PRAGMA journal_mode = WAL")?;
+    validate_required_schema(transaction)?;
     Ok(())
 }
 
@@ -202,29 +193,39 @@ fn validate_version(connection: &Connection) -> Result<()> {
     if !has_table {
         return Err(NtError::NotNtDatabase);
     }
+    let has_version_column: bool = connection.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM pragma_table_info('schema_version') WHERE name = 'version'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_version_column {
+        return Err(NtError::NotNtDatabase);
+    }
 
     let mut statement = connection.prepare("SELECT version FROM schema_version")?;
     let versions = statement
-        .query_map([], |row| row.get::<_, i64>(0))?
+        .query_map([], |row| row.get::<_, Value>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     match versions.as_slice() {
-        [SCHEMA_VERSION] => Ok(()),
-        [version] => Err(NtError::UnsupportedSchema(*version)),
+        [Value::Integer(SCHEMA_VERSION)] => Ok(()),
+        [Value::Integer(version)] => Err(NtError::UnsupportedSchema(*version)),
         _ => Err(NtError::NotNtDatabase),
     }
 }
 
-fn validate_schema(connection: &Connection) -> Result<()> {
-    for &(object_type, name) in REQUIRED_OBJECTS {
-        let exists = connection
+fn validate_required_schema(connection: &Connection) -> Result<()> {
+    debug_assert_eq!(REQUIRED_OBJECTS.len() + 1, SCHEMA_STEPS.len());
+    for (&(object_type, name), expected_sql) in REQUIRED_OBJECTS.iter().zip(SCHEMA_STEPS) {
+        let stored_sql = connection
             .query_row(
-                "SELECT 1 FROM sqlite_schema WHERE type = ?1 AND name = ?2",
+                "SELECT sql FROM sqlite_schema WHERE type = ?1 AND name = ?2",
                 (object_type, name),
-                |_| Ok(()),
+                |row| row.get::<_, String>(0),
             )
-            .optional()?
-            .is_some();
-        if !exists {
+            .optional()?;
+        if stored_sql.as_deref() != Some(*expected_sql) {
             return Err(NtError::NotNtDatabase);
         }
     }
@@ -239,14 +240,6 @@ fn validate_schema(connection: &Connection) -> Result<()> {
     if singleton != Some(1) {
         return Err(NtError::NotNtDatabase);
     }
-    let object_count: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
-        [],
-        |row| row.get(0),
-    )?;
-    if object_count != (REQUIRED_OBJECTS.len() + FTS_SHADOW_OBJECTS.len()) as i64 {
-        return Err(NtError::NotNtDatabase);
-    }
     for name in FTS_SHADOW_OBJECTS {
         let exists = connection
             .query_row(
@@ -259,6 +252,18 @@ fn validate_schema(connection: &Connection) -> Result<()> {
         if !exists {
             return Err(NtError::NotNtDatabase);
         }
+    }
+    let unknown_trigger_exists: bool = connection.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM sqlite_schema
+             WHERE type = 'trigger'
+               AND name NOT IN ('notes_fts_insert', 'notes_fts_update', 'notes_fts_delete')
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if unknown_trigger_exists {
+        return Err(NtError::NotNtDatabase);
     }
     Ok(())
 }
@@ -297,7 +302,9 @@ mod tests {
             let mut connection = Connection::open_in_memory().unwrap();
             let result = initialize_with(&mut connection, |step| {
                 if step == failed_step {
-                    return Err(NtError::Message("injected initialization failure".into()));
+                    return Err(NtError::Io(std::io::Error::other(
+                        "injected initialization failure",
+                    )));
                 }
                 Ok(())
             });
@@ -462,10 +469,110 @@ mod tests {
     }
 
     #[test]
-    fn identity_rejects_additional_schema_objects() {
+    fn validation_tolerates_additional_schema_objects() {
         let connection = initialized();
         connection
-            .execute_batch("CREATE TABLE unrelated(value TEXT)")
+            .execute_batch(
+                "CREATE TABLE unrelated(value TEXT);
+                 CREATE VIEW note_titles AS SELECT id, title FROM notes;
+                 CREATE INDEX unrelated_value_idx ON unrelated(value)",
+            )
+            .unwrap();
+        assert_eq!(inspect(&connection).unwrap(), Identity::Nt);
+    }
+
+    #[test]
+    fn validation_rejects_unknown_triggers() {
+        let connection = initialized();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER rewrite_note_title AFTER INSERT ON notes BEGIN
+                     UPDATE notes SET title = 'changed' WHERE pk = new.pk;
+                 END",
+            )
+            .unwrap();
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+    }
+
+    #[test]
+    fn validation_rejects_changed_required_index_definition() {
+        let connection = initialized();
+        connection
+            .execute_batch(
+                "DROP INDEX notes_created_idx;
+                 CREATE INDEX notes_created_idx ON notes(id)",
+            )
+            .unwrap();
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+    }
+
+    #[test]
+    fn validation_rejects_changed_required_trigger_definition() {
+        let connection = initialized();
+        connection
+            .execute_batch(
+                "DROP TRIGGER notes_fts_insert;
+                 CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes BEGIN
+                     SELECT 1;
+                 END",
+            )
+            .unwrap();
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+    }
+
+    #[test]
+    fn validation_rejects_changed_required_table_definition() {
+        let connection = initialized();
+        connection
+            .execute_batch("ALTER TABLE notes ADD COLUMN unexpected TEXT")
+            .unwrap();
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+    }
+
+    #[test]
+    fn validation_rejects_changed_fts_definition() {
+        let connection = initialized();
+        connection
+            .execute_batch(
+                "DROP TRIGGER notes_fts_insert;
+                 DROP TRIGGER notes_fts_update;
+                 DROP TRIGGER notes_fts_delete;
+                 DROP TABLE note_fts;
+                 CREATE VIRTUAL TABLE note_fts USING fts5(
+                     title, body, content = 'notes', content_rowid = 'pk', tokenize = 'ascii'
+                 )",
+            )
+            .unwrap();
+        for sql in &SCHEMA_STEPS[5..8] {
+            connection.execute_batch(sql).unwrap();
+        }
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+    }
+
+    #[test]
+    fn malformed_schema_version_shape_is_a_schema_mismatch() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA application_id = {APPLICATION_ID};
+                 CREATE TABLE schema_version(singleton INTEGER)"
+            ))
+            .unwrap();
+
+        assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
+
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA application_id = {APPLICATION_ID};
+                 CREATE TABLE schema_version(singleton INTEGER, version TEXT);
+                 INSERT INTO schema_version VALUES (1, 'invalid')"
+            ))
             .unwrap();
         assert!(matches!(inspect(&connection), Err(NtError::NotNtDatabase)));
     }

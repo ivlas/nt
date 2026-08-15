@@ -115,37 +115,41 @@ pub struct Note {
     links: BTreeSet<NoteId>,
 }
 
+pub(crate) struct NoteRecord {
+    pub id: NoteId,
+    pub collection: CollectionPath,
+    pub body: String,
+    pub title: String,
+    pub created: Timestamp,
+    pub updated: Timestamp,
+    pub body_version: u64,
+}
+
 impl Note {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn rehydrate(
-        id: NoteId,
-        collection: CollectionPath,
-        body: String,
-        title: String,
-        created: Timestamp,
-        updated: Timestamp,
-        body_version: u64,
+        record: NoteRecord,
         tags: BTreeSet<Tag>,
         links: BTreeSet<NoteId>,
     ) -> Result<Self> {
-        let (normalized_body, derived_title) = normalize_body(&body)?;
-        if normalized_body != body || derived_title != title {
+        let (normalized_body, derived_title) =
+            normalize_body(&record.body).map_err(|_| NtError::InvalidStoredNote)?;
+        if normalized_body != record.body || derived_title != record.title {
             return Err(NtError::InvalidStoredNote);
         }
-        if body_version == 0 {
-            return Err(NtError::InvalidBodyVersion(body_version));
+        if record.body_version == 0 {
+            return Err(NtError::InvalidStoredNote);
         }
-        if links.contains(&id) {
-            return Err(NtError::SelfLink);
+        if links.contains(&record.id) {
+            return Err(NtError::InvalidStoredNote);
         }
         Ok(Self {
-            id,
-            collection,
-            body,
-            title,
-            created,
-            updated,
-            body_version,
+            id: record.id,
+            collection: record.collection,
+            body: record.body,
+            title: record.title,
+            created: record.created,
+            updated: record.updated,
+            body_version: record.body_version,
             tags,
             links,
         })
@@ -191,7 +195,7 @@ impl Note {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{NewNote, Note, Tag};
+    use super::{NewNote, Note, NoteRecord, Tag};
     use crate::error::NtError;
     use crate::note::{CollectionPath, NoteId, Timestamp};
 
@@ -201,6 +205,18 @@ mod tests {
 
     fn timestamp(value: &str) -> Timestamp {
         value.parse().unwrap()
+    }
+
+    fn record(note_id: NoteId) -> NoteRecord {
+        NoteRecord {
+            id: note_id,
+            collection: CollectionPath::inbox(),
+            body: "# Title".to_string(),
+            title: "Title".to_string(),
+            created: timestamp("2026-05-28T14:30:12Z"),
+            updated: timestamp("2026-05-28T14:30:12Z"),
+            body_version: 1,
+        }
     }
 
     #[test]
@@ -228,32 +244,30 @@ mod tests {
     #[test]
     fn notes_reject_invalid_rehydration_and_self_links() {
         let note_id = id("018fbe0a-6c00-7000-8000-000000000001");
-        let result = Note::rehydrate(
-            note_id.clone(),
-            CollectionPath::inbox(),
-            "# Title".to_string(),
-            "Wrong title".to_string(),
-            timestamp("2026-05-28T14:30:12Z"),
-            timestamp("2026-05-28T14:30:12Z"),
-            1,
-            BTreeSet::new(),
-            BTreeSet::new(),
-        );
+        let mut invalid = record(note_id.clone());
+        invalid.title = "Wrong title".to_string();
+        let result = Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new());
         assert!(matches!(result, Err(NtError::InvalidStoredNote)));
 
+        for body in ["", "not a title", "# Title\r\nbody"] {
+            let mut invalid = record(note_id.clone());
+            invalid.body = body.to_string();
+            assert!(matches!(
+                Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new()),
+                Err(NtError::InvalidStoredNote)
+            ));
+        }
+
+        let mut invalid = record(note_id.clone());
+        invalid.body_version = 0;
+        assert!(matches!(
+            Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new()),
+            Err(NtError::InvalidStoredNote)
+        ));
+
         let links = BTreeSet::from([note_id.clone()]);
-        let result = Note::rehydrate(
-            note_id.clone(),
-            CollectionPath::inbox(),
-            "# Title".to_string(),
-            "Title".to_string(),
-            timestamp("2026-05-28T14:30:12Z"),
-            timestamp("2026-05-28T14:30:12Z"),
-            1,
-            BTreeSet::new(),
-            links,
-        );
-        assert!(matches!(result, Err(NtError::SelfLink)));
+        let result = Note::rehydrate(record(note_id.clone()), BTreeSet::new(), links);
+        assert!(matches!(result, Err(NtError::InvalidStoredNote)));
 
         let new_note = NewNote::new(CollectionPath::inbox(), "# Title")
             .unwrap()
@@ -267,13 +281,7 @@ mod tests {
     #[test]
     fn body_replacement_updates_only_for_a_real_change() {
         let mut note = Note::rehydrate(
-            id("018fbe0a-6c00-7000-8000-000000000001"),
-            CollectionPath::inbox(),
-            "# Title".to_string(),
-            "Title".to_string(),
-            timestamp("2026-05-28T14:30:12Z"),
-            timestamp("2026-05-28T14:30:12Z"),
-            1,
+            record(id("018fbe0a-6c00-7000-8000-000000000001")),
             BTreeSet::new(),
             BTreeSet::new(),
         )

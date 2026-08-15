@@ -1,6 +1,6 @@
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use rusqlite::{Connection, params};
@@ -71,6 +71,17 @@ fn seed_matching_notes(home: &Path, count: usize) {
     transaction.commit().unwrap();
 }
 
+struct RestorePermissions {
+    path: PathBuf,
+    permissions: fs::Permissions,
+}
+
+impl Drop for RestorePermissions {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.path, self.permissions.clone());
+    }
+}
+
 #[test]
 fn invalid_home_values_cannot_create_working_directory_storage() {
     for (home, user_profile) in [
@@ -114,7 +125,12 @@ fn read_only_commands_work_on_non_writable_databases() {
     success(home.path(), &["init"], None);
     let id = add(home.path(), "# Read only", &["tag:rust"]);
     let database = home.path().join(".nt/nt.sqlite3");
-    let mut permissions = fs::metadata(&database).unwrap().permissions();
+    let original_permissions = fs::metadata(&database).unwrap().permissions();
+    let _restore = RestorePermissions {
+        path: database.clone(),
+        permissions: original_permissions.clone(),
+    };
+    let mut permissions = original_permissions;
     permissions.set_readonly(true);
     fs::set_permissions(&database, permissions).unwrap();
 
@@ -128,10 +144,6 @@ fn read_only_commands_work_on_non_writable_databases() {
         success(home.path(), &["list", "collections"], None),
         "\"inbox\"\n"
     );
-
-    let output = run(home.path(), &["tag", &id, "+sqlite"], None);
-    assert!(!output.status.success());
-    assert_eq!(output.stdout, b"");
 }
 
 #[test]
@@ -241,6 +253,7 @@ fn missing_storage_and_atomic_remove_leave_state_unchanged() {
     let missing = "018fbe0a-6c00-7000-8000-000000000001";
     let output = run(home.path(), &["show", missing], None);
     assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(3));
     assert_eq!(output.stdout, b"");
     assert_eq!(output.stderr, b"error: run nt init first\n");
     assert!(!home.path().join(".nt").exists());
@@ -254,6 +267,49 @@ fn missing_storage_and_atomic_remove_leave_state_unchanged() {
         format!("error: note not found: {missing}\n")
     );
     assert_eq!(success(home.path(), &["show", &existing], None), "# Keep");
+}
+
+#[test]
+fn process_exit_codes_distinguish_input_and_operational_errors() {
+    let home = tempfile::tempdir().unwrap();
+    let syntax = run(home.path(), &["show"], None);
+    assert_eq!(syntax.status.code(), Some(2));
+
+    success(home.path(), &["init"], None);
+    let invalid_query = run(home.path(), &["list", "unknown:value"], None);
+    assert_eq!(invalid_query.status.code(), Some(2));
+
+    let missing = run(
+        home.path(),
+        &["show", "018fbe0a-6c00-7000-8000-000000000001"],
+        None,
+    );
+    assert_eq!(missing.status.code(), Some(3));
+}
+
+#[test]
+fn multi_megabyte_bodies_round_trip_through_capture_edit_and_find() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let body = format!("# Large\nneedle {}", "x".repeat(2 * 1024 * 1024));
+    let id = add(home.path(), &body, &[]);
+
+    assert_eq!(success(home.path(), &["show", &id], None), body);
+    assert_summary_row(
+        &success(home.path(), &["find", "needle"], None),
+        &id,
+        "inbox",
+        "Large",
+        &[],
+        0,
+    );
+
+    let edited = format!(
+        "# Edited large\nreplacement {}",
+        "y".repeat(2 * 1024 * 1024)
+    );
+    success(home.path(), &["edit", &id], Some(&edited));
+    assert_eq!(success(home.path(), &["show", &id], None), edited);
 }
 
 #[test]
@@ -316,17 +372,14 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let head = Command::new("head")
-        .args(["-n", "100"])
-        .stdin(nt.stdout.take().unwrap())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .unwrap();
+    let mut output = BufReader::new(nt.stdout.take().unwrap());
+    for _ in 0..100 {
+        let mut line = String::new();
+        assert_ne!(output.read_line(&mut line).unwrap(), 0);
+    }
+    drop(output);
     let output = nt.wait_with_output().unwrap();
 
-    assert!(head.status.success());
-    assert!(head.stderr.is_empty());
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
 }

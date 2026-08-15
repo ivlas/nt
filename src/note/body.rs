@@ -10,16 +10,19 @@ pub(super) fn normalize_body(body: &str) -> Result<(String, String)> {
         return Err(NtError::EmptyBody);
     }
 
-    let first_line = body
-        .split_once('\n')
-        .map_or(body.as_str(), |(line, _)| line);
-    let title = first_line
-        .strip_prefix("# ")
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .ok_or(NtError::InvalidTitle)?;
+    let title = {
+        let first_line = body
+            .split_once('\n')
+            .map_or(body.as_str(), |(line, _)| line);
+        first_line
+            .strip_prefix("# ")
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .ok_or(NtError::InvalidTitle)?
+            .to_string()
+    };
 
-    Ok((body.clone(), title.to_string()))
+    Ok((body, title))
 }
 
 #[cfg(test)]

@@ -33,7 +33,10 @@ schema objects. It prints `initialized` for a new database and
 `HOME`, or the `USERPROFILE` fallback, must be a non-empty absolute path.
 
 Ordinary commands do not create storage. They validate application ID
-`0x4e544e54` and clean-sheet schema version `1` before operating.
+`0x4e544e54`, clean-sheet schema version `1`, and the exact definitions of every
+required schema object before operating. Additional user-defined tables, views,
+and indexes are tolerated but are outside nt's supported state. Unknown triggers
+are rejected because they can alter nt writes.
 
 ## Capture
 
@@ -177,8 +180,11 @@ not update its outgoing targets.
 
 ## Errors
 
-Operational errors write `error: <message>` to stderr and return nonzero. Errors
-before success-output writing do not print to stdout. Stable messages are:
+Operational errors write `error: <message>` to stderr. Exit codes are `2` for
+invalid syntax, queries, or values; `3` for missing storage or notes; `4` for
+retryable database contention or concurrent edits; and `1` for other operational
+failures. Success and an intentionally closed summary-output pipe return `0`.
+Errors before success-output writing do not print to stdout. Stable messages are:
 
 ```text
 error: run nt init first
@@ -197,7 +203,8 @@ error: body must begin with '# <title>'
 error: cannot combine body arguments with stdin
 error: VISUAL or EDITOR is not set
 error: invalid VISUAL or EDITOR command
-error: editor exited unsuccessfully
+error: failed to launch editor: <io error>
+error: editor exited unsuccessfully with status <status>
 error: duplicate note id: <id>
 error: cannot link note to itself
 ```
@@ -213,7 +220,7 @@ recognized application-identity or schema-shape mismatches. Corrupt or malformed
 database images use the stable corruption message, and busy or locked databases
 use the retryable busy message. Other unexpected SQLite failures retain
 diagnostic detail rather than being misreported as foreign databases. Command
-grammar errors use clap's stderr diagnostics and exit code.
+grammar errors use clap's stderr diagnostics and exit code `2`.
 
 ## Operation
 

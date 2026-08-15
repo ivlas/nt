@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NewNote, Note, NoteId, Tag, timestamp_now};
+use crate::note::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
 
 use super::Repository;
 
@@ -44,10 +44,8 @@ impl Repository {
         Ok(id)
     }
 
-    pub fn get_note(&mut self, id: &NoteId) -> Result<Note> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Deferred)?;
+    pub fn get_note(&self, id: &NoteId) -> Result<Note> {
+        let transaction = self.connection.unchecked_transaction()?;
         let note = load_note(&transaction, id)?;
         transaction.commit()?;
         Ok(note)
@@ -109,13 +107,11 @@ impl Repository {
         Ok(())
     }
 
-    pub fn verify_body_version(&mut self, id: &NoteId, expected_version: u64) -> Result<()> {
+    pub fn verify_body_version(&self, id: &NoteId, expected_version: u64) -> Result<()> {
         let expected_version = i64::try_from(expected_version)
             .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
-        let transaction = self
+        let actual_version: i64 = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let actual_version: i64 = transaction
             .query_row(
                 "SELECT body_version FROM notes WHERE id = ?1",
                 [id.to_string()],
@@ -126,7 +122,6 @@ impl Repository {
         if actual_version != expected_version {
             return Err(NtError::ConcurrentEdit(id.to_string()));
         }
-        transaction.commit()?;
         Ok(())
     }
 
@@ -197,16 +192,17 @@ pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<No
         .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
     let tags = load_tags(transaction, stored.0)?;
     let links = load_links(transaction, stored.0)?;
-    let body_version = u64::try_from(stored.6)
-        .map_err(|_| NtError::InvalidBodyVersion(stored.6.cast_unsigned()))?;
+    let body_version = u64::try_from(stored.6).map_err(|_| NtError::InvalidStoredNote)?;
     Note::rehydrate(
-        id.clone(),
-        stored.1.parse()?,
-        stored.2,
-        stored.3,
-        stored.4.parse()?,
-        stored.5.parse()?,
-        body_version,
+        NoteRecord {
+            id: id.clone(),
+            collection: stored.1.parse().map_err(|_| NtError::InvalidStoredNote)?,
+            body: stored.2,
+            title: stored.3,
+            created: stored.4.parse().map_err(|_| NtError::InvalidStoredNote)?,
+            updated: stored.5.parse().map_err(|_| NtError::InvalidStoredNote)?,
+            body_version,
+        },
         tags,
         links,
     )
@@ -217,7 +213,7 @@ fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet
         connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| value?.parse())
+        .map(|value| value?.parse().map_err(|_| NtError::InvalidStoredNote))
         .collect()
 }
 
@@ -231,6 +227,6 @@ fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSe
     )?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| value?.parse())
+        .map(|value| value?.parse().map_err(|_| NtError::InvalidStoredNote))
         .collect()
 }

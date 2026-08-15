@@ -39,12 +39,20 @@ mismatches are distinct from corrupt or malformed database images, which receive
 a stable corruption error. Busy or locked databases remain retryable, and other
 inspection failures retain their underlying database diagnostics.
 
-Ordinary commands validate existence, application identity, and schema version
-without creating files or objects. Recognized operational connections enable
-foreign keys and apply a bounded busy timeout. Retrieval commands open the
-database read-only; initialization and mutation commands open read-write and
-establish WAL. Mutations use short transactions, and no transaction remains
-open while reading stdin or waiting for `$VISUAL`/`$EDITOR`.
+For a missing database, initialization builds a temporary sibling and publishes
+it without replacing a file created concurrently. Failed candidates are removed.
+For supported schema version `1`, every required table, virtual table, trigger,
+and index must retain its canonical definition. Additional user-defined tables,
+views, and indexes are tolerated, but they are not part of nt state or supported
+for writes. Unknown triggers are rejected because they can alter nt mutations.
+
+Ordinary commands validate existence, application identity, schema version, and
+required schema definitions without creating files or objects. Recognized
+operational connections enable foreign keys and apply a bounded busy timeout.
+Retrieval commands open the database read-only; initialization and mutation
+commands open read-write and establish WAL. Mutations use short transactions,
+and no transaction remains open while reading stdin or waiting for
+`$VISUAL`/`$EDITOR`.
 
 ## Notes
 

@@ -130,7 +130,7 @@ mod tests {
             String::from_utf8(output).unwrap(),
             format!("initialized\nsaved {id}\n# Direct input\nBody")
         );
-        let mut repository = Repository::open_at(&database_path).unwrap();
+        let repository = Repository::open_at(&database_path).unwrap();
         assert_eq!(
             repository.get_note(&id.parse().unwrap()).unwrap().body(),
             "# Direct input\nBody"
@@ -178,7 +178,7 @@ mod tests {
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["edit", &id.to_string()], "# Edited");
-        let mut repository = Repository::open_at(&database_path).unwrap();
+        let repository = Repository::open_at(&database_path).unwrap();
         assert_eq!(repository.get_note(&id).unwrap().body(), "# Edited");
         drop(repository);
 
@@ -227,7 +227,7 @@ mod tests {
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["rm", &id.to_string()], "");
-        let mut repository = Repository::open_at(&database_path).unwrap();
+        let repository = Repository::open_at(&database_path).unwrap();
         assert!(matches!(
             repository.get_note(&id),
             Err(NtError::NoteNotFound(_))

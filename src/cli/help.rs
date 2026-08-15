@@ -27,9 +27,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "tag" => Ok("nt tag <id> <+tag|-tag>\n\nAdd or remove one tag.\n"),
         "link" => Ok("nt link <id> <+id|-id>\n\nAdd or remove one directional note link.\n"),
         "help" => Ok("nt help [command...]\n\nShow command help.\n"),
-        _ => Err(NtError::Message(format!(
-            "unknown help topic `{key}`; run nt help"
-        ))),
+        _ => Err(NtError::UnknownHelpTopic(key.to_string())),
     }
 }
 
@@ -57,6 +55,7 @@ Commands:
 #[cfg(test)]
 mod tests {
     use super::{ROOT, topic_text};
+    use crate::error::NtError;
 
     #[test]
     fn root_lists_only_clean_sheet_commands() {
@@ -73,6 +72,9 @@ mod tests {
 
     #[test]
     fn unknown_topics_are_errors() {
-        assert!(topic_text("search").is_err());
+        assert!(matches!(
+            topic_text("search"),
+            Err(NtError::UnknownHelpTopic(topic)) if topic == "search"
+        ));
     }
 }

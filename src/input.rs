@@ -64,9 +64,9 @@ pub fn read_editor(
         .args(editor.arguments)
         .arg(file.path())
         .status()
-        .map_err(|_| NtError::EditorFailed)?;
+        .map_err(NtError::EditorLaunch)?;
     if !status.success() {
-        return Err(NtError::EditorFailed);
+        return Err(NtError::EditorExit(status));
     }
 
     let body = std::fs::read_to_string(file.path())?;
@@ -97,9 +97,10 @@ fn parse_editor(visual: Option<&str>, editor: Option<&str>) -> Result<EditorComm
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::io::{self, Cursor, Read};
 
-    use super::{EditorCommand, Input, parse_editor};
+    use super::{EditorCommand, Input, parse_editor, read_editor};
     use crate::error::NtError;
 
     #[test]
@@ -188,6 +189,95 @@ mod tests {
         assert!(matches!(
             parse_editor(None, Some("''")),
             Err(NtError::InvalidEditor)
+        ));
+    }
+
+    #[test]
+    fn editor_launch_failures_preserve_the_io_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing-editor");
+        let error = read_editor(
+            None,
+            directory.path(),
+            None,
+            Some(missing.to_str().unwrap()),
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(&error, NtError::EditorLaunch(source) if source.kind() == io::ErrorKind::NotFound)
+        );
+        assert!(error.source().is_some());
+        assert!(error.to_string().starts_with("failed to launch editor:"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsuccessful_editor_status_is_reported_separately() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = read_editor(None, directory.path(), None, Some("false")).unwrap_err();
+
+        assert!(matches!(error, NtError::EditorExit(status) if !status.success()));
+    }
+
+    #[test]
+    fn editor_temp_file_creation_failures_remain_io_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing");
+
+        assert!(matches!(
+            read_editor(None, &missing, None, Some("unused")),
+            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::NotFound
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editor_file_removal_and_invalid_utf8_are_reported_as_io_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let removed = read_editor(
+            None,
+            directory.path(),
+            None,
+            Some("sh -c 'rm -- \"$1\"' sh"),
+        );
+        assert!(matches!(
+            removed,
+            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::NotFound
+        ));
+
+        let invalid_utf8 = read_editor(
+            None,
+            directory.path(),
+            None,
+            Some(r#"sh -c 'printf "\377" > "$1"' sh"#),
+        );
+        assert!(matches!(
+            invalid_utf8,
+            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_editor_is_a_launch_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let editor = directory.path().join("editor");
+        std::fs::write(&editor, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&editor).unwrap().permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&editor, permissions).unwrap();
+
+        assert!(matches!(
+            read_editor(
+                None,
+                directory.path(),
+                None,
+                Some(editor.to_str().unwrap())
+            ),
+            Err(NtError::EditorLaunch(source)) if source.kind() == io::ErrorKind::PermissionDenied
         ));
     }
 }
