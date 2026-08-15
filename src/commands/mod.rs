@@ -1,9 +1,11 @@
 use std::io::Write;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use crate::cli::{Cli, Command};
 use crate::error::{NtError, Result};
 use crate::input::Input;
+use crate::repository::AddOrRemove;
 
 mod add;
 mod edit;
@@ -41,6 +43,22 @@ impl<'a> App<'a> {
     fn database_path(&self) -> Result<&std::path::Path> {
         self.database_path.as_deref().ok_or(NtError::HomeNotFound)
     }
+}
+
+fn parse_add_or_remove<T>(value: &str, field: &'static str) -> Result<AddOrRemove<T>>
+where
+    T: FromStr<Err = NtError>,
+{
+    if let Some(value) = value.strip_prefix('+') {
+        return Ok(AddOrRemove::Add(value.parse()?));
+    }
+    if let Some(value) = value.strip_prefix('-') {
+        return Ok(AddOrRemove::Remove(value.parse()?));
+    }
+    Err(NtError::InvalidValue {
+        field,
+        value: value.to_string(),
+    })
 }
 
 pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
