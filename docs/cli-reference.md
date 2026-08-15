@@ -180,6 +180,7 @@ not print to stdout. Stable messages are:
 ```text
 error: run nt init first
 error: database is not an nt database
+error: database is corrupt
 error: unsupported nt schema version <version>; delete ~/.nt/nt.sqlite3 and run nt init
 error: database is busy; retry
 error: note not found: <id>
@@ -195,8 +196,12 @@ error: duplicate note id: <id>
 error: cannot link note to itself
 ```
 
-Command grammar errors use clap's stderr diagnostics and exit code. SQLite
-internals and host paths are not exposed by expected operational errors.
+During SQLite inspection, `database is not an nt database` is reserved for
+recognized application-identity or schema-shape mismatches. Corrupt or malformed
+database images use the stable corruption message, and busy or locked databases
+use the retryable busy message. Other unexpected SQLite failures retain
+diagnostic detail rather than being misreported as foreign databases. Command
+grammar errors use clap's stderr diagnostics and exit code.
 
 ## Operation
 

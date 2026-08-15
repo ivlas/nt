@@ -32,7 +32,10 @@ Initialization accepts a missing database, a zero-length file, or an empty
 SQLite database. A valid existing nt database is reported as already
 initialized. A database with unrelated objects or another application ID is
 rejected without modification. An incompatible nt schema is rejected with an
-instruction to delete the development database.
+instruction to delete the development database. Identity and schema-shape
+mismatches are distinct from corrupt or malformed database images, which receive
+a stable corruption error. Busy or locked databases remain retryable, and other
+inspection failures retain their underlying database diagnostics.
 
 Ordinary commands validate existence, application identity, and schema version
 without creating files or objects. Recognized operational connections enable
@@ -128,6 +131,14 @@ version. Metadata mutations update `updated` only when canonical state changes.
 A real `nt link` change updates only the source that owns the outgoing-link set.
 Deleting a target updates surviving sources before foreign-key cascades remove
 their outgoing edges; deleting a source does not update its outgoing targets.
+
+`Repository` remains a concrete facade rather than a trait hierarchy. Note
+storage and rehydration, relationship mutations, summary projection, and query
+SQL compilation are kept in separate repository modules. Process-global storage
+resolution, standard streams and terminal detection, and editor environment and
+launching belong to the binary adapter. Command dispatch receives those
+dependencies through one concrete application context so command behavior can
+be tested without mutating process state.
 
 ## Interface
 
