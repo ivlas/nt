@@ -6,6 +6,7 @@ use crate::error::{NtError, Result};
 use crate::note::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
 
 use super::Repository;
+use super::stored::{decode_collection, decode_id, decode_tag, decode_timestamp};
 
 impl Repository {
     pub fn create_note(&mut self, note: NewNote) -> Result<NoteId> {
@@ -196,11 +197,11 @@ pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<No
     Note::rehydrate(
         NoteRecord {
             id: id.clone(),
-            collection: stored.1.parse().map_err(|_| NtError::InvalidStoredNote)?,
+            collection: decode_collection(&stored.1)?,
             body: stored.2,
             title: stored.3,
-            created: stored.4.parse().map_err(|_| NtError::InvalidStoredNote)?,
-            updated: stored.5.parse().map_err(|_| NtError::InvalidStoredNote)?,
+            created: decode_timestamp(&stored.4)?,
+            updated: decode_timestamp(&stored.5)?,
             body_version,
         },
         tags,
@@ -213,7 +214,7 @@ fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet
         connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| value?.parse().map_err(|_| NtError::InvalidStoredNote))
+        .map(|value| decode_tag(&value?))
         .collect()
 }
 
@@ -227,6 +228,6 @@ fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSe
     )?;
     statement
         .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| value?.parse().map_err(|_| NtError::InvalidStoredNote))
+        .map(|value| decode_id(&value?))
         .collect()
 }

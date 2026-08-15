@@ -9,6 +9,7 @@ use crate::query::NoteQuery;
 
 use super::Repository;
 use super::query_sql::compile_query;
+use super::stored::{decode_collection, decode_id, decode_tag, decode_timestamp};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NoteSummary {
@@ -53,7 +54,7 @@ impl Repository {
             .prepare("SELECT DISTINCT tag FROM note_tags ORDER BY tag")?;
         statement
             .query_map([], |row| row.get::<_, String>(0))?
-            .map(|value| value?.parse())
+            .map(|value| decode_tag(&value?))
             .collect()
     }
 
@@ -63,7 +64,7 @@ impl Repository {
             .prepare("SELECT DISTINCT collection FROM notes ORDER BY collection")?;
         statement
             .query_map([], |row| row.get::<_, String>(0))?
-            .map(|value| value?.parse())
+            .map(|value| decode_collection(&value?))
             .collect()
     }
 
@@ -98,13 +99,13 @@ impl Repository {
             let stored_tags = row.get::<_, String>(4)?;
             let tags = serde_json::from_str::<Vec<String>>(&stored_tags)?
                 .into_iter()
-                .map(|tag| tag.parse())
+                .map(|tag| decode_tag(&tag))
                 .collect::<Result<BTreeSet<_>>>()?;
             let outgoing = row.get::<_, i64>(5)?;
             visit(NoteSummary {
-                id: row.get::<_, String>(0)?.parse()?,
-                updated: row.get::<_, String>(1)?.parse()?,
-                collection: row.get::<_, String>(2)?.parse()?,
+                id: decode_id(&row.get::<_, String>(0)?)?,
+                updated: decode_timestamp(&row.get::<_, String>(1)?)?,
+                collection: decode_collection(&row.get::<_, String>(2)?)?,
                 title: row.get(3)?,
                 tags,
                 outgoing: u64::try_from(outgoing).expect("SQLite COUNT(*) results are nonnegative"),

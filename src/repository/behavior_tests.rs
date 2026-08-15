@@ -33,6 +33,30 @@ mod tests {
         summaries
     }
 
+    fn assert_invalid_summary(repository: &Repository) {
+        assert!(matches!(
+            repository.visit_note_summaries(&NoteQuery::default(), |_| Ok(())),
+            Err(NtError::InvalidStoredNote)
+        ));
+    }
+
+    fn corrupt_repository(mutation: &str) -> (Repository, NoteId) {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Corrupt").unwrap())
+            .unwrap();
+        repository
+            .connection
+            .execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        repository.connection.execute_batch(mutation).unwrap();
+        repository
+            .connection
+            .execute_batch("PRAGMA ignore_check_constraints = OFF")
+            .unwrap();
+        (repository, id)
+    }
+
     #[test]
     fn creates_loads_lists_and_deletes_notes() {
         let mut repository = repository();
@@ -83,6 +107,66 @@ mod tests {
             repository.get_note(&id),
             Err(NtError::InvalidStoredNote)
         ));
+    }
+
+    #[test]
+    fn invalid_persisted_full_note_metadata_are_stored_note_errors() {
+        for mutation in [
+            "UPDATE notes SET collection = 'Invalid'",
+            "UPDATE notes SET created = 'invalid'",
+            "UPDATE notes SET updated = 'invalid'",
+        ] {
+            let (repository, id) = corrupt_repository(mutation);
+            assert!(matches!(
+                repository.get_note(&id),
+                Err(NtError::InvalidStoredNote)
+            ));
+        }
+
+        let (repository, id) = corrupt_repository(
+            "INSERT INTO note_tags(note_pk, tag)
+             SELECT pk, 'Invalid' FROM notes",
+        );
+        assert!(matches!(
+            repository.get_note(&id),
+            Err(NtError::InvalidStoredNote)
+        ));
+    }
+
+    #[test]
+    fn invalid_persisted_inventory_values_are_stored_note_errors() {
+        let (repository, _) = corrupt_repository(
+            "UPDATE notes SET collection = 'Invalid';
+             INSERT INTO note_tags(note_pk, tag)
+             SELECT pk, 'Invalid' FROM notes;",
+        );
+
+        assert!(matches!(
+            repository.list_tags(),
+            Err(NtError::InvalidStoredNote)
+        ));
+        assert!(matches!(
+            repository.list_collections(),
+            Err(NtError::InvalidStoredNote)
+        ));
+    }
+
+    #[test]
+    fn invalid_persisted_summary_values_are_stored_note_errors() {
+        for mutation in [
+            "UPDATE notes SET id = 'malformed'",
+            "UPDATE notes SET updated = 'invalid'",
+            "UPDATE notes SET collection = 'Invalid'",
+        ] {
+            let (repository, _) = corrupt_repository(mutation);
+            assert_invalid_summary(&repository);
+        }
+
+        let (repository, _) = corrupt_repository(
+            "INSERT INTO note_tags(note_pk, tag)
+             SELECT pk, 'Invalid' FROM notes",
+        );
+        assert_invalid_summary(&repository);
     }
 
     #[test]

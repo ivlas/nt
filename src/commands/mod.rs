@@ -65,6 +65,7 @@ where
 fn write_commit_output(output: &mut dyn Write, arguments: fmt::Arguments<'_>) -> Result<()> {
     output
         .write_fmt(arguments)
+        .and_then(|()| output.flush())
         .map_err(NtError::CommittedButOutputFailed)
 }
 
@@ -235,6 +236,23 @@ mod tests {
         assert!(repository.get_note(&target).is_ok());
     }
 
+    #[test]
+    fn mutations_report_success_output_flush_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        let mut stdin = Cursor::new(Vec::new());
+        let mut editor = |_| panic!("editor should not run");
+        let input = Input::new(&mut stdin, false, &mut editor);
+        let mut output = FlushFailingWriter;
+        let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+
+        assert!(matches!(
+            run(Cli::parse_from(["nt", "init"]), &mut app),
+            Err(NtError::CommittedButOutputFailed(_))
+        ));
+        assert!(Repository::open_at(&database_path).is_ok());
+    }
+
     fn assert_committed_output_failure(path: &Path, arguments: &[&str], body: &str) {
         let mut stdin = Cursor::new(body.as_bytes());
         let mut editor = |_| panic!("editor should not run");
@@ -251,6 +269,8 @@ mod tests {
 
     struct FailingWriter;
 
+    struct FlushFailingWriter;
+
     impl Write for FailingWriter {
         fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
             Err(io::Error::other("output failed"))
@@ -258,6 +278,16 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
+        }
+    }
+
+    impl Write for FlushFailingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::other("flush failed"))
         }
     }
 }

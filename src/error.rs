@@ -14,13 +14,15 @@ pub enum NtError {
     Database(#[source] rusqlite::Error),
     #[error("database is busy; retry")]
     DatabaseBusy,
+    #[error("database could not enter WAL mode")]
+    WalUnavailable,
     #[error("database is corrupt")]
     CorruptDatabase(#[source] rusqlite::Error),
     #[error("invalid database path")]
     InvalidDatabasePath,
     #[error("system clock is outside the supported timestamp range")]
     ClockOutOfRange,
-    #[error("stored note has invalid body or title")]
+    #[error("stored note is invalid")]
     InvalidStoredNote,
     #[error("home directory not found")]
     HomeNotFound,

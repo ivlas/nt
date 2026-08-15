@@ -191,8 +191,9 @@ error: run nt init first
 error: home directory not found
 error: database is not an nt database
 error: database is corrupt
+error: database could not enter WAL mode
 error: system clock is outside the supported timestamp range
-error: stored note has invalid body or title
+error: stored note is invalid
 error: unsupported nt schema version <version>; delete ~/.nt/nt.sqlite3 and run nt init
 error: database is busy; retry
 error: note not found: <id>

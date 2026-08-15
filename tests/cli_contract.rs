@@ -288,6 +288,26 @@ fn process_exit_codes_distinguish_input_and_operational_errors() {
 }
 
 #[test]
+fn invalid_persisted_values_are_operational_errors() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    add(home.path(), "# Invalid stored value", &[]);
+    Connection::open(home.path().join(".nt/nt.sqlite3"))
+        .unwrap()
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             UPDATE notes SET collection = 'Invalid';
+             PRAGMA ignore_check_constraints = OFF;",
+        )
+        .unwrap();
+
+    let output = run(home.path(), &["list", "collections"], None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"error: stored note is invalid\n");
+}
+
+#[test]
 fn multi_megabyte_bodies_round_trip_through_capture_edit_and_find() {
     let home = tempfile::tempdir().unwrap();
     success(home.path(), &["init"], None);

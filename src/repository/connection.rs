@@ -33,6 +33,11 @@ pub(super) fn configure(connection: &Connection) -> Result<()> {
 
 pub(super) fn configure_wal(connection: &Connection) -> Result<()> {
     configure(connection)?;
-    connection.execute_batch("PRAGMA journal_mode = WAL")?;
-    Ok(())
+    let journal_mode: String =
+        connection.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+    if journal_mode.eq_ignore_ascii_case("wal") {
+        Ok(())
+    } else {
+        Err(NtError::WalUnavailable)
+    }
 }

@@ -13,6 +13,7 @@ mod note_store;
 mod query_sql;
 mod relationships;
 mod schema;
+mod stored;
 mod summaries;
 
 pub use summaries::NoteSummary;
@@ -180,6 +181,35 @@ mod tests {
             .unwrap();
         assert_eq!(foreign_keys, 1);
         assert_eq!(journal, "wal");
+    }
+
+    #[test]
+    fn read_write_open_reestablishes_wal() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nt.sqlite3");
+        initialize_at(&path).unwrap();
+        let connection = Connection::open(&path).unwrap();
+        let journal: String = connection
+            .query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal, "delete");
+        drop(connection);
+
+        let repository = open_at(&path, OpenMode::ReadWrite).unwrap();
+        let journal: String = repository
+            .connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal, "wal");
+    }
+
+    #[test]
+    fn wal_configuration_rejects_other_resulting_modes() {
+        let connection = Connection::open_in_memory().unwrap();
+        assert!(matches!(
+            connection::configure_wal(&connection),
+            Err(NtError::WalUnavailable)
+        ));
     }
 
     #[test]
