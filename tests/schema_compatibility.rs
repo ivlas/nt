@@ -12,7 +12,8 @@ fn initialized_schema_matches_the_independent_v1_fixture() {
     let initialized_path = directory.path().join("initialized.sqlite3");
 
     let fixture = Connection::open(&fixture_path).unwrap();
-    fixture.execute_batch(V1_SCHEMA).unwrap();
+    let fixture_schema = V1_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
+    fixture.execute_batch(&fixture_schema).unwrap();
     drop(fixture);
 
     Repository::initialize_at(&initialized_path).unwrap();
