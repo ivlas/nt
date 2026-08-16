@@ -7,14 +7,13 @@ plugins, registries, or generic repository traits.
 ## Layers
 
 The application layer owns the CLI, process adapters, command orchestration,
-application errors, and the canonical database manifest:
+and the canonical database manifest:
 
 ```text
 src/cli/
 src/commands/
 src/app.rs
 src/schema.rs
-src/error.rs
 src/lib.rs
 src/main.rs
 ```
@@ -32,6 +31,10 @@ Shared core owns infrastructure that has no note semantics:
 src/core/storage/
 ```
 
+`src/error.rs` is shared crate infrastructure. It defines the concrete error
+vocabulary used across the application, domains, and shared core, including the
+stable process categories consumed by the binary adapter.
+
 The storage core opens and configures SQLite connections, publishes new
 databases atomically, and initializes and validates an explicitly supplied
 schema manifest. It does not contain note types, table names, or FTS names.
@@ -41,6 +44,7 @@ schema manifest. It does not contain note types, table names, or FTS names.
 ```text
 application -> domains -> core
 application -----------> core
+all layers ------------> shared errors
 ```
 
 The production dependency rules are:
