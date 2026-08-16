@@ -78,7 +78,20 @@ impl NtError {
             | Self::InvalidEditor => 2,
             Self::MissingDatabase | Self::NoteNotFound(_) => 3,
             Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
-            _ => 1,
+            Self::Io(_)
+            | Self::CommittedButOutputFailed(_)
+            | Self::Json(_)
+            | Self::Database(_)
+            | Self::WalUnavailable
+            | Self::CorruptDatabase(_)
+            | Self::InvalidDatabasePath
+            | Self::ClockOutOfRange
+            | Self::InvalidStoredNote
+            | Self::HomeNotFound
+            | Self::NotNtDatabase
+            | Self::UnsupportedSchema(_)
+            | Self::EditorLaunch(_)
+            | Self::EditorExit(_) => 1,
         }
     }
 }
