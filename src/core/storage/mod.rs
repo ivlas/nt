@@ -48,7 +48,7 @@ pub(crate) fn initialize_at(path: &Path, manifest: &SchemaManifest) -> Result<In
             |connection| schema_engine::initialize(connection, manifest),
             connection::configure_wal,
         ),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(NtError::path_io("inspect database path", path, error)),
     }
 }
 
@@ -78,9 +78,11 @@ fn initialize_missing_with(
 ) -> Result<InitOutcome> {
     let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
     let parent_existed = parent.exists();
-    fs::create_dir_all(parent)?;
+    fs::create_dir_all(parent)
+        .map_err(|error| NtError::path_io("create database directory", parent, error))?;
     let mut parent_cleanup = RemoveEmptyDirectory((!parent_existed).then_some(parent));
-    let candidate = tempfile::NamedTempFile::new_in(parent)?;
+    let candidate = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| NtError::path_io("create temporary database in", parent, error))?;
     let mut connection = connection::open_existing(candidate.path(), OpenMode::ReadWrite)?;
     connection::configure(&connection)?;
     if !initialize(&mut connection)? {
@@ -100,7 +102,7 @@ fn initialize_missing_with(
             parent_cleanup.disarm();
             initialize_existing(path, false, manifest)
         }
-        Err(error) => Err(error.error.into()),
+        Err(error) => Err(NtError::path_io("publish database", path, error.error)),
     }
 }
 

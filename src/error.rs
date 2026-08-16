@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -6,12 +8,25 @@ pub enum NtError {
     UnknownHelpTopic(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("failed to {operation} `{path}`: {source}")]
+    PathIo {
+        operation: &'static str,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("operation committed but success output failed: {0}")]
     CommittedButOutputFailed(#[source] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("database error: {0}")]
     Database(#[source] rusqlite::Error),
+    #[error("failed to open database `{path}`: {source}")]
+    OpenDatabase {
+        path: PathBuf,
+        #[source]
+        source: rusqlite::Error,
+    },
     #[error("database is busy; retry")]
     DatabaseBusy,
     #[error("database could not enter WAL mode")]
@@ -63,6 +78,28 @@ pub enum NtError {
 }
 
 impl NtError {
+    pub(crate) fn path_io(
+        operation: &'static str,
+        path: impl Into<PathBuf>,
+        source: std::io::Error,
+    ) -> Self {
+        Self::PathIo {
+            operation,
+            path: path.into(),
+            source,
+        }
+    }
+
+    pub(crate) fn open_database(path: &Path, error: rusqlite::Error) -> Self {
+        match Self::from(error) {
+            Self::Database(source) => Self::OpenDatabase {
+                path: path.to_path_buf(),
+                source,
+            },
+            classified => classified,
+        }
+    }
+
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::UnknownHelpTopic(_)
@@ -79,9 +116,11 @@ impl NtError {
             Self::MissingDatabase | Self::NoteNotFound(_) => 3,
             Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
             Self::Io(_)
+            | Self::PathIo { .. }
             | Self::CommittedButOutputFailed(_)
             | Self::Json(_)
             | Self::Database(_)
+            | Self::OpenDatabase { .. }
             | Self::WalUnavailable
             | Self::CorruptDatabase(_)
             | Self::InvalidDatabasePath
@@ -118,6 +157,8 @@ pub type Result<T> = std::result::Result<T, NtError>;
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::io;
+    use std::path::Path;
 
     use super::NtError;
 
@@ -152,6 +193,36 @@ mod tests {
             NtError::Io(std::io::Error::other("unexpected")).exit_code(),
             1
         );
+    }
+
+    #[test]
+    fn path_errors_preserve_context_sources_and_sqlite_categories() {
+        let path = Path::new("/notes/nt.sqlite3");
+        let error = NtError::path_io("inspect database path", path, io::Error::other("denied"));
+        assert!(matches!(&error, NtError::PathIo { path: stored, .. } if stored == path));
+        assert_eq!(
+            error.to_string(),
+            "failed to inspect database path `/notes/nt.sqlite3`: denied"
+        );
+        assert!(error.source().is_some());
+        assert_eq!(error.exit_code(), 1);
+
+        let error = NtError::open_database(path, sqlite_failure(rusqlite::ffi::SQLITE_IOERR));
+        assert!(matches!(
+            &error,
+            NtError::OpenDatabase { path: stored, .. } if stored == path
+        ));
+        assert!(error.to_string().contains("/notes/nt.sqlite3"));
+        assert!(error.source().is_some());
+
+        assert!(matches!(
+            NtError::open_database(path, sqlite_failure(rusqlite::ffi::SQLITE_BUSY)),
+            NtError::DatabaseBusy
+        ));
+        assert!(matches!(
+            NtError::open_database(path, sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT)),
+            NtError::CorruptDatabase(_)
+        ));
     }
 
     fn sqlite_failure(code: i32) -> rusqlite::Error {

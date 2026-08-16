@@ -208,6 +208,8 @@ error: failed to launch editor: <io error>
 error: editor exited unsuccessfully with status <status>
 error: duplicate note id: <id>
 error: cannot link note to itself
+error: failed to <filesystem operation> `<path>`: <io error>
+error: failed to open database `<path>`: <database error>
 ```
 
 Database commits and success-output writes cannot be atomic. If success output
