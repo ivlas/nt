@@ -31,10 +31,18 @@ nt rm <id>
 SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
 configuration files, daemons, embeddings, or hidden agent-only commands.
 
+## Architecture
+
+`nt` is a modular monolith with an application layer, independent domains, and
+shared SQLite infrastructure. Notes are the current domain. Domains own their
+model, queries, persistence operations, and schema fragments; the application
+owns CLI orchestration and explicitly composes the canonical database schema.
+
 ## Documentation
 
 - [Usage](docs/usage.md)
 - [CLI reference](docs/cli-reference.md)
+- [Architecture](docs/architecture.md)
 - [Design](docs/design.md)
 
 ## License

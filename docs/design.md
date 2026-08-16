@@ -1,4 +1,7 @@
-# nt Design
+# Notes Domain Design
+
+This document specifies the notes domain and its current application interface.
+System-wide layer and dependency rules are documented in `architecture.md`.
 
 `nt` is a local, agent-first note layer for editable CommonMark notes,
 deterministic metadata, and lexical retrieval. The previous vault, todo,
@@ -22,7 +25,7 @@ There are no note kinds, todos, agenda behavior, vaults, collection entities,
 many-to-many memberships, sources, generic metadata, configurable projections,
 reserved tags, automatic routing, or migration compatibility. Append-only
 memory requires a separate workflow-backed RFC and must remain an independent
-subsystem.
+domain.
 
 ## Initialization
 
