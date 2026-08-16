@@ -1,5 +1,7 @@
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::domains::note::{NoteQuery, NoteSummary, Repository};
 use crate::error::Result;
 
@@ -77,13 +79,13 @@ fn write_spooled_table<const N: usize>(
     produce: impl FnOnce(&mut dyn FnMut([String; N]) -> Result<()>) -> Result<()>,
 ) -> Result<()> {
     let mut spool = tempfile::tempfile()?;
-    let mut widths = headers.map(|header| header.chars().count());
+    let mut widths = headers.map(display_width);
     {
         let mut spool_output = BufWriter::new(&mut spool);
         {
             let mut write_row = |row: [String; N]| {
                 for (column, cell) in row.iter().enumerate() {
-                    widths[column] = widths[column].max(cell.chars().count());
+                    widths[column] = widths[column].max(display_width(cell));
                 }
                 writeln!(spool_output, "{}", serde_json::to_string(row.as_slice())?)?;
                 Ok(())
@@ -114,7 +116,7 @@ fn write_table_row<const N: usize>(
     for (column, cell) in cells.iter().enumerate() {
         output.write_all(cell.as_bytes())?;
         if column + 1 < N {
-            let mut padding = widths[column] - cell.chars().count() + 2;
+            let mut padding = widths[column] - display_width(cell) + 2;
             while padding > 0 {
                 let chunk = padding.min(SPACES.len());
                 output.write_all(&SPACES[..chunk])?;
@@ -138,8 +140,21 @@ pub(crate) fn print_values<T: AsRef<str>>(
             .collect::<Vec<_>>();
         output.write_all(format_table([header], &rows).as_bytes())?;
     } else {
+        let mut output = BufWriter::new(output);
         for value in values {
-            writeln!(output, "{}", serde_json::to_string(value.as_ref())?)?;
+            let encoded = serde_json::to_string(value.as_ref())?;
+            if let Err(error) = writeln!(output, "{encoded}") {
+                if error.kind() == io::ErrorKind::BrokenPipe {
+                    return Ok(());
+                }
+                return Err(error.into());
+            }
+        }
+        if let Err(error) = output.flush() {
+            if error.kind() == io::ErrorKind::BrokenPipe {
+                return Ok(());
+            }
+            return Err(error.into());
         }
     }
     Ok(())
@@ -148,8 +163,8 @@ pub(crate) fn print_values<T: AsRef<str>>(
 fn format_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
     let widths = std::array::from_fn(|column| {
         rows.iter()
-            .map(|row| row[column].chars().count())
-            .chain([headers[column].chars().count()])
+            .map(|row| display_width(&row[column]))
+            .chain([display_width(headers[column])])
             .max()
             .unwrap_or_default()
     });
@@ -165,18 +180,22 @@ fn append_row<const N: usize>(output: &mut String, cells: [&str; N], widths: &[u
     for (column, cell) in cells.iter().enumerate() {
         output.push_str(cell);
         if column + 1 < N {
-            let padding = widths[column] - cell.chars().count() + 2;
+            let padding = widths[column] - display_width(cell) + 2;
             output.extend(std::iter::repeat_n(' ', padding));
         }
     }
     output.push('\n');
 }
 
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{self, Write};
 
-    use super::{format_table, write_spooled_table};
+    use super::{display_width, format_table, print_values, write_spooled_table};
 
     #[test]
     fn tty_tables_include_headers_and_align_columns() {
@@ -198,6 +217,23 @@ mod tests {
     #[test]
     fn empty_tty_tables_still_include_headers() {
         assert_eq!(format_table(["tag"], &[]), "tag\n");
+    }
+
+    #[test]
+    fn tty_tables_use_unicode_display_width() {
+        assert_eq!(display_width("界"), 2);
+        assert_eq!(display_width("e\u{301}"), 1);
+        assert_eq!(display_width("🙂"), 2);
+
+        let rows = [
+            ["界".to_string(), "wide".to_string()],
+            ["e\u{301}".to_string(), "combining".to_string()],
+            ["🙂".to_string(), "emoji".to_string()],
+        ];
+        assert_eq!(
+            format_table(["v", "kind"], &rows),
+            "v   kind\n界  wide\ne\u{301}   combining\n🙂  emoji\n"
+        );
     }
 
     #[test]
@@ -241,15 +277,38 @@ mod tests {
         assert!(output.bytes > 80_000);
     }
 
+    #[test]
+    fn redirected_inventories_ignore_broken_pipes() {
+        print_values(
+            &mut BrokenPipeWriter,
+            false,
+            "tag",
+            vec!["rust".to_string()],
+        )
+        .unwrap();
+    }
+
     #[derive(Default)]
     struct CountingWriter {
         bytes: usize,
     }
 
+    struct BrokenPipeWriter;
+
     impl Write for CountingWriter {
         fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
             self.bytes += buffer.len();
             Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Write for BrokenPipeWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed pipe"))
         }
 
         fn flush(&mut self) -> io::Result<()> {

@@ -404,6 +404,18 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
     assert!(output.stderr.is_empty());
 }
 
+#[test]
+fn redirected_summaries_escape_titles_without_creating_extra_lines() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let title = "A\t\"quoted\" \\ title";
+    let id = add(home.path(), &format!("# {title}\nBody"), &[]);
+
+    let output = success(home.path(), &["list"], None);
+
+    assert_summary_row(output.trim_end(), &id, "inbox", title, &[], 0);
+}
+
 fn assert_summary_row(
     row: &str,
     expected_id: &str,
