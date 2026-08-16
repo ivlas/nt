@@ -410,6 +410,22 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_deletion_is_rejected_without_deleting_the_note() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Kept").unwrap())
+            .unwrap();
+
+        let result = repository.delete_notes(&[id.clone(), id.clone()]);
+
+        assert!(matches!(
+            result,
+            Err(NtError::DuplicateNoteId(duplicate)) if duplicate == id.to_string()
+        ));
+        assert!(repository.get_note(&id).is_ok());
+    }
+
+    #[test]
     fn list_filters_are_and_combined_and_negatable() {
         let mut repository = repository();
         repository

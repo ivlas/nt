@@ -13,7 +13,7 @@ impl Repository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id = NoteId::generate();
+        let id = NoteId::generate()?;
         note.validate_links_for(&id)?;
         let now = timestamp_now()?;
         transaction.execute(
@@ -57,6 +57,12 @@ impl Repository {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut pks = Vec::with_capacity(ids.len());
+        let mut unique = BTreeSet::new();
+        for id in ids {
+            if !unique.insert(id) {
+                return Err(NtError::DuplicateNoteId(id.to_string()));
+            }
+        }
         for id in ids {
             pks.push(note_pk(&transaction, id)?);
         }
