@@ -10,6 +10,15 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    name: msrv (1.95)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - run: cargo test --locked
+
   test:
     name: stable (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -22,9 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-
-      - if: matrix.os == 'ubuntu-latest'
-        run: rustup component add clippy rustfmt
+        with:
+          components: ${{ matrix.os == 'ubuntu-latest' && 'clippy,rustfmt' || '' }}
 
       - if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --check
