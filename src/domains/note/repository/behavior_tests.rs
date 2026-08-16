@@ -2,16 +2,27 @@ use std::collections::BTreeSet;
 
 use rusqlite::{TransactionBehavior, params};
 
+use super::super::{CollectionPath, NewNote, NoteId, NoteQuery, Tag};
 use crate::error::NtError;
-use crate::note::{CollectionPath, NewNote, NoteId, Tag};
-use crate::query::NoteQuery;
 
-use super::note_store::load_note;
+use super::store::load_note;
 use super::{AddOrRemove, NoteSummary, Repository};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::{OpenMode, initialize_at, open_at, schema};
+    use crate::core::storage::OpenMode;
+    use crate::schema;
+
+    fn initialize_at(path: &std::path::Path) -> crate::Result<crate::InitOutcome> {
+        Repository::initialize_at(path)
+    }
+
+    fn open_at(path: &std::path::Path, mode: OpenMode) -> crate::Result<Repository> {
+        match mode {
+            OpenMode::ReadOnly => Repository::open_read_only(path),
+            OpenMode::ReadWrite => Repository::open_at(path),
+        }
+    }
 
     fn repository() -> Repository {
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();

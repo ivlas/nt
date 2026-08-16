@@ -1,6 +1,5 @@
+use crate::domains::note::{CollectionPath, NewNote, NoteId, Repository, Tag};
 use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NewNote, NoteId, Tag};
-use crate::repository::Repository;
 
 use super::{App, write_commit_output};
 

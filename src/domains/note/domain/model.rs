@@ -195,9 +195,9 @@ impl Note {
 mod tests {
     use std::collections::BTreeSet;
 
+    use super::super::{CollectionPath, NoteId, Timestamp};
     use super::{NewNote, Note, NoteRecord, Tag};
     use crate::error::NtError;
-    use crate::note::{CollectionPath, NoteId, Timestamp};
 
     fn id(value: &str) -> NoteId {
         value.parse().unwrap()

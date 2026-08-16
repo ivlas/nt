@@ -1,12 +1,11 @@
 use std::fmt;
 use std::io::Write;
-use std::path::PathBuf;
 use std::str::FromStr;
 
+pub(crate) use crate::app::App;
 use crate::cli::{Cli, Command};
+use crate::domains::note::AddOrRemove;
 use crate::error::{NtError, Result};
-use crate::input::Input;
-use crate::repository::AddOrRemove;
 
 mod add;
 mod edit;
@@ -18,33 +17,6 @@ mod move_note;
 mod rm;
 mod show;
 mod tag;
-
-pub struct App<'a> {
-    database_path: Option<PathBuf>,
-    input: Input<'a>,
-    output: &'a mut dyn Write,
-    output_is_terminal: bool,
-}
-
-impl<'a> App<'a> {
-    pub fn new(
-        database_path: Option<PathBuf>,
-        input: Input<'a>,
-        output: &'a mut dyn Write,
-        output_is_terminal: bool,
-    ) -> Self {
-        Self {
-            database_path,
-            input,
-            output,
-            output_is_terminal,
-        }
-    }
-
-    fn database_path(&self) -> Result<&std::path::Path> {
-        self.database_path.as_deref().ok_or(NtError::HomeNotFound)
-    }
-}
 
 fn parse_add_or_remove<T>(value: &str, field: &'static str) -> Result<AddOrRemove<T>>
 where
@@ -95,11 +67,9 @@ mod tests {
 
     use super::{App, run};
     use crate::cli::Cli;
+    use crate::cli::input::Input;
+    use crate::domains::note::{CollectionPath, NewNote, NoteQuery, Repository};
     use crate::error::NtError;
-    use crate::input::Input;
-    use crate::note::{CollectionPath, NewNote};
-    use crate::query::NoteQuery;
-    use crate::repository::Repository;
 
     #[test]
     fn commands_run_directly_with_supplied_storage_and_io() {

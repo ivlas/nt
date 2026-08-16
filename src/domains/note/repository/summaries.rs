@@ -3,9 +3,8 @@ use std::collections::BTreeSet;
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 
+use super::super::{CollectionPath, NoteId, NoteQuery, Tag, Timestamp};
 use crate::error::Result;
-use crate::note::{CollectionPath, NoteId, Tag, Timestamp};
-use crate::query::NoteQuery;
 
 use super::Repository;
 use super::query_sql::compile_query;

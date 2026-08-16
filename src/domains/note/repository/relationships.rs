@@ -1,9 +1,9 @@
 use rusqlite::{Transaction, TransactionBehavior, params};
 
+use super::super::{NoteId, Tag, timestamp_now};
 use crate::error::{NtError, Result};
-use crate::note::{NoteId, Tag, timestamp_now};
 
-use super::note_store::note_pk;
+use super::store::note_pk;
 use super::{AddOrRemove, Repository};
 
 impl Repository {

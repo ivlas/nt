@@ -1,4 +1,3 @@
-use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,32 +5,10 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::error::{NtError, Result};
-#[cfg(test)]
-mod behavior_tests;
 mod connection;
-mod note_store;
-mod query_sql;
-mod relationships;
-mod schema;
-mod stored;
-mod summaries;
+pub(crate) mod schema_engine;
 
-pub use summaries::NoteSummary;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AddOrRemove<T> {
-    Add(T),
-    Remove(T),
-}
-
-impl<T: fmt::Display> fmt::Display for AddOrRemove<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Add(value) => write!(formatter, "+{value}"),
-            Self::Remove(value) => write!(formatter, "-{value}"),
-        }
-    }
-}
+use schema_engine::SchemaManifest;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitOutcome {
@@ -43,10 +20,6 @@ pub enum InitOutcome {
 pub enum OpenMode {
     ReadOnly,
     ReadWrite,
-}
-
-pub struct Repository {
-    pub(super) connection: Connection,
 }
 
 struct RemoveEmptyDirectory<'a>(Option<&'a Path>);
@@ -65,35 +38,27 @@ impl Drop for RemoveEmptyDirectory<'_> {
     }
 }
 
-impl Repository {
-    pub fn initialize_at(path: &Path) -> Result<InitOutcome> {
-        initialize_at(path)
-    }
-
-    pub fn open_at(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadWrite)
-    }
-
-    pub fn open_read_only(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadOnly)
-    }
-}
-
-fn initialize_at(path: &Path) -> Result<InitOutcome> {
+pub(crate) fn initialize_at(path: &Path, manifest: &SchemaManifest) -> Result<InitOutcome> {
     match fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => initialize_existing(path, true),
+        Ok(metadata) if metadata.is_file() => initialize_existing(path, true, manifest),
         Ok(_) => Err(NtError::NotNtDatabase),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            initialize_missing_with(path, schema::initialize)
+            initialize_missing_with(path, manifest, |connection| {
+                schema_engine::initialize(connection, manifest)
+            })
         }
         Err(error) => Err(error.into()),
     }
 }
 
-fn initialize_existing(path: &Path, establish_wal: bool) -> Result<InitOutcome> {
+fn initialize_existing(
+    path: &Path,
+    establish_wal: bool,
+    manifest: &SchemaManifest,
+) -> Result<InitOutcome> {
     let mut connection = connection::open_existing(path, OpenMode::ReadWrite)?;
     connection::configure(&connection)?;
-    let outcome = if schema::initialize(&mut connection)? {
+    let outcome = if schema_engine::initialize(&mut connection, manifest)? {
         InitOutcome::Initialized
     } else {
         InitOutcome::AlreadyInitialized
@@ -106,6 +71,7 @@ fn initialize_existing(path: &Path, establish_wal: bool) -> Result<InitOutcome> 
 
 fn initialize_missing_with(
     path: &Path,
+    manifest: &SchemaManifest,
     initialize: impl FnOnce(&mut Connection) -> Result<bool>,
 ) -> Result<InitOutcome> {
     let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
@@ -131,35 +97,49 @@ fn initialize_missing_with(
         Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
             drop(error.file);
             parent_cleanup.disarm();
-            initialize_existing(path, false)
+            initialize_existing(path, false, manifest)
         }
         Err(error) => Err(error.error.into()),
     }
 }
 
-fn open_at(path: &Path, mode: OpenMode) -> Result<Repository> {
+pub(crate) fn open_at(
+    path: &Path,
+    mode: OpenMode,
+    manifest: &SchemaManifest,
+) -> Result<Connection> {
     let connection = connection::open_existing(path, mode)?;
-    match schema::inspect(&connection)? {
-        schema::Identity::Nt => {}
-        schema::Identity::Empty => return Err(NtError::NotNtDatabase),
+    match schema_engine::inspect(&connection, manifest)? {
+        schema_engine::Identity::Nt => {}
+        schema_engine::Identity::Empty => return Err(NtError::NotNtDatabase),
     }
     match mode {
         OpenMode::ReadOnly => connection::configure(&connection)?,
         OpenMode::ReadWrite => connection::configure_wal(&connection)?,
     }
-    Ok(Repository { connection })
+    Ok(connection)
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Barrier};
-    use std::time::Duration;
 
     use rusqlite::Connection;
 
     use super::*;
-    use crate::note::{CollectionPath, NewNote};
-    use crate::query::NoteQuery;
+    use crate::schema::{self, MANIFEST};
+
+    struct TestStorage {
+        connection: Connection,
+    }
+
+    fn initialize_at(path: &Path) -> Result<InitOutcome> {
+        super::initialize_at(path, &MANIFEST)
+    }
+
+    fn open_at(path: &Path, mode: OpenMode) -> Result<TestStorage> {
+        super::open_at(path, mode, &MANIFEST).map(|connection| TestStorage { connection })
+    }
 
     #[test]
     fn initializes_and_reopens_a_clean_database() {
@@ -228,7 +208,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".nt/nt.sqlite3");
 
-        let result = initialize_missing_with(&path, |connection| {
+        let result = initialize_missing_with(&path, &MANIFEST, |connection| {
             schema::initialize_with(connection, |step| {
                 if step == 3 {
                     return Err(NtError::Io(io::Error::other(
@@ -244,53 +224,6 @@ mod tests {
         assert!(!path.exists());
         assert!(!path.parent().unwrap().exists());
         assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
-    }
-
-    #[test]
-    fn read_only_connections_read_notes_and_reject_writes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("nt.sqlite3");
-        initialize_at(&path).unwrap();
-        let id = {
-            let mut writer = open_at(&path, OpenMode::ReadWrite).unwrap();
-            writer
-                .create_note(
-                    NewNote::new(CollectionPath::inbox(), "# Read only")
-                        .unwrap()
-                        .with_tags(["rust".parse().unwrap()]),
-                )
-                .unwrap()
-        };
-
-        let reader = open_at(&path, OpenMode::ReadOnly).unwrap();
-        let foreign_keys: i64 = reader
-            .connection
-            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
-            .unwrap();
-        let journal: String = reader
-            .connection
-            .pragma_query_value(None, "journal_mode", |row| row.get(0))
-            .unwrap();
-        assert_eq!((foreign_keys, journal.as_str()), (1, "wal"));
-        drop(reader);
-
-        let mut reader = open_at(&path, OpenMode::ReadOnly).unwrap();
-        assert_eq!(reader.get_note(&id).unwrap().body(), "# Read only");
-        assert_eq!(reader.list_tags().unwrap(), vec!["rust".parse().unwrap()]);
-        let mut visited = 0;
-        reader
-            .visit_note_summaries(&NoteQuery::default(), |_| {
-                visited += 1;
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(visited, 1);
-
-        assert!(
-            reader
-                .create_note(NewNote::new(CollectionPath::inbox(), "# Denied").unwrap())
-                .is_err()
-        );
     }
 
     #[test]
@@ -384,27 +317,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(table_exists, 1);
-    }
-
-    #[test]
-    fn writer_contention_returns_the_retryable_busy_error() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("nt.sqlite3");
-        initialize_at(&path).unwrap();
-        let mut first = open_at(&path, OpenMode::ReadWrite).unwrap();
-        let mut second = open_at(&path, OpenMode::ReadWrite).unwrap();
-        second
-            .connection
-            .busy_timeout(Duration::from_millis(1))
-            .unwrap();
-        let transaction = first
-            .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .unwrap();
-        let result =
-            second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
-        assert!(matches!(result, Err(NtError::DatabaseBusy)));
-        transaction.rollback().unwrap();
     }
 
     #[test]

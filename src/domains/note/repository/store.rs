@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
+use super::super::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
 use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
 
 use super::Repository;
 use super::stored::{decode_collection, decode_id, decode_tag, decode_timestamp};

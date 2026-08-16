@@ -1,5 +1,5 @@
+use super::super::{CollectionPath, NoteId, Tag, Timestamp};
 use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NoteId, Tag, Timestamp};
 
 pub(super) fn decode_collection(value: &str) -> Result<CollectionPath> {
     value.parse().map_err(|_| NtError::InvalidStoredNote)

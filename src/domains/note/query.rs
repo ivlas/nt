@@ -1,5 +1,5 @@
+use super::{CollectionPath, NoteId, Tag, Timestamp};
 use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NoteId, Tag, Timestamp};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Filter {
