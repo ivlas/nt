@@ -192,6 +192,36 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn editor_returns_successfully_modified_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let body = read_editor(
+            Some("# Original"),
+            directory.path(),
+            None,
+            Some(r##"sh -c 'printf "# Edited\nBody\n" > "$1"' sh"##),
+        )
+        .unwrap();
+
+        assert_eq!(body, "# Edited\nBody\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editor_rejects_a_successfully_emptied_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = read_editor(
+            Some("# Original"),
+            directory.path(),
+            None,
+            Some(r#"sh -c ': > "$1"' sh"#),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, NtError::EmptyBody));
+    }
+
     #[test]
     fn editor_launch_failures_preserve_the_io_error() {
         let directory = tempfile::tempdir().unwrap();

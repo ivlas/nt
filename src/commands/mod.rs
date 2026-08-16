@@ -68,7 +68,7 @@ mod tests {
     use super::{App, run};
     use crate::cli::Cli;
     use crate::cli::input::Input;
-    use crate::domains::note::{CollectionPath, NewNote, NoteQuery, Repository};
+    use crate::domains::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
     use crate::error::NtError;
 
     #[test]
@@ -120,6 +120,47 @@ mod tests {
         drop(app);
 
         assert!(String::from_utf8(output).unwrap().starts_with("nt\n"));
+    }
+
+    #[test]
+    fn edit_reports_a_body_change_committed_while_editor_is_open() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        Repository::initialize_at(&database_path).unwrap();
+        let id = Repository::open_at(&database_path)
+            .unwrap()
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+            .unwrap();
+
+        let concurrent_path = database_path.clone();
+        let concurrent_id = id.clone();
+        let mut editor = move |_| -> crate::Result<String> {
+            let mut repository = Repository::open_at(&concurrent_path)?;
+            let mut note = repository.get_note(&concurrent_id)?;
+            let expected_version = note.body_version();
+            note.replace_body("# Concurrent", timestamp_now()?)?;
+            repository.replace_body(&note, expected_version)?;
+            Ok("# User edit".to_string())
+        };
+        let mut stdin = Cursor::new(Vec::new());
+        let input = Input::new(&mut stdin, true, &mut editor);
+        let mut output = Vec::new();
+        let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+        let id_text = id.to_string();
+
+        let result = run(Cli::parse_from(["nt", "edit", id_text.as_str()]), &mut app);
+        drop(app);
+
+        assert!(matches!(result, Err(NtError::ConcurrentEdit(changed)) if changed == id_text));
+        assert!(output.is_empty());
+        assert_eq!(
+            Repository::open_at(&database_path)
+                .unwrap()
+                .get_note(&id)
+                .unwrap()
+                .body(),
+            "# Concurrent"
+        );
     }
 
     #[test]
