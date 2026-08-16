@@ -42,11 +42,12 @@ pub(crate) fn initialize_at(path: &Path, manifest: &SchemaManifest) -> Result<In
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => initialize_existing(path, true, manifest),
         Ok(_) => Err(NtError::NotNtDatabase),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            initialize_missing_with(path, manifest, |connection| {
-                schema_engine::initialize(connection, manifest)
-            })
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => initialize_missing_with(
+            path,
+            manifest,
+            |connection| schema_engine::initialize(connection, manifest),
+            connection::configure_wal,
+        ),
         Err(error) => Err(error.into()),
     }
 }
@@ -73,6 +74,7 @@ fn initialize_missing_with(
     path: &Path,
     manifest: &SchemaManifest,
     initialize: impl FnOnce(&mut Connection) -> Result<bool>,
+    prepare_for_publish: impl FnOnce(&Connection) -> Result<()>,
 ) -> Result<InitOutcome> {
     let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
     let parent_existed = parent.exists();
@@ -84,14 +86,13 @@ fn initialize_missing_with(
     if !initialize(&mut connection)? {
         return Err(NtError::NotNtDatabase);
     }
+    prepare_for_publish(&connection)?;
     drop(connection);
 
     match candidate.persist_noclobber(path) {
         Ok(file) => {
             drop(file);
             parent_cleanup.disarm();
-            let connection = connection::open_existing(path, OpenMode::ReadWrite)?;
-            connection::configure_wal(&connection)?;
             Ok(InitOutcome::Initialized)
         }
         Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
@@ -159,8 +160,14 @@ mod tests {
             .connection
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
             .unwrap();
-        assert_eq!(foreign_keys, 1);
-        assert_eq!(journal, "wal");
+        let busy_timeout: i64 = repository
+            .connection
+            .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            (foreign_keys, journal.as_str(), busy_timeout),
+            (1, "wal", 5000)
+        );
     }
 
     #[test]
@@ -208,19 +215,39 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".nt/nt.sqlite3");
 
-        let result = initialize_missing_with(&path, &MANIFEST, |connection| {
-            schema::initialize_with(connection, |step| {
-                if step == 3 {
-                    return Err(NtError::Io(io::Error::other(
-                        "injected initialization failure",
-                    )));
-                }
-                Ok(())
-            })?;
-            Ok(true)
-        });
+        let result = initialize_missing_with(
+            &path,
+            &MANIFEST,
+            |connection| {
+                schema::initialize_with(connection, |step| {
+                    if step == 3 {
+                        return Err(NtError::Io(io::Error::other(
+                            "injected initialization failure",
+                        )));
+                    }
+                    Ok(())
+                })?;
+                Ok(true)
+            },
+            connection::configure_wal,
+        );
 
         assert!(result.is_err());
+        assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+    }
+
+    #[test]
+    fn failed_wal_setup_does_not_publish_new_storage() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".nt/nt.sqlite3");
+
+        let result = initialize_missing_with(&path, &MANIFEST, schema::initialize, |_| {
+            Err(NtError::WalUnavailable)
+        });
+
+        assert!(matches!(result, Err(NtError::WalUnavailable)));
         assert!(!path.exists());
         assert!(!path.parent().unwrap().exists());
         assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
