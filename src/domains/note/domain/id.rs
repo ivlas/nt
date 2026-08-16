@@ -82,7 +82,7 @@ mod tests {
     fn generation_rejects_times_outside_the_uuid_v7_range() {
         let context = Mutex::new(ContextV7::new());
         assert!(matches!(
-            NoteId::generate_at(UNIX_EPOCH - Duration::from_nanos(1), &context),
+            NoteId::generate_at(UNIX_EPOCH - Duration::from_secs(1), &context),
             Err(NtError::ClockOutOfRange)
         ));
 
