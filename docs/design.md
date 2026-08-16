@@ -43,7 +43,8 @@ a stable corruption error. Busy or locked databases remain retryable, and other
 inspection failures retain their underlying database diagnostics.
 
 For a missing database, initialization builds a temporary sibling and publishes
-it without replacing a file created concurrently. Failed candidates are removed.
+it without replacing a file created concurrently. The candidate must enter WAL
+mode before publication, and failed candidates are removed.
 For supported schema version `1`, every required table, virtual table, trigger,
 and index must retain its canonical definition. Additional user-defined tables,
 views, and indexes are tolerated, but they are not part of nt state or supported
@@ -166,6 +167,9 @@ Timestamps are UTC wall-clock values with one-second resolution and are not a
 monotonic mutation sequence. Multiple changes may share `updated`, and system
 clock adjustments may move it backward.
 
+Body input is fully buffered before validation and has no application-level size
+limit. Available memory and disk space are the operational bounds.
+
 `Repository` remains a concrete facade rather than a trait hierarchy. Note
 storage and rehydration, relationship mutations, summary projection, and query
 SQL compilation are kept in separate repository modules. Process-global storage
@@ -236,6 +240,10 @@ deletion rejects duplicate IDs and validates every ID before deleting any row.
 WAL permits readers to continue from the last committed snapshot while another
 connection writes. SQLite remains single-writer; contention waits for the busy
 timeout and then returns a stable retryable error.
+
+Live backups must use SQLite's backup facilities. Copying only the main database
+while connections are active is unsafe because committed state may remain in the
+WAL file.
 
 ## Development
 
