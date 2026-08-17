@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::error::{NtError, Result};
+use crate::error::{NtError, Result, StoredNoteContext};
 
 use super::body::normalize_body;
 use super::collection::segment_is_invalid;
@@ -131,16 +131,20 @@ impl Note {
         tags: BTreeSet<Tag>,
         links: BTreeSet<NoteId>,
     ) -> Result<Self> {
-        let (normalized_body, derived_title) =
-            normalize_body(&record.body).map_err(|_| NtError::InvalidStoredNote)?;
-        if normalized_body != record.body || derived_title != record.title {
-            return Err(NtError::InvalidStoredNote);
+        let context = StoredNoteContext::new(Some(record.id.to_string()), None);
+        let (normalized_body, derived_title) = normalize_body(&record.body)
+            .map_err(|_| NtError::invalid_stored(context.clone(), "body"))?;
+        if normalized_body != record.body {
+            return Err(NtError::invalid_stored(context, "body"));
+        }
+        if derived_title != record.title {
+            return Err(NtError::invalid_stored(context, "title"));
         }
         if record.body_version == 0 {
-            return Err(NtError::InvalidStoredNote);
+            return Err(NtError::invalid_stored(context, "body_version"));
         }
         if links.contains(&record.id) {
-            return Err(NtError::InvalidStoredNote);
+            return Err(NtError::invalid_stored(context, "links"));
         }
         Ok(Self {
             id: record.id,
@@ -195,9 +199,9 @@ impl Note {
 mod tests {
     use std::collections::BTreeSet;
 
+    use super::super::{CollectionPath, NoteId, Timestamp};
     use super::{NewNote, Note, NoteRecord, Tag};
     use crate::error::NtError;
-    use crate::note::{CollectionPath, NoteId, Timestamp};
 
     fn id(value: &str) -> NoteId {
         value.parse().unwrap()
@@ -247,14 +251,17 @@ mod tests {
         let mut invalid = record(note_id.clone());
         invalid.title = "Wrong title".to_string();
         let result = Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new());
-        assert!(matches!(result, Err(NtError::InvalidStoredNote)));
+        assert!(matches!(
+            result,
+            Err(NtError::InvalidStoredNote { field: "title", .. })
+        ));
 
         for body in ["", "not a title", "# Title\r\nbody"] {
             let mut invalid = record(note_id.clone());
             invalid.body = body.to_string();
             assert!(matches!(
                 Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new()),
-                Err(NtError::InvalidStoredNote)
+                Err(NtError::InvalidStoredNote { field: "body", .. })
             ));
         }
 
@@ -262,12 +269,18 @@ mod tests {
         invalid.body_version = 0;
         assert!(matches!(
             Note::rehydrate(invalid, BTreeSet::new(), BTreeSet::new()),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote {
+                field: "body_version",
+                ..
+            })
         ));
 
         let links = BTreeSet::from([note_id.clone()]);
         let result = Note::rehydrate(record(note_id.clone()), BTreeSet::new(), links);
-        assert!(matches!(result, Err(NtError::InvalidStoredNote)));
+        assert!(matches!(
+            result,
+            Err(NtError::InvalidStoredNote { field: "links", .. })
+        ));
 
         let new_note = NewNote::new(CollectionPath::inbox(), "# Title")
             .unwrap()

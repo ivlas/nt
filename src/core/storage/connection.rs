@@ -16,13 +16,15 @@ pub(super) fn open_existing(path: &Path, mode: OpenMode) -> Result<Connection> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(NtError::MissingDatabase);
         }
-        Err(error) => return Err(error.into()),
+        Err(error) => {
+            return Err(NtError::path_io("inspect database path", path, error));
+        }
     }
     let flags = match mode {
         OpenMode::ReadOnly => OpenFlags::SQLITE_OPEN_READ_ONLY,
         OpenMode::ReadWrite => OpenFlags::SQLITE_OPEN_READ_WRITE,
     };
-    Connection::open_with_flags(path, flags).map_err(Into::into)
+    Connection::open_with_flags(path, flags).map_err(|error| NtError::open_database(path, error))
 }
 
 pub(super) fn configure(connection: &Connection) -> Result<()> {

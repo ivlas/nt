@@ -2,18 +2,20 @@ use std::collections::BTreeSet;
 
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::error::{NtError, Result};
-use crate::note::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
+use super::super::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, timestamp_now};
+use crate::error::{NtError, Result, StoredNoteContext};
 
 use super::Repository;
-use super::stored::{decode_collection, decode_id, decode_tag, decode_timestamp};
+use super::stored::{
+    decode_body_version, decode_collection, decode_id, decode_tag, decode_timestamp, stored_value,
+};
 
 impl Repository {
     pub fn create_note(&mut self, note: NewNote) -> Result<NoteId> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id = NoteId::generate();
+        let id = NoteId::generate()?;
         note.validate_links_for(&id)?;
         let now = timestamp_now()?;
         transaction.execute(
@@ -57,6 +59,12 @@ impl Repository {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut pks = Vec::with_capacity(ids.len());
+        let mut unique = BTreeSet::new();
+        for id in ids {
+            if !unique.insert(id) {
+                return Err(NtError::DuplicateNoteId(id.to_string()));
+            }
+        }
         for id in ids {
             pks.push(note_pk(&transaction, id)?);
         }
@@ -99,26 +107,20 @@ impl Repository {
             ],
         )?;
         if changed == 0 {
-            if note_exists(&transaction, note.id())? {
-                return Err(NtError::ConcurrentEdit(note.id().to_string()));
+            if stored_body_version(&transaction, note.id())?.is_none() {
+                return Err(NtError::NoteNotFound(note.id().to_string()));
             }
-            return Err(NtError::NoteNotFound(note.id().to_string()));
+            return Err(NtError::ConcurrentEdit(note.id().to_string()));
         }
         transaction.commit()?;
         Ok(())
     }
 
     pub fn verify_body_version(&self, id: &NoteId, expected_version: u64) -> Result<()> {
-        let expected_version = i64::try_from(expected_version)
-            .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
-        let actual_version: i64 = self
-            .connection
-            .query_row(
-                "SELECT body_version FROM notes WHERE id = ?1",
-                [id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()?
+        if i64::try_from(expected_version).is_err() {
+            return Err(NtError::InvalidBodyVersion(expected_version));
+        }
+        let actual_version = stored_body_version(&self.connection, id)?
             .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
         if actual_version != expected_version {
             return Err(NtError::ConcurrentEdit(id.to_string()));
@@ -171,37 +173,52 @@ fn ensure_note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<()> 
     }
 }
 
+fn stored_body_version(connection: &rusqlite::Connection, id: &NoteId) -> Result<Option<u64>> {
+    let mut statement = connection.prepare("SELECT pk, body_version FROM notes WHERE id = ?1")?;
+    let mut rows = statement.query([id.to_string()])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let row_id = row.get::<_, i64>(0)?;
+    let context = StoredNoteContext::new(Some(id.to_string()), Some(row_id));
+    let version = decode_body_version(stored_value(row, 1, &context, "body_version")?, &context)?;
+    Ok(Some(version))
+}
+
 pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<Note> {
-    let stored = transaction
-        .query_row(
+    let stored = {
+        let mut statement = transaction.prepare(
             "SELECT pk, collection, body, title, created, updated, body_version
              FROM notes WHERE id = ?1",
-            [id.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, i64>(6)?,
-                ))
-            },
+        )?;
+        let mut rows = statement.query([id.to_string()])?;
+        let Some(row) = rows.next()? else {
+            return Err(NtError::NoteNotFound(id.to_string()));
+        };
+        let row_id = row.get::<_, i64>(0)?;
+        let context = StoredNoteContext::new(Some(id.to_string()), Some(row_id));
+        (
+            row_id,
+            context.clone(),
+            stored_value::<String>(row, 1, &context, "collection")?,
+            stored_value::<String>(row, 2, &context, "body")?,
+            stored_value::<String>(row, 3, &context, "title")?,
+            stored_value::<String>(row, 4, &context, "created")?,
+            stored_value::<String>(row, 5, &context, "updated")?,
+            stored_value::<i64>(row, 6, &context, "body_version")?,
         )
-        .optional()?
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
-    let tags = load_tags(transaction, stored.0)?;
+    };
+    let tags = load_tags(transaction, stored.0, &stored.1)?;
     let links = load_links(transaction, stored.0)?;
-    let body_version = u64::try_from(stored.6).map_err(|_| NtError::InvalidStoredNote)?;
+    let body_version = decode_body_version(stored.7, &stored.1)?;
     Note::rehydrate(
         NoteRecord {
             id: id.clone(),
-            collection: decode_collection(&stored.1)?,
-            body: stored.2,
-            title: stored.3,
-            created: decode_timestamp(&stored.4)?,
-            updated: decode_timestamp(&stored.5)?,
+            collection: decode_collection(&stored.2, &stored.1)?,
+            body: stored.3,
+            title: stored.4,
+            created: decode_timestamp(&stored.5, &stored.1, "created")?,
+            updated: decode_timestamp(&stored.6, &stored.1, "updated")?,
             body_version,
         },
         tags,
@@ -209,25 +226,37 @@ pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<No
     )
 }
 
-fn load_tags(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<Tag>> {
+fn load_tags(
+    connection: &rusqlite::Connection,
+    note_pk: i64,
+    context: &StoredNoteContext,
+) -> Result<BTreeSet<Tag>> {
     let mut statement =
         connection.prepare("SELECT tag FROM note_tags WHERE note_pk = ?1 ORDER BY tag")?;
-    statement
-        .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| decode_tag(&value?))
-        .collect()
+    let mut rows = statement.query([note_pk])?;
+    let mut tags = BTreeSet::new();
+    while let Some(row) = rows.next()? {
+        let value = stored_value::<String>(row, 0, context, "tag")?;
+        tags.insert(decode_tag(&value, context)?);
+    }
+    Ok(tags)
 }
 
 fn load_links(connection: &rusqlite::Connection, note_pk: i64) -> Result<BTreeSet<NoteId>> {
     let mut statement = connection.prepare(
-        "SELECT target.id
+        "SELECT target.pk, target.id
          FROM note_links links
          JOIN notes target ON target.pk = links.target_note_pk
          WHERE links.note_pk = ?1
          ORDER BY target.id",
     )?;
-    statement
-        .query_map([note_pk], |row| row.get::<_, String>(0))?
-        .map(|value| decode_id(&value?))
-        .collect()
+    let mut rows = statement.query([note_pk])?;
+    let mut links = BTreeSet::new();
+    while let Some(row) = rows.next()? {
+        let target_row_id = row.get::<_, i64>(0)?;
+        let context = StoredNoteContext::new(None, Some(target_row_id));
+        let value = stored_value::<String>(row, 1, &context, "id")?;
+        links.insert(decode_id(&value, &context)?);
+    }
+    Ok(links)
 }

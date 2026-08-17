@@ -135,6 +135,26 @@ leave all requested notes intact. Before cascades remove incoming links,
 surviving source notes receive a new update timestamp because their outgoing-link
 sets changed. Deleting a source does not update its outgoing targets.
 
+## Resources And Backups
+
+`nt` reads each captured or edited body completely into memory before opening a
+write transaction. It does not impose an application-level body-size limit;
+available memory and disk space are the operational limits. SQLite also uses
+disk space for its lexical index and temporary WAL state, so check available
+resources before importing unusually large input.
+
+Use SQLite's backup mechanism for a consistent backup while `nt` or another
+SQLite connection may be active:
+
+```sh
+sqlite3 "$HOME/.nt/nt.sqlite3" ".backup /path/to/nt-backup.sqlite3"
+```
+
+Do not copy only `nt.sqlite3` while connections are active because committed
+changes may still be in `nt.sqlite3-wal`. For an offline filesystem copy, close
+all `nt` and SQLite processes, run `PRAGMA wal_checkpoint(TRUNCATE)`, close that
+SQLite connection, and then copy the main database file.
+
 ## Shell Composition
 
 ```sh

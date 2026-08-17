@@ -1,5 +1,6 @@
+use crate::core::storage::InitOutcome;
+use crate::domains::note::Repository;
 use crate::error::Result;
-use crate::repository::{InitOutcome, Repository};
 
 use super::{App, write_commit_output};
 

@@ -1,4 +1,7 @@
-# nt Design
+# Notes Domain Design
+
+This document specifies the notes domain and its current application interface.
+System-wide layer and dependency rules are documented in `architecture.md`.
 
 `nt` is a local, agent-first note layer for editable CommonMark notes,
 deterministic metadata, and lexical retrieval. The previous vault, todo,
@@ -22,7 +25,7 @@ There are no note kinds, todos, agenda behavior, vaults, collection entities,
 many-to-many memberships, sources, generic metadata, configurable projections,
 reserved tags, automatic routing, or migration compatibility. Append-only
 memory requires a separate workflow-backed RFC and must remain an independent
-subsystem.
+domain.
 
 ## Initialization
 
@@ -39,8 +42,15 @@ mismatches are distinct from corrupt or malformed database images, which receive
 a stable corruption error. Busy or locked databases remain retryable, and other
 inspection failures retain their underlying database diagnostics.
 
+On Unix, missing storage directories are requested with mode `0700`, and new or
+adopted empty database files are set to `0600` before note state is written.
+Existing directory modes and valid initialized database modes are preserved.
+New SQLite WAL and shared-memory files inherit the database mode. Other
+platforms retain their native filesystem permission behavior.
+
 For a missing database, initialization builds a temporary sibling and publishes
-it without replacing a file created concurrently. Failed candidates are removed.
+it without replacing a file created concurrently. The candidate must enter WAL
+mode before publication, and failed candidates are removed.
 For supported schema version `1`, every required table, virtual table, trigger,
 and index must retain its canonical definition. Additional user-defined tables,
 views, and indexes are tolerated, but they are not part of nt state or supported
@@ -149,8 +159,8 @@ Metadata-only updates do not rewrite FTS state.
 Domain types own UUIDv7 note identity, collection and tag validation, body
 normalization, H1 validation and title extraction, deduplication, self-link
 rejection, and body replacement. Invalid note state must not be constructible
-through public domain APIs. Domain code does not parse CLI tokens, render output,
-open SQLite, or know about FTS.
+through validated domain constructors and methods. Domain code does not parse
+CLI tokens, render output, open SQLite, or know about FTS.
 
 Command handlers orchestrate narrow repository operations and do not issue SQL.
 Existence and conflict checks happen inside each mutation transaction. Body
@@ -162,6 +172,9 @@ their outgoing edges; deleting a source does not update its outgoing targets.
 Timestamps are UTC wall-clock values with one-second resolution and are not a
 monotonic mutation sequence. Multiple changes may share `updated`, and system
 clock adjustments may move it backward.
+
+Body input is fully buffered before validation and has no application-level size
+limit. Available memory and disk space are the operational bounds.
 
 `Repository` remains a concrete facade rather than a trait hierarchy. Note
 storage and rehydration, relationship mutations, summary projection, and query
@@ -233,6 +246,10 @@ deletion rejects duplicate IDs and validates every ID before deleting any row.
 WAL permits readers to continue from the last committed snapshot while another
 connection writes. SQLite remains single-writer; contention waits for the busy
 timeout and then returns a stable retryable error.
+
+Live backups must use SQLite's backup facilities. Copying only the main database
+while connections are active is unsafe because committed state may remain in the
+WAL file.
 
 ## Development
 

@@ -1,4 +1,3 @@
-use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,32 +5,10 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::error::{NtError, Result};
-#[cfg(test)]
-mod behavior_tests;
 mod connection;
-mod note_store;
-mod query_sql;
-mod relationships;
-mod schema;
-mod stored;
-mod summaries;
+pub(crate) mod schema_engine;
 
-pub use summaries::NoteSummary;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AddOrRemove<T> {
-    Add(T),
-    Remove(T),
-}
-
-impl<T: fmt::Display> fmt::Display for AddOrRemove<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Add(value) => write!(formatter, "+{value}"),
-            Self::Remove(value) => write!(formatter, "-{value}"),
-        }
-    }
-}
+use schema_engine::SchemaManifest;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitOutcome {
@@ -43,10 +20,6 @@ pub enum InitOutcome {
 pub enum OpenMode {
     ReadOnly,
     ReadWrite,
-}
-
-pub struct Repository {
-    pub(super) connection: Connection,
 }
 
 struct RemoveEmptyDirectory<'a>(Option<&'a Path>);
@@ -65,40 +38,45 @@ impl Drop for RemoveEmptyDirectory<'_> {
     }
 }
 
-impl Repository {
-    pub fn initialize_at(path: &Path) -> Result<InitOutcome> {
-        initialize_at(path)
-    }
-
-    pub fn open_at(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadWrite)
-    }
-
-    pub fn open_read_only(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadOnly)
-    }
-}
-
-fn initialize_at(path: &Path) -> Result<InitOutcome> {
+pub(crate) fn initialize_at(path: &Path, manifest: &SchemaManifest) -> Result<InitOutcome> {
     match fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => initialize_existing(path, true),
+        Ok(metadata) if metadata.is_file() => initialize_existing(path, true, manifest),
         Ok(_) => Err(NtError::NotNtDatabase),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            initialize_missing_with(path, schema::initialize)
-        }
-        Err(error) => Err(error.into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => initialize_missing_with(
+            path,
+            manifest,
+            |connection| schema_engine::initialize(connection, manifest),
+            connection::configure_wal,
+        ),
+        Err(error) => Err(NtError::path_io("inspect database path", path, error)),
     }
 }
 
-fn initialize_existing(path: &Path, establish_wal: bool) -> Result<InitOutcome> {
+fn initialize_existing(
+    path: &Path,
+    establish_wal: bool,
+    manifest: &SchemaManifest,
+) -> Result<InitOutcome> {
+    let permission_target = database_permission_target(path)
+        .map_err(|error| NtError::path_io("open database permissions", path, error))?;
     let mut connection = connection::open_existing(path, OpenMode::ReadWrite)?;
+    verify_database_permission_target(&permission_target, path)
+        .map_err(|error| NtError::path_io("verify database permissions", path, error))?;
     connection::configure(&connection)?;
-    let outcome = if schema::initialize(&mut connection)? {
+    let initialized = match schema_engine::inspect(&connection, manifest)? {
+        schema_engine::Identity::Nt => false,
+        schema_engine::Identity::Empty => {
+            set_private_database_permissions(&permission_target)
+                .map_err(|error| NtError::path_io("set database permissions", path, error))?;
+            schema_engine::initialize(&mut connection, manifest)?
+        }
+    };
+    let outcome = if initialized {
         InitOutcome::Initialized
     } else {
         InitOutcome::AlreadyInitialized
     };
-    if establish_wal || outcome == InitOutcome::Initialized {
+    if establish_wal || initialized {
         connection::configure_wal(&connection)?;
     }
     Ok(outcome)
@@ -106,60 +84,171 @@ fn initialize_existing(path: &Path, establish_wal: bool) -> Result<InitOutcome> 
 
 fn initialize_missing_with(
     path: &Path,
+    manifest: &SchemaManifest,
     initialize: impl FnOnce(&mut Connection) -> Result<bool>,
+    prepare_for_publish: impl FnOnce(&Connection) -> Result<()>,
 ) -> Result<InitOutcome> {
     let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
     let parent_existed = parent.exists();
-    fs::create_dir_all(parent)?;
+    create_database_directory(parent)
+        .map_err(|error| NtError::path_io("create database directory", parent, error))?;
     let mut parent_cleanup = RemoveEmptyDirectory((!parent_existed).then_some(parent));
-    let candidate = tempfile::NamedTempFile::new_in(parent)?;
+    let candidate = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| NtError::path_io("create temporary database in", parent, error))?;
+    let permission_target = database_permission_target(candidate.path()).map_err(|error| {
+        NtError::path_io(
+            "open temporary database permissions",
+            candidate.path(),
+            error,
+        )
+    })?;
+    set_private_database_permissions(&permission_target).map_err(|error| {
+        NtError::path_io(
+            "set temporary database permissions",
+            candidate.path(),
+            error,
+        )
+    })?;
     let mut connection = connection::open_existing(candidate.path(), OpenMode::ReadWrite)?;
     connection::configure(&connection)?;
     if !initialize(&mut connection)? {
         return Err(NtError::NotNtDatabase);
     }
+    prepare_for_publish(&connection)?;
     drop(connection);
 
     match candidate.persist_noclobber(path) {
         Ok(file) => {
             drop(file);
             parent_cleanup.disarm();
-            let connection = connection::open_existing(path, OpenMode::ReadWrite)?;
-            connection::configure_wal(&connection)?;
             Ok(InitOutcome::Initialized)
         }
         Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
             drop(error.file);
             parent_cleanup.disarm();
-            initialize_existing(path, false)
+            initialize_existing(path, false, manifest)
         }
-        Err(error) => Err(error.error.into()),
+        Err(error) => Err(NtError::path_io("publish database", path, error.error)),
     }
 }
 
-fn open_at(path: &Path, mode: OpenMode) -> Result<Repository> {
+fn create_database_directory(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+#[cfg(unix)]
+type DatabasePermissionTarget = fs::File;
+
+#[cfg(not(unix))]
+type DatabasePermissionTarget = ();
+
+#[cfg(unix)]
+fn database_permission_target(path: &Path) -> io::Result<DatabasePermissionTarget> {
+    fs::OpenOptions::new().read(true).write(true).open(path)
+}
+
+#[cfg(not(unix))]
+fn database_permission_target(_path: &Path) -> io::Result<DatabasePermissionTarget> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn verify_database_permission_target(
+    target: &DatabasePermissionTarget,
+    path: &Path,
+) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let target = target.metadata()?;
+    let path = fs::metadata(path)?;
+    if target.dev() == path.dev() && target.ino() == path.ino() {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "database path changed during initialization",
+        ))
+    }
+}
+
+#[cfg(not(unix))]
+fn verify_database_permission_target(
+    _target: &DatabasePermissionTarget,
+    _path: &Path,
+) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_database_permissions(target: &DatabasePermissionTarget) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    target.set_permissions(fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_private_database_permissions(_target: &DatabasePermissionTarget) -> io::Result<()> {
+    Ok(())
+}
+
+pub(crate) fn open_at(
+    path: &Path,
+    mode: OpenMode,
+    manifest: &SchemaManifest,
+) -> Result<Connection> {
     let connection = connection::open_existing(path, mode)?;
-    match schema::inspect(&connection)? {
-        schema::Identity::Nt => {}
-        schema::Identity::Empty => return Err(NtError::NotNtDatabase),
+    match schema_engine::inspect(&connection, manifest)? {
+        schema_engine::Identity::Nt => {}
+        schema_engine::Identity::Empty => return Err(NtError::NotNtDatabase),
     }
     match mode {
         OpenMode::ReadOnly => connection::configure(&connection)?,
         OpenMode::ReadWrite => connection::configure_wal(&connection)?,
     }
-    Ok(Repository { connection })
+    Ok(connection)
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Barrier};
-    use std::time::Duration;
 
     use rusqlite::Connection;
 
     use super::*;
-    use crate::note::{CollectionPath, NewNote};
-    use crate::query::NoteQuery;
+    use crate::schema::{self, MANIFEST};
+
+    struct TestStorage {
+        connection: Connection,
+    }
+
+    fn initialize_at(path: &Path) -> Result<InitOutcome> {
+        super::initialize_at(path, &MANIFEST)
+    }
+
+    fn open_at(path: &Path, mode: OpenMode) -> Result<TestStorage> {
+        super::open_at(path, mode, &MANIFEST).map(|connection| TestStorage { connection })
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
 
     #[test]
     fn initializes_and_reopens_a_clean_database() {
@@ -179,8 +268,83 @@ mod tests {
             .connection
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
             .unwrap();
-        assert_eq!(foreign_keys, 1);
-        assert_eq!(journal, "wal");
+        let busy_timeout: i64 = repository
+            .connection
+            .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            (foreign_keys, journal.as_str(), busy_timeout),
+            (1, "wal", 5000)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_storage_directories_database_and_sidecars_are_private() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("private");
+        let parent = first.join(".nt");
+        let path = parent.join("nt.sqlite3");
+
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        assert_eq!(mode(&first), 0o700);
+        assert_eq!(mode(&parent), 0o700);
+        assert_eq!(mode(&path), 0o600);
+
+        let storage = open_at(&path, OpenMode::ReadWrite).unwrap();
+        storage
+            .connection
+            .execute(
+                "INSERT INTO notes(id, collection, body, title, created, updated)
+                 VALUES ('018fbe0a-6c00-7000-8000-000000000001', 'inbox', '# Private',
+                         'Private', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        let wal = path.with_file_name(format!("{file_name}-wal"));
+        let shm = path.with_file_name(format!("{file_name}-shm"));
+        assert_eq!(mode(&wal), 0o600);
+        assert_eq!(mode(&shm), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialization_preserves_existing_directory_and_initialized_database_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join(".nt");
+        fs::create_dir(&parent).unwrap();
+        set_mode(&parent, 0o750);
+        let path = parent.join("nt.sqlite3");
+
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        assert_eq!(mode(&parent), 0o750);
+        set_mode(&path, 0o640);
+
+        assert_eq!(
+            initialize_at(&path).unwrap(),
+            InitOutcome::AlreadyInitialized
+        );
+        assert_eq!(mode(&parent), 0o750);
+        assert_eq!(mode(&path), 0o640);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialization_makes_adopted_empty_databases_private() {
+        for name in ["zero.sqlite3", "empty.sqlite3"] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(name);
+            if name == "zero.sqlite3" {
+                fs::write(&path, []).unwrap();
+            } else {
+                drop(Connection::open(&path).unwrap());
+            }
+            set_mode(&path, 0o666);
+
+            assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+            assert_eq!(mode(&path), 0o600);
+        }
     }
 
     #[test]
@@ -228,17 +392,22 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".nt/nt.sqlite3");
 
-        let result = initialize_missing_with(&path, |connection| {
-            schema::initialize_with(connection, |step| {
-                if step == 3 {
-                    return Err(NtError::Io(io::Error::other(
-                        "injected initialization failure",
-                    )));
-                }
-                Ok(())
-            })?;
-            Ok(true)
-        });
+        let result = initialize_missing_with(
+            &path,
+            &MANIFEST,
+            |connection| {
+                schema::initialize_with(connection, |step| {
+                    if step == 3 {
+                        return Err(NtError::Io(io::Error::other(
+                            "injected initialization failure",
+                        )));
+                    }
+                    Ok(())
+                })?;
+                Ok(true)
+            },
+            connection::configure_wal,
+        );
 
         assert!(result.is_err());
         assert!(!path.exists());
@@ -247,50 +416,18 @@ mod tests {
     }
 
     #[test]
-    fn read_only_connections_read_notes_and_reject_writes() {
+    fn failed_wal_setup_does_not_publish_new_storage() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("nt.sqlite3");
-        initialize_at(&path).unwrap();
-        let id = {
-            let mut writer = open_at(&path, OpenMode::ReadWrite).unwrap();
-            writer
-                .create_note(
-                    NewNote::new(CollectionPath::inbox(), "# Read only")
-                        .unwrap()
-                        .with_tags(["rust".parse().unwrap()]),
-                )
-                .unwrap()
-        };
+        let path = directory.path().join(".nt/nt.sqlite3");
 
-        let reader = open_at(&path, OpenMode::ReadOnly).unwrap();
-        let foreign_keys: i64 = reader
-            .connection
-            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
-            .unwrap();
-        let journal: String = reader
-            .connection
-            .pragma_query_value(None, "journal_mode", |row| row.get(0))
-            .unwrap();
-        assert_eq!((foreign_keys, journal.as_str()), (1, "wal"));
-        drop(reader);
+        let result = initialize_missing_with(&path, &MANIFEST, schema::initialize, |_| {
+            Err(NtError::WalUnavailable)
+        });
 
-        let mut reader = open_at(&path, OpenMode::ReadOnly).unwrap();
-        assert_eq!(reader.get_note(&id).unwrap().body(), "# Read only");
-        assert_eq!(reader.list_tags().unwrap(), vec!["rust".parse().unwrap()]);
-        let mut visited = 0;
-        reader
-            .visit_note_summaries(&NoteQuery::default(), |_| {
-                visited += 1;
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(visited, 1);
-
-        assert!(
-            reader
-                .create_note(NewNote::new(CollectionPath::inbox(), "# Denied").unwrap())
-                .is_err()
-        );
+        assert!(matches!(result, Err(NtError::WalUnavailable)));
+        assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
     }
 
     #[test]
@@ -384,27 +521,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(table_exists, 1);
-    }
-
-    #[test]
-    fn writer_contention_returns_the_retryable_busy_error() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("nt.sqlite3");
-        initialize_at(&path).unwrap();
-        let mut first = open_at(&path, OpenMode::ReadWrite).unwrap();
-        let mut second = open_at(&path, OpenMode::ReadWrite).unwrap();
-        second
-            .connection
-            .busy_timeout(Duration::from_millis(1))
-            .unwrap();
-        let transaction = first
-            .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .unwrap();
-        let result =
-            second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
-        assert!(matches!(result, Err(NtError::DatabaseBusy)));
-        transaction.rollback().unwrap();
     }
 
     #[test]

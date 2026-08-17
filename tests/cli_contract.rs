@@ -71,6 +71,13 @@ fn seed_matching_notes(home: &Path, count: usize) {
     transaction.commit().unwrap();
 }
 
+#[cfg(unix)]
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
 struct RestorePermissions {
     path: PathBuf,
     permissions: fs::Permissions,
@@ -80,6 +87,20 @@ impl Drop for RestorePermissions {
     fn drop(&mut self) {
         let _ = fs::set_permissions(&self.path, self.permissions.clone());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn init_creates_private_canonical_storage_without_changing_home() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = tempfile::tempdir().unwrap();
+    fs::set_permissions(home.path(), fs::Permissions::from_mode(0o751)).unwrap();
+
+    assert_eq!(success(home.path(), &["init"], None), "initialized\n");
+    assert_eq!(mode(home.path()), 0o751);
+    assert_eq!(mode(&home.path().join(".nt")), 0o700);
+    assert_eq!(mode(&home.path().join(".nt/nt.sqlite3")), 0o600);
 }
 
 #[test]
@@ -304,7 +325,10 @@ fn invalid_persisted_values_are_operational_errors() {
     let output = run(home.path(), &["list", "collections"], None);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
-    assert_eq!(output.stderr, b"error: stored note is invalid\n");
+    assert_eq!(
+        output.stderr,
+        b"error: stored note is invalid (row: 1, field: collection)\n"
+    );
 }
 
 #[test]
@@ -402,6 +426,18 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn redirected_summaries_escape_titles_without_creating_extra_lines() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let title = "A\t\"quoted\" \\ title";
+    let id = add(home.path(), &format!("# {title}\nBody"), &[]);
+
+    let output = success(home.path(), &["list"], None);
+
+    assert_summary_row(output.trim_end(), &id, "inbox", title, &[], 0);
 }
 
 fn assert_summary_row(

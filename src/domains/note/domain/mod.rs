@@ -1,11 +1,11 @@
 mod body;
 mod collection;
 mod date;
-mod domain;
 mod id;
+mod model;
 
 pub use collection::CollectionPath;
 pub use date::{Timestamp, timestamp_now};
-pub(crate) use domain::NoteRecord;
-pub use domain::{NewNote, Note, Tag};
 pub use id::NoteId;
+pub(crate) use model::NoteRecord;
+pub use model::{NewNote, Note, Tag};

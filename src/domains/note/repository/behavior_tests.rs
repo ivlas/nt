@@ -2,16 +2,28 @@ use std::collections::BTreeSet;
 
 use rusqlite::{TransactionBehavior, params};
 
+use super::super::{CollectionPath, NewNote, NoteId, NoteQuery, Tag, timestamp_now};
 use crate::error::NtError;
-use crate::note::{CollectionPath, NewNote, NoteId, Tag};
-use crate::query::NoteQuery;
 
-use super::note_store::load_note;
+use super::store::load_note;
 use super::{AddOrRemove, NoteSummary, Repository};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::{OpenMode, initialize_at, open_at, schema};
+    use crate::core::storage::{InitOutcome, OpenMode};
+    use crate::error::Result;
+    use crate::schema;
+
+    fn initialize_at(path: &std::path::Path) -> Result<InitOutcome> {
+        Repository::initialize_at(path)
+    }
+
+    fn open_at(path: &std::path::Path, mode: OpenMode) -> Result<Repository> {
+        match mode {
+            OpenMode::ReadOnly => Repository::open_read_only(path),
+            OpenMode::ReadWrite => Repository::open_at(path),
+        }
+    }
 
     fn repository() -> Repository {
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -33,10 +45,10 @@ mod tests {
         summaries
     }
 
-    fn assert_invalid_summary(repository: &Repository) {
+    fn assert_invalid_summary(repository: &Repository, expected_field: &'static str) {
         assert!(matches!(
             repository.visit_note_summaries(&NoteQuery::default(), |_| Ok(())),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote { field, .. }) if field == expected_field
         ));
     }
 
@@ -87,6 +99,11 @@ mod tests {
         let id = repository
             .create_note(NewNote::new(CollectionPath::inbox(), "# Invalid version").unwrap())
             .unwrap();
+        let mut changed_note = repository.get_note(&id).unwrap();
+        let expected_version = changed_note.body_version();
+        changed_note
+            .replace_body("# Changed", timestamp_now().unwrap())
+            .unwrap();
         repository
             .connection
             .execute_batch("PRAGMA ignore_check_constraints = ON")
@@ -105,21 +122,38 @@ mod tests {
 
         assert!(matches!(
             repository.get_note(&id),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote {
+                field: "body_version",
+                ..
+            })
+        ));
+        assert!(matches!(
+            repository.verify_body_version(&id, 1),
+            Err(NtError::InvalidStoredNote {
+                field: "body_version",
+                ..
+            })
+        ));
+        assert!(matches!(
+            repository.replace_body(&changed_note, expected_version),
+            Err(NtError::InvalidStoredNote {
+                field: "body_version",
+                ..
+            })
         ));
     }
 
     #[test]
     fn invalid_persisted_full_note_metadata_are_stored_note_errors() {
-        for mutation in [
-            "UPDATE notes SET collection = 'Invalid'",
-            "UPDATE notes SET created = 'invalid'",
-            "UPDATE notes SET updated = 'invalid'",
+        for (mutation, field) in [
+            ("UPDATE notes SET collection = 'Invalid'", "collection"),
+            ("UPDATE notes SET created = 'invalid'", "created"),
+            ("UPDATE notes SET updated = 'invalid'", "updated"),
         ] {
             let (repository, id) = corrupt_repository(mutation);
             assert!(matches!(
                 repository.get_note(&id),
-                Err(NtError::InvalidStoredNote)
+                Err(NtError::InvalidStoredNote { field: actual, .. }) if actual == field
             ));
         }
 
@@ -129,8 +163,48 @@ mod tests {
         );
         assert!(matches!(
             repository.get_note(&id),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote { field: "tag", .. })
         ));
+    }
+
+    #[test]
+    fn invalid_persisted_storage_classes_include_safe_field_context() {
+        let (repository, id) = corrupt_repository("UPDATE notes SET collection = X'736563726574'");
+
+        let error = repository.get_note(&id).unwrap_err();
+        let id_text = id.to_string();
+        assert!(matches!(
+            &error,
+            NtError::InvalidStoredNote {
+                context,
+                field: "collection",
+                source: Some(_),
+            } if context.note_id.as_deref() == Some(id_text.as_str())
+                && context.row_id == Some(1)
+        ));
+        assert_eq!(
+            error.to_string(),
+            format!("stored note is invalid (id: {id}, row: 1, field: collection)")
+        );
+        assert!(!error.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn invalid_tag_storage_classes_are_stored_note_errors_across_retrieval() {
+        let (repository, id) = corrupt_repository(
+            "INSERT INTO note_tags(note_pk, tag)
+             SELECT pk, X'ff' FROM notes",
+        );
+
+        assert!(matches!(
+            repository.get_note(&id),
+            Err(NtError::InvalidStoredNote { field: "tag", .. })
+        ));
+        assert!(matches!(
+            repository.list_tags(),
+            Err(NtError::InvalidStoredNote { field: "tag", .. })
+        ));
+        assert_invalid_summary(&repository, "tag");
     }
 
     #[test]
@@ -143,30 +217,33 @@ mod tests {
 
         assert!(matches!(
             repository.list_tags(),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote { field: "tag", .. })
         ));
         assert!(matches!(
             repository.list_collections(),
-            Err(NtError::InvalidStoredNote)
+            Err(NtError::InvalidStoredNote {
+                field: "collection",
+                ..
+            })
         ));
     }
 
     #[test]
     fn invalid_persisted_summary_values_are_stored_note_errors() {
-        for mutation in [
-            "UPDATE notes SET id = 'malformed'",
-            "UPDATE notes SET updated = 'invalid'",
-            "UPDATE notes SET collection = 'Invalid'",
+        for (mutation, field) in [
+            ("UPDATE notes SET id = 'malformed'", "id"),
+            ("UPDATE notes SET updated = 'invalid'", "updated"),
+            ("UPDATE notes SET collection = 'Invalid'", "collection"),
         ] {
             let (repository, _) = corrupt_repository(mutation);
-            assert_invalid_summary(&repository);
+            assert_invalid_summary(&repository, field);
         }
 
         let (repository, _) = corrupt_repository(
             "INSERT INTO note_tags(note_pk, tag)
              SELECT pk, 'Invalid' FROM notes",
         );
-        assert_invalid_summary(&repository);
+        assert_invalid_summary(&repository, "tag");
     }
 
     #[test]
@@ -396,6 +473,22 @@ mod tests {
         let result = repository.delete_notes(&[first.clone(), missing]);
         assert!(matches!(result, Err(NtError::NoteNotFound(_))));
         assert!(repository.get_note(&first).is_ok());
+    }
+
+    #[test]
+    fn duplicate_deletion_is_rejected_without_deleting_the_note() {
+        let mut repository = repository();
+        let id = repository
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Kept").unwrap())
+            .unwrap();
+
+        let result = repository.delete_notes(&[id.clone(), id.clone()]);
+
+        assert!(matches!(
+            result,
+            Err(NtError::DuplicateNoteId(duplicate)) if duplicate == id.to_string()
+        ));
+        assert!(repository.get_note(&id).is_ok());
     }
 
     #[test]

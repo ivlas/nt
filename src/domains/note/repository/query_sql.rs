@@ -1,6 +1,6 @@
 use rusqlite::types::Value;
 
-use crate::query::{Filter, NoteQuery};
+use super::super::{Filter, NoteQuery};
 
 pub(super) fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
     if query.filters().is_empty() && query.lexical_terms().is_empty() {
@@ -91,8 +91,9 @@ fn push_parameter(parameters: &mut Vec<Value>, value: &str) -> usize {
 mod tests {
     use rusqlite::params;
 
+    use super::super::Repository;
     use super::*;
-    use crate::repository::{Repository, schema};
+    use crate::schema;
 
     fn repository() -> Repository {
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();

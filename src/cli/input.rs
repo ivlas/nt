@@ -55,10 +55,14 @@ pub fn read_editor(
     editor: Option<&str>,
 ) -> Result<String> {
     let editor = parse_editor(visual, editor)?;
-    let mut file = tempfile::NamedTempFile::new_in(directory)?;
+    let mut file = tempfile::NamedTempFile::new_in(directory)
+        .map_err(|error| NtError::path_io("create editor temporary file in", directory, error))?;
+    let file_path = file.path().to_path_buf();
     if let Some(seed) = seed {
-        file.write_all(seed.as_bytes())?;
-        file.flush()?;
+        file.write_all(seed.as_bytes())
+            .map_err(|error| NtError::path_io("write editor temporary file", &file_path, error))?;
+        file.flush()
+            .map_err(|error| NtError::path_io("flush editor temporary file", &file_path, error))?;
     }
     let status = Command::new(editor.program)
         .args(editor.arguments)
@@ -69,7 +73,8 @@ pub fn read_editor(
         return Err(NtError::EditorExit(status));
     }
 
-    let body = std::fs::read_to_string(file.path())?;
+    let body = std::fs::read_to_string(&file_path)
+        .map_err(|error| NtError::path_io("read editor temporary file", &file_path, error))?;
     if body.is_empty() {
         return Err(NtError::EmptyBody);
     }
@@ -192,6 +197,36 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn editor_returns_successfully_modified_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let body = read_editor(
+            Some("# Original"),
+            directory.path(),
+            None,
+            Some(r##"sh -c 'printf "# Edited\nBody\n" > "$1"' sh"##),
+        )
+        .unwrap();
+
+        assert_eq!(body, "# Edited\nBody\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editor_rejects_a_successfully_emptied_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = read_editor(
+            Some("# Original"),
+            directory.path(),
+            None,
+            Some(r#"sh -c ': > "$1"' sh"#),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, NtError::EmptyBody));
+    }
+
     #[test]
     fn editor_launch_failures_preserve_the_io_error() {
         let directory = tempfile::tempdir().unwrap();
@@ -221,19 +256,21 @@ mod tests {
     }
 
     #[test]
-    fn editor_temp_file_creation_failures_remain_io_errors() {
+    fn editor_temp_file_creation_failures_include_the_directory() {
         let directory = tempfile::tempdir().unwrap();
         let missing = directory.path().join("missing");
 
+        let error = read_editor(None, &missing, None, Some("unused")).unwrap_err();
         assert!(matches!(
-            read_editor(None, &missing, None, Some("unused")),
-            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::NotFound
+            error,
+            NtError::PathIo { path, source, .. }
+                if path == missing && source.kind() == io::ErrorKind::NotFound
         ));
     }
 
     #[cfg(unix)]
     #[test]
-    fn editor_file_removal_and_invalid_utf8_are_reported_as_io_errors() {
+    fn editor_file_read_failures_include_the_temporary_path() {
         let directory = tempfile::tempdir().unwrap();
         let removed = read_editor(
             None,
@@ -243,7 +280,9 @@ mod tests {
         );
         assert!(matches!(
             removed,
-            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::NotFound
+            Err(NtError::PathIo { path, source, .. })
+                if path.parent() == Some(directory.path())
+                    && source.kind() == io::ErrorKind::NotFound
         ));
 
         let invalid_utf8 = read_editor(
@@ -254,7 +293,9 @@ mod tests {
         );
         assert!(matches!(
             invalid_utf8,
-            Err(NtError::Io(source)) if source.kind() == io::ErrorKind::InvalidData
+            Err(NtError::PathIo { path, source, .. })
+                if path.parent() == Some(directory.path())
+                    && source.kind() == io::ErrorKind::InvalidData
         ));
     }
 
