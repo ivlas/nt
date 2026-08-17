@@ -32,6 +32,11 @@ schema objects. It prints `initialized` for a new database and
 `already initialized` for a valid existing database.
 `HOME`, or the `USERPROFILE` fallback, must be a non-empty absolute path.
 
+On Unix, missing storage directories are requested with mode `0700`; new and
+adopted empty databases use mode `0600`. Existing directory modes and valid
+initialized database modes are not changed. New WAL and shared-memory files
+inherit the database mode. Other platforms use native permission behavior.
+
 Ordinary commands do not create storage. They validate application ID
 `0x4e544e54`, clean-sheet schema version `1`, and the exact definitions of every
 required schema object before operating. Additional user-defined tables, views,
@@ -193,7 +198,7 @@ error: database is not an nt database
 error: database is corrupt
 error: database could not enter WAL mode
 error: system clock is outside the supported timestamp range
-error: stored note is invalid
+error: stored note is invalid (<safe note or row identity>, field: <field>)
 error: unsupported nt schema version <version>; delete ~/.nt/nt.sqlite3 and run nt init
 error: database is busy; retry
 error: note not found: <id>

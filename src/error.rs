@@ -1,6 +1,31 @@
+use std::error::Error as StdError;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredNoteContext {
+    pub(crate) note_id: Option<String>,
+    pub(crate) row_id: Option<i64>,
+}
+
+impl StoredNoteContext {
+    pub(crate) fn new(note_id: Option<String>, row_id: Option<i64>) -> Self {
+        Self { note_id, row_id }
+    }
+}
+
+impl fmt::Display for StoredNoteContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.note_id, self.row_id) {
+            (Some(note_id), Some(row_id)) => write!(formatter, "id: {note_id}, row: {row_id}"),
+            (Some(note_id), None) => write!(formatter, "id: {note_id}"),
+            (None, Some(row_id)) => write!(formatter, "row: {row_id}"),
+            (None, None) => formatter.write_str("identity: unknown"),
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum NtError {
@@ -37,8 +62,13 @@ pub enum NtError {
     InvalidDatabasePath,
     #[error("system clock is outside the supported timestamp range")]
     ClockOutOfRange,
-    #[error("stored note is invalid")]
-    InvalidStoredNote,
+    #[error("stored note is invalid ({context}, field: {field})")]
+    InvalidStoredNote {
+        context: StoredNoteContext,
+        field: &'static str,
+        #[source]
+        source: Option<Box<dyn StdError + Send + Sync>>,
+    },
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run nt init first")]
@@ -78,6 +108,26 @@ pub enum NtError {
 }
 
 impl NtError {
+    pub(crate) fn invalid_stored(context: StoredNoteContext, field: &'static str) -> Self {
+        Self::InvalidStoredNote {
+            context,
+            field,
+            source: None,
+        }
+    }
+
+    pub(crate) fn invalid_stored_with_source(
+        context: StoredNoteContext,
+        field: &'static str,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self::InvalidStoredNote {
+            context,
+            field,
+            source: Some(Box::new(source)),
+        }
+    }
+
     pub(crate) fn path_io(
         operation: &'static str,
         path: impl Into<PathBuf>,
@@ -125,7 +175,7 @@ impl NtError {
             | Self::CorruptDatabase(_)
             | Self::InvalidDatabasePath
             | Self::ClockOutOfRange
-            | Self::InvalidStoredNote
+            | Self::InvalidStoredNote { .. }
             | Self::HomeNotFound
             | Self::NotNtDatabase
             | Self::UnsupportedSchema(_)

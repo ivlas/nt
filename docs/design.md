@@ -42,6 +42,12 @@ mismatches are distinct from corrupt or malformed database images, which receive
 a stable corruption error. Busy or locked databases remain retryable, and other
 inspection failures retain their underlying database diagnostics.
 
+On Unix, missing storage directories are requested with mode `0700`, and new or
+adopted empty database files are set to `0600` before note state is written.
+Existing directory modes and valid initialized database modes are preserved.
+New SQLite WAL and shared-memory files inherit the database mode. Other
+platforms retain their native filesystem permission behavior.
+
 For a missing database, initialization builds a temporary sibling and publishes
 it without replacing a file created concurrently. The candidate must enter WAL
 mode before publication, and failed candidates are removed.
@@ -153,8 +159,8 @@ Metadata-only updates do not rewrite FTS state.
 Domain types own UUIDv7 note identity, collection and tag validation, body
 normalization, H1 validation and title extraction, deduplication, self-link
 rejection, and body replacement. Invalid note state must not be constructible
-through public domain APIs. Domain code does not parse CLI tokens, render output,
-open SQLite, or know about FTS.
+through validated domain constructors and methods. Domain code does not parse
+CLI tokens, render output, open SQLite, or know about FTS.
 
 Command handlers orchestrate narrow repository operations and do not issue SQL.
 Existence and conflict checks happen inside each mutation transaction. Body

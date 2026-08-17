@@ -57,14 +57,26 @@ fn initialize_existing(
     establish_wal: bool,
     manifest: &SchemaManifest,
 ) -> Result<InitOutcome> {
+    let permission_target = database_permission_target(path)
+        .map_err(|error| NtError::path_io("open database permissions", path, error))?;
     let mut connection = connection::open_existing(path, OpenMode::ReadWrite)?;
+    verify_database_permission_target(&permission_target, path)
+        .map_err(|error| NtError::path_io("verify database permissions", path, error))?;
     connection::configure(&connection)?;
-    let outcome = if schema_engine::initialize(&mut connection, manifest)? {
+    let initialized = match schema_engine::inspect(&connection, manifest)? {
+        schema_engine::Identity::Nt => false,
+        schema_engine::Identity::Empty => {
+            set_private_database_permissions(&permission_target)
+                .map_err(|error| NtError::path_io("set database permissions", path, error))?;
+            schema_engine::initialize(&mut connection, manifest)?
+        }
+    };
+    let outcome = if initialized {
         InitOutcome::Initialized
     } else {
         InitOutcome::AlreadyInitialized
     };
-    if establish_wal || outcome == InitOutcome::Initialized {
+    if establish_wal || initialized {
         connection::configure_wal(&connection)?;
     }
     Ok(outcome)
@@ -78,11 +90,25 @@ fn initialize_missing_with(
 ) -> Result<InitOutcome> {
     let parent = path.parent().ok_or(NtError::InvalidDatabasePath)?;
     let parent_existed = parent.exists();
-    fs::create_dir_all(parent)
+    create_database_directory(parent)
         .map_err(|error| NtError::path_io("create database directory", parent, error))?;
     let mut parent_cleanup = RemoveEmptyDirectory((!parent_existed).then_some(parent));
     let candidate = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| NtError::path_io("create temporary database in", parent, error))?;
+    let permission_target = database_permission_target(candidate.path()).map_err(|error| {
+        NtError::path_io(
+            "open temporary database permissions",
+            candidate.path(),
+            error,
+        )
+    })?;
+    set_private_database_permissions(&permission_target).map_err(|error| {
+        NtError::path_io(
+            "set temporary database permissions",
+            candidate.path(),
+            error,
+        )
+    })?;
     let mut connection = connection::open_existing(candidate.path(), OpenMode::ReadWrite)?;
     connection::configure(&connection)?;
     if !initialize(&mut connection)? {
@@ -104,6 +130,72 @@ fn initialize_missing_with(
         }
         Err(error) => Err(NtError::path_io("publish database", path, error.error)),
     }
+}
+
+fn create_database_directory(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+#[cfg(unix)]
+type DatabasePermissionTarget = fs::File;
+
+#[cfg(not(unix))]
+type DatabasePermissionTarget = ();
+
+#[cfg(unix)]
+fn database_permission_target(path: &Path) -> io::Result<DatabasePermissionTarget> {
+    fs::OpenOptions::new().read(true).write(true).open(path)
+}
+
+#[cfg(not(unix))]
+fn database_permission_target(_path: &Path) -> io::Result<DatabasePermissionTarget> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn verify_database_permission_target(
+    target: &DatabasePermissionTarget,
+    path: &Path,
+) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let target = target.metadata()?;
+    let path = fs::metadata(path)?;
+    if target.dev() == path.dev() && target.ino() == path.ino() {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "database path changed during initialization",
+        ))
+    }
+}
+
+#[cfg(not(unix))]
+fn verify_database_permission_target(
+    _target: &DatabasePermissionTarget,
+    _path: &Path,
+) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_database_permissions(target: &DatabasePermissionTarget) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    target.set_permissions(fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_private_database_permissions(_target: &DatabasePermissionTarget) -> io::Result<()> {
+    Ok(())
 }
 
 pub(crate) fn open_at(
@@ -144,6 +236,20 @@ mod tests {
         super::open_at(path, mode, &MANIFEST).map(|connection| TestStorage { connection })
     }
 
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
     #[test]
     fn initializes_and_reopens_a_clean_database() {
         let directory = tempfile::tempdir().unwrap();
@@ -170,6 +276,75 @@ mod tests {
             (foreign_keys, journal.as_str(), busy_timeout),
             (1, "wal", 5000)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_storage_directories_database_and_sidecars_are_private() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("private");
+        let parent = first.join(".nt");
+        let path = parent.join("nt.sqlite3");
+
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        assert_eq!(mode(&first), 0o700);
+        assert_eq!(mode(&parent), 0o700);
+        assert_eq!(mode(&path), 0o600);
+
+        let storage = open_at(&path, OpenMode::ReadWrite).unwrap();
+        storage
+            .connection
+            .execute(
+                "INSERT INTO notes(id, collection, body, title, created, updated)
+                 VALUES ('018fbe0a-6c00-7000-8000-000000000001', 'inbox', '# Private',
+                         'Private', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        let wal = path.with_file_name(format!("{file_name}-wal"));
+        let shm = path.with_file_name(format!("{file_name}-shm"));
+        assert_eq!(mode(&wal), 0o600);
+        assert_eq!(mode(&shm), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialization_preserves_existing_directory_and_initialized_database_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join(".nt");
+        fs::create_dir(&parent).unwrap();
+        set_mode(&parent, 0o750);
+        let path = parent.join("nt.sqlite3");
+
+        assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+        assert_eq!(mode(&parent), 0o750);
+        set_mode(&path, 0o640);
+
+        assert_eq!(
+            initialize_at(&path).unwrap(),
+            InitOutcome::AlreadyInitialized
+        );
+        assert_eq!(mode(&parent), 0o750);
+        assert_eq!(mode(&path), 0o640);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialization_makes_adopted_empty_databases_private() {
+        for name in ["zero.sqlite3", "empty.sqlite3"] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(name);
+            if name == "zero.sqlite3" {
+                fs::write(&path, []).unwrap();
+            } else {
+                drop(Connection::open(&path).unwrap());
+            }
+            set_mode(&path, 0o666);
+
+            assert_eq!(initialize_at(&path).unwrap(), InitOutcome::Initialized);
+            assert_eq!(mode(&path), 0o600);
+        }
     }
 
     #[test]
