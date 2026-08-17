@@ -11,17 +11,6 @@ mod domains;
 mod error;
 mod schema;
 
-pub use app::App;
-pub use cli::input::Input;
-pub use cli::{Cli, Command};
-pub use commands::run;
-pub use core::storage::{InitOutcome, OpenMode};
-pub use domains::note::{
-    AddOrRemove, CollectionPath, Filter, NewNote, Note, NoteId, NoteQuery, NoteSummary, Repository,
-    Tag, Timestamp, timestamp_now,
-};
-pub use error::{NtError, Result};
-
 pub fn run_process() -> ExitCode {
     let cli = cli::Cli::parse();
     let stdin = io::stdin();

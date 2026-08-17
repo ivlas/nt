@@ -134,7 +134,7 @@ mod tests {
 
         let concurrent_path = database_path.clone();
         let concurrent_id = id.clone();
-        let mut editor = move |_| -> crate::Result<String> {
+        let mut editor = move |_| -> crate::error::Result<String> {
             let mut repository = Repository::open_at(&concurrent_path)?;
             let mut note = repository.get_note(&concurrent_id)?;
             let expected_version = note.body_version();

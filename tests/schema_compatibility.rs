@@ -1,6 +1,7 @@
+use std::fs;
 use std::path::Path;
+use std::process::Command;
 
-use nt::Repository;
 use rusqlite::Connection;
 
 const V1_SCHEMA: &str = include_str!("fixtures/v1_schema.sql");
@@ -8,15 +9,22 @@ const V1_SCHEMA: &str = include_str!("fixtures/v1_schema.sql");
 #[test]
 fn initialized_schema_matches_the_independent_v1_fixture() {
     let directory = tempfile::tempdir().unwrap();
-    let fixture_path = directory.path().join("fixture.sqlite3");
-    let initialized_path = directory.path().join("initialized.sqlite3");
+    let fixture_home = directory.path().join("fixture-home");
+    let initialized_home = directory.path().join("initialized-home");
+    fs::create_dir_all(fixture_home.join(".nt")).unwrap();
+    fs::create_dir_all(&initialized_home).unwrap();
+    let fixture_path = fixture_home.join(".nt/nt.sqlite3");
+    let initialized_path = initialized_home.join(".nt/nt.sqlite3");
 
     let fixture = Connection::open(&fixture_path).unwrap();
     let fixture_schema = V1_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
     fixture.execute_batch(&fixture_schema).unwrap();
     drop(fixture);
 
-    Repository::initialize_at(&initialized_path).unwrap();
+    let initialized = nt(&initialized_home, &["init"]);
+    assert!(initialized.status.success());
+    assert_eq!(initialized.stdout, b"initialized\n");
+    assert!(initialized.stderr.is_empty());
 
     assert_database_identity(&fixture_path);
     assert_database_identity(&initialized_path);
@@ -24,7 +32,19 @@ fn initialized_schema_matches_the_independent_v1_fixture() {
         schema_entries(&initialized_path),
         schema_entries(&fixture_path)
     );
-    assert!(Repository::open_read_only(&fixture_path).is_ok());
+    let validated = nt(&fixture_home, &["list"]);
+    assert!(validated.status.success());
+    assert!(validated.stdout.is_empty());
+    assert!(validated.stderr.is_empty());
+}
+
+fn nt(home: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_nt"))
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .args(arguments)
+        .output()
+        .unwrap()
 }
 
 fn assert_database_identity(path: &Path) {

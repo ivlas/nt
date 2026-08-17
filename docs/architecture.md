@@ -1,8 +1,8 @@
 # nt Architecture
 
 `nt` is a modular monolith with application, domain, and shared-core layers.
-It remains one Rust crate and uses explicit compile-time composition rather than
-plugins, registries, or generic repository traits.
+It remains one Cargo package and uses explicit compile-time composition rather
+than plugins, registries, or generic repository traits.
 
 ## Layers
 
@@ -17,6 +17,10 @@ src/schema.rs
 src/lib.rs
 src/main.rs
 ```
+
+`src/lib.rs` is a thin binary-support boundary. `run_process` is the only
+intentional public Rust entry point; domain, repository, CLI grammar, and schema
+APIs are implementation details rather than a supported SDK.
 
 Domains own their values, query model, persistence operations, and schema
 fragments. The current domain is notes:
@@ -73,7 +77,8 @@ dynamically or made optional at runtime.
 
 Version-1 SQL definitions are a compatibility boundary. Structural refactors
 must leave their stored `sqlite_schema.sql` values and creation order unchanged.
-The independent fixture in `tests/fixtures/v1_schema.sql` protects that contract.
+The independent fixture in `tests/fixtures/v1_schema.sql` protects that contract
+through the compiled binary interface.
 
 ## Extension
 
