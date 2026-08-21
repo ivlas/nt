@@ -14,7 +14,46 @@ fn initialized() -> Connection {
 }
 
 #[test]
-fn initializes_version_one_with_nt_identity() {
+fn domains_and_core_do_not_import_each_other() {
+    let library = concat!(
+        include_str!("../domains/library/model.rs"),
+        include_str!("../domains/library/query.rs"),
+        include_str!("../domains/library/repository/mod.rs"),
+        include_str!("../domains/library/repository/store.rs"),
+        include_str!("../domains/library/repository/query_sql.rs"),
+        include_str!("../domains/library/schema.rs"),
+    );
+    assert!(!library.contains("domains::note"));
+
+    let note = concat!(
+        include_str!("../domains/note/mod.rs"),
+        include_str!("../domains/note/query.rs"),
+        include_str!("../domains/note/schema.rs"),
+        include_str!("../domains/note/domain/body.rs"),
+        include_str!("../domains/note/domain/collection.rs"),
+        include_str!("../domains/note/domain/date.rs"),
+        include_str!("../domains/note/domain/id.rs"),
+        include_str!("../domains/note/domain/model.rs"),
+        include_str!("../domains/note/repository/mod.rs"),
+        include_str!("../domains/note/repository/query_sql.rs"),
+        include_str!("../domains/note/repository/relationships.rs"),
+        include_str!("../domains/note/repository/store.rs"),
+        include_str!("../domains/note/repository/stored.rs"),
+        include_str!("../domains/note/repository/summaries.rs"),
+    );
+    assert!(!note.contains("library"));
+
+    let core = concat!(
+        include_str!("../core/mod.rs"),
+        include_str!("../core/storage/mod.rs"),
+        include_str!("../core/storage/connection.rs"),
+        include_str!("../core/storage/schema_engine.rs"),
+    );
+    assert!(!core.contains("library"));
+}
+
+#[test]
+fn initializes_version_two_with_nt_identity() {
     let mut connection = initialized();
     assert_eq!(inspect(&connection).unwrap(), Identity::Nt);
     assert!(!initialize(&mut connection).unwrap());
@@ -26,6 +65,83 @@ fn initializes_version_one_with_nt_identity() {
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(version, SCHEMA_VERSION);
+}
+
+#[test]
+fn schema_enforces_library_invariants_fts_and_cross_domain_foreign_keys() {
+    let connection = initialized();
+    connection
+        .execute_batch(
+            "INSERT INTO notes(id, collection, body, title, created, updated)
+             VALUES ('018fbe0a-6c00-7000-8000-000000000001',
+                     'inbox', '# Note', 'Note', '2026-05-28T14:30:12Z',
+                     '2026-05-28T14:30:12Z');
+         INSERT INTO library_items(id, source, title, created, updated)
+             VALUES ('018fbe0a-6c00-7000-8000-000000000002',
+                     'https://example.com', 'Example', '2026-05-28T14:30:12Z',
+                     '2026-05-28T14:30:12Z');
+         INSERT INTO library_captures(item_pk, captured, content, content_hash)
+             VALUES (1, '2026-05-28T14:30:12Z', 'Café evidence',
+                     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+         INSERT INTO library_summaries(capture_pk, summary, generator, version, created)
+             VALUES (1, 'Summary', 'manual', '1', '2026-05-28T14:30:12Z');
+         INSERT INTO note_library_refs(note_pk, library_item_pk) VALUES (1, 1)",
+        )
+        .unwrap();
+    let matches: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM library_capture_fts
+         WHERE library_capture_fts MATCH 'cafe'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(matches, 1);
+
+    assert!(
+        connection
+            .execute(
+                "UPDATE library_captures SET content = 'changed' WHERE pk = 1",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO library_captures(item_pk, captured, content, content_hash)
+         VALUES (1, '2026-05-28T14:30:12Z', 'duplicate',
+                 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO note_library_refs(note_pk, library_item_pk) VALUES (999, 1)",
+                [],
+            )
+            .is_err()
+    );
+
+    connection
+        .execute("DELETE FROM library_items WHERE pk = 1", [])
+        .unwrap();
+    for table in ["library_captures", "library_summaries", "note_library_refs"] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "table {table}");
+    }
+    connection
+        .execute(
+            "INSERT INTO library_capture_fts(library_capture_fts) VALUES ('integrity-check')",
+            [],
+        )
+        .unwrap();
 }
 
 #[test]
@@ -374,4 +490,61 @@ fn writer_contention_returns_the_retryable_busy_error() {
     let result = second.create_note(NewNote::new(CollectionPath::inbox(), "# Contended").unwrap());
     assert!(matches!(result, Err(NtError::DatabaseBusy)));
     transaction.rollback().unwrap();
+}
+
+#[test]
+#[ignore = "manual representative Library query-plan audit"]
+fn audit_library_query_plans() {
+    let connection = initialized();
+    let cases = [
+        (
+            "lookup by source",
+            "EXPLAIN QUERY PLAN SELECT pk FROM library_items WHERE source = ?1",
+            "source",
+        ),
+        (
+            "latest capture",
+            "EXPLAIN QUERY PLAN SELECT pk FROM library_captures
+             WHERE item_pk = ?1 ORDER BY captured DESC, pk DESC LIMIT 1",
+            "1",
+        ),
+        (
+            "current lexical search",
+            "EXPLAIN QUERY PLAN
+             SELECT i.id FROM library_items i
+             JOIN library_captures c ON c.pk = (
+                 SELECT latest.pk FROM library_captures latest
+                 WHERE latest.item_pk = i.pk
+                 ORDER BY latest.captured DESC, latest.pk DESC LIMIT 1
+             )
+             WHERE c.pk IN (
+                 SELECT rowid FROM library_capture_fts
+                 WHERE library_capture_fts MATCH ?1
+             )
+             ORDER BY i.updated DESC, i.id DESC",
+            "storage",
+        ),
+        (
+            "refs for note",
+            "EXPLAIN QUERY PLAN SELECT library_item_pk FROM note_library_refs
+             WHERE note_pk = ?1 ORDER BY library_item_pk",
+            "1",
+        ),
+        (
+            "notes referencing item",
+            "EXPLAIN QUERY PLAN SELECT note_pk FROM note_library_refs
+             WHERE library_item_pk = ?1 ORDER BY note_pk",
+            "1",
+        ),
+    ];
+    for (name, sql, parameter) in cases {
+        let plan = connection
+            .prepare(sql)
+            .unwrap()
+            .query_map([parameter], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        println!("{name}: {plan:?}");
+    }
 }

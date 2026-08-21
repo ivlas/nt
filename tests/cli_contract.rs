@@ -269,6 +269,100 @@ fn complete_cli_workflow_matches_the_stable_contract() {
 }
 
 #[test]
+fn library_cli_preserves_captures_summaries_search_and_note_references() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let note_id = add(home.path(), "# Synthesis\nUses external evidence.", &[]);
+    let added = success(
+        home.path(),
+        &[
+            "library",
+            "add",
+            "https://example.com/article",
+            "Example",
+            "Article",
+        ],
+        Some("Café historical evidence"),
+    );
+    let library_id = added
+        .trim()
+        .strip_prefix("library saved ")
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        success(
+            home.path(),
+            &[
+                "library",
+                "add",
+                "https://example.com/article",
+                "Changed",
+                "Title"
+            ],
+            Some("Café historical evidence"),
+        ),
+        format!("library unchanged {library_id}\n")
+    );
+    assert_eq!(
+        success(
+            home.path(),
+            &["library", "summary", &library_id],
+            Some("First summary")
+        ),
+        format!("summarized {library_id}\n")
+    );
+    assert_eq!(
+        success(home.path(), &["ref", &note_id, &library_id], None),
+        format!("referenced {note_id} {library_id}\n")
+    );
+    assert_eq!(
+        success(
+            home.path(),
+            &["library", "capture", &library_id],
+            Some("Current résumé evidence")
+        ),
+        format!("captured {library_id}\n")
+    );
+    assert_eq!(
+        success(home.path(), &["library", "show", &library_id], None),
+        "Current résumé evidence"
+    );
+    assert!(success(home.path(), &["library", "find", "historical"], None).is_empty());
+    let found = success(home.path(), &["library", "find", "resume"], None);
+    let cells = found.trim_end().split('\t').collect::<Vec<_>>();
+    assert_eq!(cells.len(), 7);
+    assert_eq!(
+        serde_json::from_str::<String>(cells[0]).unwrap(),
+        library_id
+    );
+    assert_eq!(
+        serde_json::from_str::<String>(cells[1]).unwrap(),
+        "https://example.com/article"
+    );
+    assert_eq!(
+        serde_json::from_str::<String>(cells[2]).unwrap(),
+        "Example Article"
+    );
+    assert_eq!(serde_json::from_str::<String>(cells[6]).unwrap(), "");
+
+    let history = success(home.path(), &["library", "history", &library_id], None);
+    assert_eq!(history.lines().count(), 2);
+    assert!(history.lines().next().unwrap().contains("First summary"));
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let refs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM note_library_refs", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(refs, 1);
+    drop(connection);
+    assert_eq!(
+        success(home.path(), &["unref", &note_id, &library_id], None),
+        format!("unreferenced {note_id} {library_id}\n")
+    );
+}
+
+#[test]
 fn missing_storage_and_atomic_remove_leave_state_unchanged() {
     let home = tempfile::tempdir().unwrap();
     let missing = "018fbe0a-6c00-7000-8000-000000000001";
