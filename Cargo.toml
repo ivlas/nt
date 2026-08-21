@@ -16,3 +16,4 @@ rusqlite = { version = "0.40.1", features = ["bundled"] }
 shlex = "2.0.1"
 tempfile = "3.27.0"
 unicode-width = "0.2.2"
+blake3 = "1.8.7"

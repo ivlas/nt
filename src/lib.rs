@@ -9,6 +9,7 @@ mod commands;
 mod core;
 mod domains;
 mod error;
+mod relations;
 mod schema;
 
 pub fn run_process() -> ExitCode {

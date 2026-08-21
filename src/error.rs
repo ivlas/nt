@@ -10,6 +10,29 @@ pub struct StoredNoteContext {
     pub(crate) row_id: Option<i64>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredLibraryContext {
+    pub(crate) item_id: Option<String>,
+    pub(crate) row_id: Option<i64>,
+}
+
+impl StoredLibraryContext {
+    pub(crate) fn new(item_id: Option<String>, row_id: Option<i64>) -> Self {
+        Self { item_id, row_id }
+    }
+}
+
+impl fmt::Display for StoredLibraryContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.item_id, self.row_id) {
+            (Some(item_id), Some(row_id)) => write!(formatter, "id: {item_id}, row: {row_id}"),
+            (Some(item_id), None) => write!(formatter, "id: {item_id}"),
+            (None, Some(row_id)) => write!(formatter, "row: {row_id}"),
+            (None, None) => formatter.write_str("identity: unknown"),
+        }
+    }
+}
+
 impl StoredNoteContext {
     pub(crate) fn new(note_id: Option<String>, row_id: Option<i64>) -> Self {
         Self { note_id, row_id }
@@ -69,6 +92,13 @@ pub enum NtError {
         #[source]
         source: Option<Box<dyn StdError + Send + Sync>>,
     },
+    #[error("stored library value is invalid ({context}, field: {field})")]
+    InvalidStoredLibrary {
+        context: StoredLibraryContext,
+        field: &'static str,
+        #[source]
+        source: Option<Box<dyn StdError + Send + Sync>>,
+    },
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run nt init first")]
@@ -79,6 +109,8 @@ pub enum NtError {
     UnsupportedSchema(i64),
     #[error("invalid note id: {0}")]
     InvalidNoteId(String),
+    #[error("invalid library item id: {0}")]
+    InvalidLibraryItemId(String),
     #[error("invalid {field}: {value}")]
     InvalidValue { field: &'static str, value: String },
     #[error("body is empty")]
@@ -91,6 +123,8 @@ pub enum NtError {
     InvalidBodyVersion(u64),
     #[error("note not found: {0}")]
     NoteNotFound(String),
+    #[error("library item not found: {0}")]
+    LibraryItemNotFound(String),
     #[error("duplicate note id: {0}")]
     DuplicateNoteId(String),
     #[error("cannot combine body arguments with stdin")]
@@ -128,6 +162,18 @@ impl NtError {
         }
     }
 
+    pub(crate) fn invalid_stored_library_with_source(
+        context: StoredLibraryContext,
+        field: &'static str,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self::InvalidStoredLibrary {
+            context,
+            field,
+            source: Some(Box::new(source)),
+        }
+    }
+
     pub(crate) fn path_io(
         operation: &'static str,
         path: impl Into<PathBuf>,
@@ -154,6 +200,7 @@ impl NtError {
         match self {
             Self::UnknownHelpTopic(_)
             | Self::InvalidNoteId(_)
+            | Self::InvalidLibraryItemId(_)
             | Self::InvalidValue { .. }
             | Self::DuplicateNoteId(_)
             | Self::EmptyBody
@@ -163,7 +210,7 @@ impl NtError {
             | Self::ConflictingBodyInput
             | Self::EditorNotSet
             | Self::InvalidEditor => 2,
-            Self::MissingDatabase | Self::NoteNotFound(_) => 3,
+            Self::MissingDatabase | Self::NoteNotFound(_) | Self::LibraryItemNotFound(_) => 3,
             Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
             Self::Io(_)
             | Self::PathIo { .. }
@@ -176,6 +223,7 @@ impl NtError {
             | Self::InvalidDatabasePath
             | Self::ClockOutOfRange
             | Self::InvalidStoredNote { .. }
+            | Self::InvalidStoredLibrary { .. }
             | Self::HomeNotFound
             | Self::NotNtDatabase
             | Self::UnsupportedSchema(_)

@@ -26,6 +26,31 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "move" => Ok("nt move <id> <collection>\n\nMove a note to one collection.\n"),
         "tag" => Ok("nt tag <id> <+tag|-tag>\n\nAdd or remove one tag.\n"),
         "link" => Ok("nt link <id> <+id|-id>\n\nAdd or remove one directional note link.\n"),
+        "library" => Ok(
+            "nt library <command> [args...]\n\nStore external resources, immutable captures, and capture summaries.\n",
+        ),
+        "library add" => Ok(
+            "nt library add <source> <title...>\n\nCreate or resolve a Library item and capture content from stdin or $VISUAL/$EDITOR.\n",
+        ),
+        "library capture" => Ok(
+            "nt library capture <library-id>\n\nAppend changed content from stdin or $VISUAL/$EDITOR. Identical content is idempotent.\n",
+        ),
+        "library show" => {
+            Ok("nt library show <library-id>\n\nPrint the exact latest captured content.\n")
+        }
+        "library find" => Ok(
+            "nt library find <term-or-filter...>\n\nSearch only the latest capture of each Library item. Filters: id:, source:, title:, text:, since:, before:, limit:.\n",
+        ),
+        "library summary" => Ok(
+            "nt library summary <library-id>\n\nReplace the manual summary for the latest capture from stdin or $VISUAL/$EDITOR.\n",
+        ),
+        "library history" => Ok(
+            "nt library history <library-id>\n\nList immutable capture metadata and capture-specific summaries.\n",
+        ),
+        "ref" => Ok(
+            "nt ref <note-id> <library-id>\n\nReference a Library item as evidence for a note.\n",
+        ),
+        "unref" => Ok("nt unref <note-id> <library-id>\n\nRemove a note's evidence reference.\n"),
         "help" => Ok("nt help [command...]\n\nShow command help.\n"),
         _ => Err(NtError::UnknownHelpTopic(key.to_string())),
     }
@@ -33,7 +58,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
 
 const ROOT: &str = r#"nt
 
-Local, agent-first note layer.
+Local, agent-first knowledge layer.
 
 Usage:
   nt <command> [args...]
@@ -49,6 +74,9 @@ Commands:
   move <id> <collection>               move one note
   tag <id> <+tag|-tag>                 change one tag
   link <id> <+id|-id>                  change one directional link
+  library <command> [args...]           manage external evidence and captures
+  ref <note-id> <library-id>            reference Library evidence from a note
+  unref <note-id> <library-id>          remove a Library evidence reference
   help [command...]                    show command help
 "#;
 
@@ -60,7 +88,8 @@ mod tests {
     #[test]
     fn root_lists_only_clean_sheet_commands() {
         for command in [
-            "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link",
+            "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link", "library",
+            "ref", "unref",
         ] {
             assert!(ROOT.contains(command));
             assert!(topic_text(command).is_ok());

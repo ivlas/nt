@@ -2,10 +2,120 @@ use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::domains::library::{
+    LibraryHistoryRow, LibraryQuery, LibrarySummaryRow, Repository as LibraryRepository,
+};
 use crate::domains::note::{NoteQuery, NoteSummary, Repository};
 use crate::error::Result;
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
+const LIBRARY_HEADERS: [&str; 7] = [
+    "id", "source", "title", "created", "updated", "captured", "summary",
+];
+
+pub(crate) fn print_library_summaries(
+    repository: &LibraryRepository,
+    query: &LibraryQuery,
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+) -> Result<()> {
+    let mut output = BufWriter::new(output);
+    if output_is_terminal {
+        write_spooled_table(&mut output, LIBRARY_HEADERS, |write_row| {
+            repository.visit_summaries(query, |row| write_row(library_row(&row)))
+        })?;
+    } else {
+        let result = repository.visit_summaries(query, |row| {
+            let values = library_row(&row);
+            writeln!(
+                output,
+                "{}",
+                values
+                    .iter()
+                    .map(serde_json::to_string)
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .join("\t")
+            )?;
+            Ok(())
+        });
+        if let Err(crate::error::NtError::Io(error)) = &result
+            && error.kind() == io::ErrorKind::BrokenPipe
+        {
+            return Ok(());
+        }
+        result?;
+    }
+    match output.flush() {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn library_row(row: &LibrarySummaryRow) -> [String; 7] {
+    [
+        row.item().id().to_string(),
+        row.item().source().as_str().to_string(),
+        row.item().title().to_string(),
+        row.item().created().to_string(),
+        row.item().updated().to_string(),
+        row.captured().to_string(),
+        row.summary().unwrap_or("").to_string(),
+    ]
+}
+
+pub(crate) fn print_library_history(
+    history: &[LibraryHistoryRow],
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+) -> Result<()> {
+    let rows = history
+        .iter()
+        .map(|row| {
+            [
+                row.capture().captured().to_string(),
+                row.capture().content_hash().to_string(),
+                row.summary()
+                    .map_or("", |summary| summary.generator())
+                    .to_string(),
+                row.summary()
+                    .map_or("", |summary| summary.version())
+                    .to_string(),
+                row.summary()
+                    .map_or("", |summary| summary.summary())
+                    .to_string(),
+                row.summary()
+                    .map_or("", |summary| summary.created().as_str())
+                    .to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    if output_is_terminal {
+        output.write_all(
+            format_table(
+                [
+                    "captured",
+                    "content_hash",
+                    "generator",
+                    "version",
+                    "summary",
+                    "summary_created",
+                ],
+                &rows,
+            )
+            .as_bytes(),
+        )?;
+    } else {
+        for row in rows {
+            let encoded = row
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            writeln!(output, "{}", encoded.join("\t"))?;
+        }
+    }
+    Ok(())
+}
 
 pub(crate) fn print_notes(
     repository: &Repository,

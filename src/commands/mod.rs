@@ -3,7 +3,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 pub(crate) use crate::app::App;
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, LibraryCommand};
 use crate::domains::note::AddOrRemove;
 use crate::error::{NtError, Result};
 
@@ -11,9 +11,11 @@ mod add;
 mod edit;
 mod find;
 mod init;
+mod library;
 mod link;
 mod list;
 mod move_note;
+mod reference;
 mod rm;
 mod show;
 mod tag;
@@ -54,6 +56,22 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Move { id, collection }) => move_note::move_note(app, &id, &collection),
         Some(Command::Tag { id, operation }) => tag::tag(app, &id, &operation),
         Some(Command::Link { id, operation }) => link::link(app, &id, &operation),
+        Some(Command::Library { command }) => match command {
+            LibraryCommand::Add { source, title } => library::add(app, &source, &title),
+            LibraryCommand::Capture { id } => library::capture(app, &id),
+            LibraryCommand::Show { id } => library::show(app, &id),
+            LibraryCommand::Find { expressions } => library::find(app, &expressions),
+            LibraryCommand::Summary { id } => library::summary(app, &id),
+            LibraryCommand::History { id } => library::history(app, &id),
+        },
+        Some(Command::Reference {
+            note_id,
+            library_id,
+        }) => reference::reference(app, &note_id, &library_id),
+        Some(Command::Unref {
+            note_id,
+            library_id,
+        }) => reference::unreference(app, &note_id, &library_id),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic, app.output),
     }
 }
@@ -237,6 +255,64 @@ mod tests {
             .unwrap();
         assert_eq!(outgoing, Some(1));
         drop(repository);
+
+        assert_committed_output_failure(
+            &database_path,
+            &["library", "add", "https://example.com", "Example"],
+            "external evidence",
+        );
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        let library_id: String = connection
+            .query_row(
+                "SELECT id FROM library_items WHERE source = 'https://example.com'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(connection);
+
+        assert_committed_output_failure(
+            &database_path,
+            &["library", "capture", &library_id],
+            "changed evidence",
+        );
+        assert_committed_output_failure(
+            &database_path,
+            &["library", "summary", &library_id],
+            "capture summary",
+        );
+        assert_committed_output_failure(
+            &database_path,
+            &["ref", &target.to_string(), &library_id],
+            "",
+        );
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        let state: (i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                     (SELECT COUNT(*) FROM library_captures),
+                     (SELECT COUNT(*) FROM library_summaries),
+                     (SELECT COUNT(*) FROM note_library_refs)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state, (2, 1, 1));
+        drop(connection);
+
+        assert_committed_output_failure(
+            &database_path,
+            &["unref", &target.to_string(), &library_id],
+            "",
+        );
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        let references: i64 = connection
+            .query_row("SELECT COUNT(*) FROM note_library_refs", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(references, 0);
+        drop(connection);
 
         assert_committed_output_failure(&database_path, &["rm", &id.to_string()], "");
         let repository = Repository::open_at(&database_path).unwrap();

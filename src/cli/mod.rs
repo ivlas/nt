@@ -10,7 +10,7 @@ pub(crate) mod terminal;
 #[command(
     name = "nt",
     version,
-    about = "Local agent-first note layer",
+    about = "Local agent-first knowledge layer",
     disable_help_subcommand = true,
     disable_help_flag = true,
     disable_version_flag = true
@@ -62,9 +62,47 @@ pub enum Command {
         #[arg(allow_hyphen_values = true)]
         operation: String,
     },
+    Library {
+        #[command(subcommand)]
+        command: LibraryCommand,
+    },
+    #[command(name = "ref")]
+    Reference {
+        note_id: String,
+        library_id: String,
+    },
+    Unref {
+        note_id: String,
+        library_id: String,
+    },
     Help {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         topic: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LibraryCommand {
+    Add {
+        source: String,
+        #[arg(required = true)]
+        title: Vec<String>,
+    },
+    Capture {
+        id: String,
+    },
+    Show {
+        id: String,
+    },
+    Find {
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        expressions: Vec<String>,
+    },
+    Summary {
+        id: String,
+    },
+    History {
+        id: String,
     },
 }
 
@@ -98,6 +136,14 @@ mod tests {
             &["nt", "move", ID, "work/nt"],
             &["nt", "tag", ID, "+rust"],
             &["nt", "link", ID, "+018fbe0a-6c00-7000-8000-000000000002"],
+            &["nt", "library", "add", "https://example.com", "Example"],
+            &["nt", "library", "capture", ID],
+            &["nt", "library", "show", ID],
+            &["nt", "library", "find", "external"],
+            &["nt", "library", "summary", ID],
+            &["nt", "library", "history", ID],
+            &["nt", "ref", ID, "018fbe0a-6c00-7000-8000-000000000002"],
+            &["nt", "unref", ID, "018fbe0a-6c00-7000-8000-000000000002"],
             &["nt", "help", "find"],
         ];
         for case in cases {
@@ -144,7 +190,8 @@ mod tests {
         assert_eq!(
             commands,
             [
-                "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link", "help",
+                "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link",
+                "library", "ref", "unref", "help",
             ]
         );
     }
