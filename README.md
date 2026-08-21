@@ -2,8 +2,8 @@
 
 > **Status: alpha** `nt` is functional but experimental; expect breaking changes.
 
-`nt` is a local, agent-first note layer for editable CommonMark, deterministic
-metadata, and lexical retrieval. Canonical notes live in one SQLite database.
+`nt` is a local, agent-first knowledge layer for editable CommonMark notes and
+external Library evidence. Canonical state lives in one SQLite database.
 Humans and agents use the same shell-friendly commands, stdin, stdout, and
 `$VISUAL`/`$EDITOR`.
 
@@ -15,6 +15,8 @@ printf '%s\n' '# First note' '' 'SQLite is canonical.' | nt add tag:example
 nt list tag:example
 nt find sqlite
 nt show <id>
+printf '%s' 'External evidence' | nt library add https://example.com 'Example'
+nt library find evidence
 ```
 
 `nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
@@ -34,9 +36,11 @@ configuration files, daemons, embeddings, or hidden agent-only commands.
 ## Architecture
 
 `nt` is a modular monolith with an application layer, independent domains, and
-shared SQLite infrastructure. Notes are the current domain. Domains own their
-model, queries, persistence operations, and schema fragments; the application
-owns CLI orchestration and explicitly composes the canonical database schema.
+shared SQLite infrastructure. Note and Library are independent domains. Domains
+own their model, queries, persistence operations, and schema fragments; the
+application owns CLI orchestration and explicitly composes the canonical
+database schema. Library stores evidence; Notes store synthesis. Future
+append-only Memory remains a separate domain requiring its own RFC.
 
 ## Documentation
 

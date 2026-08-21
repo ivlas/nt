@@ -1,7 +1,7 @@
 # nt CLI Reference
 
 `nt` is a flagless, configless local CLI over `$HOME/.nt/nt.sqlite3`. SQLite is
-canonical for note bodies and metadata.
+canonical for authored notes and externally sourced Library evidence.
 
 ## Commands
 
@@ -18,6 +18,14 @@ nt edit <id> [-- body...]
 nt move <id> <collection>
 nt tag <id> <+tag|-tag>
 nt link <id> <+id|-id>
+nt library add <source> <title...>
+nt library capture <library-id>
+nt library show <library-id>
+nt library find <term-or-filter...>
+nt library summary <library-id>
+nt library history <library-id>
+nt ref <note-id> <library-id>
+nt unref <note-id> <library-id>
 nt help [command...]
 ```
 
@@ -38,7 +46,7 @@ initialized database modes are not changed. New WAL and shared-memory files
 inherit the database mode. Other platforms use native permission behavior.
 
 Ordinary commands do not create storage. They validate application ID
-`0x4e544e54`, clean-sheet schema version `1`, and the exact definitions of every
+`0x4e544e54`, clean-sheet schema version `2`, and the exact definitions of every
 required schema object before operating. Additional user-defined tables, views,
 and indexes are tolerated but are outside nt's supported state. Unknown triggers
 are rejected because they can alter nt writes.
@@ -182,6 +190,48 @@ deleting anything. Any missing or invalid ID leaves all requested notes intact.
 Before foreign-key cascades remove incoming links, each surviving source note is
 updated because its canonical outgoing-link set changed. Deleting a source does
 not update its outgoing targets.
+
+## Library
+
+Library stores evidence; Notes store synthesis. `library add` reads exact
+external content from stdin or `$VISUAL`/`$EDITOR`, creates a stable Library item
+for a new source, and creates its first immutable capture. Resolving an existing
+source preserves its original title and appends only content not already stored
+for that item. Exact content bytes are deduplicated using BLAKE3.
+
+`library capture` appends changed content without rewriting history. `library
+show` prints only the latest exact capture. `library summary` replaces the
+caller-supplied summary attached to the latest capture, using generator `manual`
+and version `1`. A later capture has no summary until one is explicitly supplied.
+`library history` lists capture timestamp, content hash, generator, version,
+summary, and summary timestamp without printing captured content.
+
+`library find` searches only the latest capture of each item and returns each
+item at most once. Bare terms and `text:` values are literal Unicode FTS terms
+with AND semantics. Supported filters are:
+
+```text
+id:<prefix>
+source:<exact-source>
+title:<case-insensitive-substring>
+text:<literal-term>
+since:<captured-timestamp>
+before:<captured-timestamp>
+limit:<positive-integer>
+```
+
+Redirected find rows are JSON-encoded, headerless TSV in this order:
+
+```text
+id  source  title  created  updated  captured  summary
+```
+
+Successful Library mutations print `library saved <id>`, `library captured
+<id>`, `library unchanged <id>`, `captured <id>`, or `summarized <id>`.
+
+`ref` and `unref` manage an explicit evidence edge from a note to a Library
+item. They are separate from directional note `link` edges, require both targets
+to exist, and are idempotent. Deleting either target cascades its references.
 
 ## Errors
 

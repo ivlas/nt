@@ -1,12 +1,13 @@
-# Notes Domain Design
+# nt Domain Design
 
-This document specifies the notes domain and its current application interface.
+This document specifies the Note and Library domains and their application interface.
 System-wide layer and dependency rules are documented in `architecture.md`.
 
-`nt` is a local, agent-first note layer for editable CommonMark notes,
-deterministic metadata, and lexical retrieval. The previous vault, todo,
-membership, source, projection, and generic metadata model is obsolete and has
-no compatibility requirement.
+`nt` is a local, agent-first knowledge layer. Notes are authored, editable
+knowledge. Library items are external knowledge with provenance. Future Memory
+is append-only temporal history and is not implemented here.
+
+Library stores evidence. Notes store synthesis.
 
 ## Product Boundary
 
@@ -31,7 +32,7 @@ domain.
 
 `nt init` is the only command allowed to create `$HOME/.nt`, the database file,
 or schema objects. The clean-sheet database uses application ID `0x4e544e54`
-(`NTNT`) and schema version `1`.
+(`NTNT`) and schema version `2`.
 
 Initialization accepts a missing database, a zero-length file, or an empty
 SQLite database. A valid existing nt database is reported as already
@@ -51,7 +52,7 @@ platforms retain their native filesystem permission behavior.
 For a missing database, initialization builds a temporary sibling and publishes
 it without replacing a file created concurrently. The candidate must enter WAL
 mode before publication, and failed candidates are removed.
-For supported schema version `1`, every required table, virtual table, trigger,
+For supported schema version `2`, every required table, virtual table, trigger,
 and index must retain its canonical definition. Additional user-defined tables,
 views, and indexes are tolerated, but they are not part of nt state or supported
 for writes. Unknown triggers are rejected because they can alter nt mutations.
@@ -88,7 +89,7 @@ Primary state uses these tables:
 ```sql
 CREATE TABLE schema_version (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    version INTEGER NOT NULL CHECK (version = 1)
+    version INTEGER NOT NULL CHECK (version = 2)
 ) WITHOUT ROWID;
 
 CREATE TABLE notes (
@@ -145,6 +146,33 @@ CREATE VIRTUAL TABLE note_fts USING fts5(
     tokenize = 'unicode61 remove_diacritics 2'
 );
 ```
+
+Library canonical state consists of `library_items`, immutable
+`library_captures`, and application-owned `note_library_refs`. Replaceable
+derived state consists of one `library_summaries` row per capture and
+`library_capture_fts`. The complete exact v2 SQL is independently specified in
+`tests/fixtures/v2_schema.sql`.
+
+Library item IDs are canonical lowercase UUIDv7 values. `source` is an opaque,
+unique external identifier with no source-kind discriminator. Item title changes
+are explicit; resolving an existing source during capture never changes its
+title. Capture content is preserved exactly and deduplicated per item by a
+lowercase BLAKE3 digest over the supplied UTF-8 bytes. A changed source appends a
+new capture; ordinary operations never update or delete historical captures.
+
+Summaries belong to exact captures and may be atomically replaced because they
+are derived state. The initial CLI stores caller-supplied summaries as
+`generator = manual`, `version = 1`; it performs no automatic generation.
+
+Default Library lexical search joins only the latest capture selected by
+`captured DESC, pk DESC`. Historical content is available through history but
+does not silently match current search. Library FTS uses the same `unicode61
+remove_diacritics 2` tokenizer and literal AND-term discipline as Note FTS.
+
+`note_links` means note-to-note conceptual relationships. `note_library_refs`
+means note-to-Library evidence relationships. Neither domain model contains the
+other domain's objects or IDs; application relation code resolves public UUIDs
+to internal integer keys.
 
 Indexes support created and updated ordering, collection filtering, tag lookup,
 and target-link lookup. Cheap schema checks enforce canonical UUIDv7, collection,
@@ -259,13 +287,14 @@ as its replacement lands rather than retained behind compatibility paths.
 Required verification covers database identity, schema constraints, UUIDv7 IDs,
 body validation, default collection behavior, transactions, command routing,
 query syntax, body conflicts, idempotent metadata changes, link cleanup, FTS
-synchronization, busy handling, and output encoding.
+synchronization, busy handling, Library capture deduplication and immutability,
+current-capture search, summaries, note references, and output encoding.
 
 Before release, run:
 
 ```sh
 cargo fmt --check
-cargo test
-cargo clippy --all-targets
-cargo run -- help
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --locked
+cargo run --locked -- help
 ```

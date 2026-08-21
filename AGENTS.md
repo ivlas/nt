@@ -2,8 +2,8 @@
 
 ## Project
 
-`nt` is a local, agent-first note layer for editable CommonMark notes,
-deterministic metadata, and lexical retrieval. It prioritizes fast capture,
+`nt` is a local, agent-first knowledge layer for editable CommonMark notes and
+external Library evidence. It prioritizes fast capture,
 bounded context construction, low LLM token use, and local ownership.
 
 Humans and agents use the same Unix-like interface. Commands read stdin, write
@@ -18,6 +18,8 @@ approval is required before agent-driven mutations.
 - Use canonical lowercase UUIDv7 IDs for notes.
 - Every note has exactly one normalized collection path; `inbox` is the default.
 - Tags are optional, and links are explicit and directional.
+- Library items have unique opaque sources and immutable, BLAKE3-deduplicated captures.
+- Library stores evidence; Notes store synthesis.
 - There are no vaults, collection entities, note kinds, todos, sources, generic
   metadata, additional memberships, or active namespace state.
 - There is no canonical Markdown vault, JSON index, or rebuild workflow.
@@ -42,6 +44,9 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt move <id> <collection>`
 - `nt tag <id> <+tag|-tag>`
 - `nt link <id> <+id|-id>`
+- `nt library add|capture|show|find|summary|history ...`
+- `nt ref <note-id> <library-id>`
+- `nt unref <note-id> <library-id>`
 - `nt help [command...]`
 
 Avoid broader commands or hidden runtime management until concrete usage proves
@@ -49,12 +54,13 @@ the need.
 
 ## Storage
 
-Primary relational state consists of notes, tags, and directional note links.
+Primary relational state consists of notes, tags, directional note links,
+Library items and captures, and note-to-Library references.
 The note row stores its collection path, canonical body, derived title,
 timestamps, and body version. Persist only primary state. FTS5 is derived state
 maintained transactionally by SQLite triggers.
 
-The clean-sheet schema is version `1`, with no migration compatibility for the
+The clean-sheet schema is version `2`, with no migration compatibility for the
 old development schema. The database uses application ID `0x4e544e54` (`NTNT`).
 Enable foreign keys on every operational connection and use WAL with a bounded
 busy timeout.
@@ -67,6 +73,7 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 - Use `nt list` and structured filters for cheap candidate construction.
 - Use `nt find` for deterministic metadata and literal FTS filtering.
 - Use `nt show <id>` only for exact body retrieval.
+- Use `nt library find` before `nt library show` to bound evidence retrieval.
 - Keep output stable and one record per line.
 - Redirected list and find output is JSON-encoded, headerless TSV.
 - List and find are complete by default; `limit:` is explicit and SQL-backed.
@@ -91,7 +98,7 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 
 ## Design
 
-`docs/design.md` is the detailed clean-sheet contract. Append-only memory
+`docs/design.md` is the detailed clean-sheet contract. Append-only Memory
 requires a separate RFC and must not be represented as a note kind, collection,
 or tag.
 

@@ -123,6 +123,27 @@ A real `nt link` addition or removal updates its source note, not its target.
 Adding an existing tag or link and removing a missing one succeeds without
 changing update timestamps. Self-links are rejected; links remain directional.
 
+## Library Evidence
+
+Library stores external evidence while Notes store authored synthesis:
+
+```sh
+curl -sS https://sqlite.org/wal.html | nt library add https://sqlite.org/wal.html 'SQLite WAL'
+nt library find 'write ahead'
+nt library show <library-id>
+curl -sS https://sqlite.org/wal.html | nt library capture <library-id>
+printf '%s' 'Manual summary' | nt library summary <library-id>
+nt library history <library-id>
+nt ref <note-id> <library-id>
+nt unref <note-id> <library-id>
+```
+
+Captures preserve exact supplied content and are immutable. Re-capturing
+identical content is idempotent; changed content appends history. Default search
+uses only each item's latest capture, so stale historical text does not appear as
+current evidence. Summaries belong to exact captures and are never carried onto
+new content.
+
 ## Remove
 
 ```sh
