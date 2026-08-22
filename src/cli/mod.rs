@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 pub mod help;
 pub(crate) mod input;
+pub(crate) mod output;
 pub(crate) mod paths;
 pub(crate) mod rendering;
 pub(crate) mod terminal;

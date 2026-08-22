@@ -2,6 +2,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use unicode_width::UnicodeWidthStr;
 
+use super::output::write_stream;
 use crate::error::{NtError, Result, StoredNoteContext};
 use crate::note::{NoteQuery, NoteSummary, Repository};
 
@@ -20,19 +21,9 @@ pub(crate) fn print_notes(
         })?;
         output.flush()?;
     } else {
-        let mut output = BufWriter::new(output);
-        match repository.visit_note_summaries(query, |note| print_redirected(&mut output, &note)) {
-            Err(crate::error::NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => {
-                return Ok(());
-            }
-            result => result?,
-        }
-        if let Err(error) = output.flush() {
-            if error.kind() == io::ErrorKind::BrokenPipe {
-                return Ok(());
-            }
-            return Err(error.into());
-        }
+        write_stream(output, |output| {
+            repository.visit_note_summaries(query, |note| print_redirected(output, &note))
+        })?;
     }
     Ok(())
 }
@@ -66,7 +57,7 @@ fn escape_terminal_controls(value: &str) -> String {
     escaped
 }
 
-fn print_redirected(output: &mut impl Write, note: &NoteSummary) -> Result<()> {
+fn print_redirected(output: &mut (impl Write + ?Sized), note: &NoteSummary) -> Result<()> {
     let tags = note
         .tags()
         .iter()
@@ -156,22 +147,13 @@ pub(crate) fn print_values<T: AsRef<str>>(
             .collect::<Vec<_>>();
         output.write_all(format_table([header], &rows).as_bytes())?;
     } else {
-        let mut output = BufWriter::new(output);
-        for value in values {
-            let encoded = serde_json::to_string(value.as_ref())?;
-            if let Err(error) = writeln!(output, "{encoded}") {
-                if error.kind() == io::ErrorKind::BrokenPipe {
-                    return Ok(());
-                }
-                return Err(error.into());
+        write_stream(output, |output| {
+            for value in values {
+                let encoded = serde_json::to_string(value.as_ref())?;
+                writeln!(output, "{encoded}")?;
             }
-        }
-        if let Err(error) = output.flush() {
-            if error.kind() == io::ErrorKind::BrokenPipe {
-                return Ok(());
-            }
-            return Err(error.into());
-        }
+            Ok(())
+        })?;
     }
     Ok(())
 }

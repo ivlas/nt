@@ -1,5 +1,6 @@
-use std::io::{self, BufWriter, Write};
+use std::io::Write;
 
+use crate::cli::output::write_stream;
 use crate::error::{NtError, Result};
 use crate::memory::{
     ContextItem, ExpansionItem, MEMORY_CONTEXT_CHARS, Memory, MemoryStatus, PendingJob, RawRange,
@@ -26,17 +27,10 @@ pub(super) fn write_memories(
     output: &mut dyn Write,
     produce: impl FnOnce(&mut dyn FnMut(&Memory) -> Result<()>) -> Result<()>,
 ) -> Result<()> {
-    let mut output = BufWriter::new(output);
-    let mut write = |memory: &Memory| write_memory_row(&mut output, memory);
-    match produce(&mut write) {
-        Err(NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => return Ok(()),
-        result => result?,
-    }
-    match output.flush() {
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(error.into()),
-        Ok(()) => Ok(()),
-    }
+    write_stream(output, |output| {
+        let mut write = |memory: &Memory| write_memory_row(output, memory);
+        produce(&mut write)
+    })
 }
 
 fn write_memory_row(output: &mut (impl Write + ?Sized), memory: &Memory) -> Result<()> {
@@ -54,27 +48,20 @@ pub(super) fn write_pending_jobs(
     output: &mut dyn Write,
     produce: impl FnOnce(&mut dyn FnMut(&PendingJob) -> Result<()>) -> Result<()>,
 ) -> Result<()> {
-    let mut output = BufWriter::new(output);
-    let mut write = |job: &PendingJob| {
-        writeln!(
-            output,
-            "{}\t{}-{}\t{}",
-            job.node(),
-            job.raw_range().start(),
-            job.raw_range().end(),
-            job.node().level()
-        )?;
-        Ok(())
-    };
-    match produce(&mut write) {
-        Err(NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => return Ok(()),
-        result => result?,
-    }
-    match output.flush() {
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(error.into()),
-        Ok(()) => Ok(()),
-    }
+    write_stream(output, |output| {
+        let mut write = |job: &PendingJob| {
+            writeln!(
+                output,
+                "{}\t{}-{}\t{}",
+                job.node(),
+                job.raw_range().start(),
+                job.raw_range().end(),
+                job.node().level()
+            )?;
+            Ok(())
+        };
+        produce(&mut write)
+    })
 }
 
 pub(super) fn write_summary_task(
@@ -169,9 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn streamed_memory_output_treats_broken_writes_and_flushes_as_success() {
+    fn streamed_memory_output_treats_broken_writes_as_success() {
         write_memories(&mut BrokenPipeWriter, |write| write(&memory())).unwrap();
-        write_memories(&mut FlushBrokenPipeWriter, |write| write(&memory())).unwrap();
     }
 
     #[test]
@@ -244,7 +230,6 @@ mod tests {
     }
 
     struct BrokenPipeWriter;
-    struct FlushBrokenPipeWriter;
 
     impl Write for BrokenPipeWriter {
         fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
@@ -253,16 +238,6 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
-        }
-    }
-
-    impl Write for FlushBrokenPipeWriter {
-        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
         }
     }
 }
