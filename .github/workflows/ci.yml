@@ -35,7 +35,7 @@ jobs:
           components: ${{ matrix.os == 'ubuntu-latest' && 'clippy,rustfmt' || '' }}
 
       - if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt -- --check
+        run: cargo fmt --check
 
       - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --locked --all-targets -- -D warnings
