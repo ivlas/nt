@@ -692,7 +692,11 @@ fn append_reports_retryable_writer_contention() {
 
 #[test]
 fn failed_level_zero_job_creation_rolls_back_raw_and_fts_rows() {
-    let mut repository = repository();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-append.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
     append(&mut repository, 15, "boundary");
     repository
         .connection
@@ -708,7 +712,12 @@ fn failed_level_zero_job_creation_rolls_back_raw_and_fts_rows() {
             .append(NewMemory::new("rolled back").unwrap())
             .is_err()
     );
+
+    drop(repository);
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
     assert_eq!(repository.status().unwrap().highest_seq(), Some(15));
+    assert_eq!(repository.status().unwrap().raw_count(), 15);
+    assert_eq!(repository.status().unwrap().pending_count(), 0);
     let indexed: i64 = repository
         .connection
         .query_row(
@@ -719,6 +728,8 @@ fn failed_level_zero_job_creation_rolls_back_raw_and_fts_rows() {
         .unwrap();
     assert_eq!(indexed, 0);
 
+    drop(repository);
+    let mut repository = Repository::from_connection(Connection::open(&path).unwrap());
     repository
         .connection
         .execute("DROP TRIGGER fail_memory_job", [])
@@ -730,6 +741,108 @@ fn failed_level_zero_job_creation_rolls_back_raw_and_fts_rows() {
         16
     );
     assert_eq!(repository.pending(None).unwrap().len(), 1);
+}
+
+#[test]
+fn failed_summary_transaction_has_no_persisted_segment_or_fts_state_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-summary.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
+    append(&mut repository, 16, "summary source");
+    repository
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_summary_job_delete
+             BEFORE DELETE ON memory_summary_jobs
+             WHEN OLD.level = 0 AND OLD.block = 0
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected summary failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(
+        repository
+            .summarize(
+                node(0, 0),
+                NewSummary::new("rolled back derived summary").unwrap(),
+            )
+            .is_err()
+    );
+    drop(repository);
+
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    let status = repository.status().unwrap();
+    assert_eq!(status.summary_count(), 0);
+    assert_eq!(status.pending_count(), 1);
+    assert_eq!(repository.pending(None).unwrap()[0].node(), node(0, 0));
+    let indexed: i64 = repository
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_segment_fts
+             WHERE memory_segment_fts MATCH 'rolled'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexed, 0);
+}
+
+#[test]
+fn failed_invalidation_restores_descendants_ancestors_and_fts_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-invalidation.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
+    append(&mut repository, 256, "invalidation source");
+    for block in 0..16 {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("durable child {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    repository
+        .summarize(node(1, 0), NewSummary::new("durable ancestor").unwrap())
+        .unwrap();
+    repository
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_ancestor_delete
+             BEFORE DELETE ON memory_segments
+             WHEN OLD.level = 1 AND OLD.block = 0
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected invalidation failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(repository.invalidate(node(0, 3)).is_err());
+    drop(repository);
+
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 256);
+    assert_eq!(status.summary_count(), 17);
+    assert_eq!(status.pending_count(), 0);
+    assert_eq!(repository.expand(node(0, 3)).unwrap().len(), 16);
+    assert_eq!(repository.expand(node(1, 0)).unwrap().len(), 16);
+    for term in ["child", "ancestor"] {
+        let indexed: i64 = repository
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM memory_segment_fts
+                 WHERE memory_segment_fts MATCH ?1",
+                [term],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(indexed > 0);
+    }
 }
 
 #[test]
