@@ -71,6 +71,126 @@ impl ContextItem {
     }
 }
 
+#[derive(Default)]
+struct ContextSelection {
+    items: Vec<ContextItem>,
+    raw_sequences: BTreeSet<i64>,
+    ranges: Vec<(u64, u64)>,
+    used_chars: usize,
+}
+
+impl ContextSelection {
+    fn select_raw(&mut self, candidates: &[Memory], budget: usize) -> Result<()> {
+        let mut pool_used = 0;
+        for memory in candidates {
+            if self.raw_sequences.contains(&memory.seq()) {
+                continue;
+            }
+            let seq = memory_sequence(memory)?;
+            let mut overlapping_summaries = BTreeSet::new();
+            for (index, item) in self.items.iter().enumerate() {
+                if matches!(item, ContextItem::Summary(_))
+                    && ranges_overlap(item.raw_bounds()?, (seq, seq))
+                {
+                    overlapping_summaries.insert(index);
+                }
+            }
+            let retained_count = self.items.len() - overlapping_summaries.len();
+            let retained_chars = self
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !overlapping_summaries.contains(index))
+                .try_fold(0_usize, |total, (_, item)| {
+                    Ok::<_, NtError>(total + item.output_char_count()?)
+                })?
+                + retained_count.saturating_sub(1);
+            let chars = raw_output_char_count(memory) + usize::from(retained_count != 0);
+            if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - retained_chars {
+                continue;
+            }
+
+            if !overlapping_summaries.is_empty() {
+                let mut index = 0;
+                self.items.retain(|_| {
+                    let retain = !overlapping_summaries.contains(&index);
+                    index += 1;
+                    retain
+                });
+                self.ranges = self
+                    .items
+                    .iter()
+                    .map(ContextItem::raw_bounds)
+                    .collect::<Result<Vec<_>>>()?;
+                self.used_chars = retained_chars;
+            }
+            pool_used += chars;
+            self.used_chars += chars;
+            self.raw_sequences.insert(memory.seq());
+            self.ranges.push((seq, seq));
+            self.items.push(ContextItem::Raw(memory.clone()));
+        }
+        Ok(())
+    }
+
+    fn select_summaries(&mut self, candidates: &[MemorySegment], budget: usize) -> Result<()> {
+        let mut pool_used = 0;
+        for segment in candidates {
+            let raw_range = node_range(segment.node())?;
+            let bounds = (raw_range.start(), raw_range.end());
+            if self
+                .ranges
+                .iter()
+                .any(|selected| ranges_overlap(*selected, bounds))
+            {
+                continue;
+            }
+            let chars =
+                summary_output_char_count(segment, bounds) + usize::from(!self.items.is_empty());
+            if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - self.used_chars {
+                continue;
+            }
+            pool_used += chars;
+            self.used_chars += chars;
+            self.ranges.push(bounds);
+            self.items.push(ContextItem::Summary(segment.clone()));
+        }
+        Ok(())
+    }
+
+    fn fill_remaining(&mut self, recent: &[Memory], broad: &[MemorySegment]) -> Result<()> {
+        let remaining = MEMORY_CONTEXT_CHARS - self.used_chars;
+        let recent_budget = remaining * 60 / 100;
+        self.select_raw(recent, recent_budget)?;
+        self.select_summaries(broad, remaining - recent_budget)?;
+
+        // If either fallback pool was sparse, let the other consume the residue.
+        self.select_raw(recent, MEMORY_CONTEXT_CHARS)?;
+        self.select_summaries(broad, MEMORY_CONTEXT_CHARS)
+    }
+
+    fn finish(self) -> Result<Vec<ContextItem>> {
+        let mut ordered = self
+            .items
+            .into_iter()
+            .map(|item| {
+                let (start, end) = item.raw_bounds()?;
+                let kind = matches!(item, ContextItem::Summary(_)) as u8;
+                Ok(((start, end, kind), item))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ordered.sort_by_key(|(key, _)| *key);
+        let selected = ordered
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect::<Vec<_>>();
+        if context_output_char_count(&selected)? > MEMORY_CONTEXT_CHARS {
+            return Err(NtError::MemoryContextOverflow);
+        }
+        Ok(selected)
+    }
+}
+
 fn raw_context_header(memory: &Memory) -> String {
     format!("# memory {} ({})\n", memory.seq(), memory.created())
 }
@@ -96,10 +216,7 @@ fn memory_sequence(memory: &Memory) -> Result<u64> {
 impl Repository {
     pub(crate) fn context(&self, query: &MemoryContextQuery) -> Result<Vec<ContextItem>> {
         let transaction = self.connection.unchecked_transaction()?;
-        let mut selected = Vec::new();
-        let mut selected_raw = BTreeSet::new();
-        let mut selected_ranges = Vec::new();
-        let mut total_used = 0;
+        let mut selection = ContextSelection::default();
 
         let recent = recent_raw_candidates(&transaction)?;
         let broad = if query.terms().is_empty() {
@@ -112,207 +229,27 @@ impl Repository {
         // Remaining output capacity falls back to recent raw and broad summaries.
         if query.terms().is_empty() {
             let raw_budget = MEMORY_CONTEXT_CHARS * 60 / 100;
-            select_raw(
-                &recent,
-                raw_budget,
-                &mut total_used,
-                &mut selected_raw,
-                &mut selected_ranges,
-                &mut selected,
-            )?;
-            select_summaries(
-                &broad,
-                MEMORY_CONTEXT_CHARS - raw_budget,
-                &mut total_used,
-                &mut selected_ranges,
-                &mut selected,
-            )?;
+            selection.select_raw(&recent, raw_budget)?;
+            selection.select_summaries(&broad, MEMORY_CONTEXT_CHARS - raw_budget)?;
         } else {
             let lexical_raw_budget = MEMORY_CONTEXT_CHARS * 40 / 100;
             let recent_raw_budget = MEMORY_CONTEXT_CHARS * 30 / 100;
-            select_raw(
+            selection.select_raw(
                 &lexical_raw_candidates(&transaction, &query.fts_expression())?,
                 lexical_raw_budget,
-                &mut total_used,
-                &mut selected_raw,
-                &mut selected_ranges,
-                &mut selected,
             )?;
-            select_raw(
-                &recent,
-                recent_raw_budget,
-                &mut total_used,
-                &mut selected_raw,
-                &mut selected_ranges,
-                &mut selected,
-            )?;
-            select_summaries(
+            selection.select_raw(&recent, recent_raw_budget)?;
+            selection.select_summaries(
                 &lexical_summary_candidates(&transaction, &query.fts_expression())?,
                 MEMORY_CONTEXT_CHARS - lexical_raw_budget - recent_raw_budget,
-                &mut total_used,
-                &mut selected_ranges,
-                &mut selected,
             )?;
         }
 
-        fill_remaining(
-            &recent,
-            &broad,
-            &mut total_used,
-            &mut selected_raw,
-            &mut selected_ranges,
-            &mut selected,
-        )?;
-
-        let mut ordered = selected
-            .into_iter()
-            .map(|item| {
-                let (start, end) = item.raw_bounds()?;
-                let kind = matches!(item, ContextItem::Summary(_)) as u8;
-                Ok(((start, end, kind), item))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        ordered.sort_by_key(|(key, _)| *key);
-        let selected = ordered
-            .into_iter()
-            .map(|(_, item)| item)
-            .collect::<Vec<_>>();
-        if context_output_char_count(&selected)? > MEMORY_CONTEXT_CHARS {
-            return Err(crate::error::NtError::MemoryContextOverflow);
-        }
+        selection.fill_remaining(&recent, &broad)?;
+        let selected = selection.finish()?;
         transaction.commit()?;
         Ok(selected)
     }
-}
-
-fn select_raw(
-    candidates: &[Memory],
-    budget: usize,
-    total_used: &mut usize,
-    selected_raw: &mut BTreeSet<i64>,
-    selected_ranges: &mut Vec<(u64, u64)>,
-    selected: &mut Vec<ContextItem>,
-) -> Result<()> {
-    let mut pool_used = 0;
-    for memory in candidates {
-        if selected_raw.contains(&memory.seq()) {
-            continue;
-        }
-        let seq = memory_sequence(memory)?;
-        let mut overlapping_summaries = BTreeSet::new();
-        for (index, selected_item) in selected.iter().enumerate() {
-            if matches!(selected_item, ContextItem::Summary(_))
-                && ranges_overlap(selected_item.raw_bounds()?, (seq, seq))
-            {
-                overlapping_summaries.insert(index);
-            }
-        }
-        let retained_count = selected.len() - overlapping_summaries.len();
-        let retained_chars = selected
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !overlapping_summaries.contains(index))
-            .try_fold(0_usize, |total, (_, selected_item)| {
-                Ok::<_, crate::error::NtError>(total + selected_item.output_char_count()?)
-            })?
-            + retained_count.saturating_sub(1);
-        let chars = raw_output_char_count(memory) + usize::from(retained_count != 0);
-        if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - retained_chars {
-            continue;
-        }
-        if !overlapping_summaries.is_empty() {
-            let mut index = 0;
-            selected.retain(|_| {
-                let retain = !overlapping_summaries.contains(&index);
-                index += 1;
-                retain
-            });
-            selected_ranges.clear();
-            for selected_item in selected.iter() {
-                selected_ranges.push(selected_item.raw_bounds()?);
-            }
-            *total_used = retained_chars;
-        }
-        pool_used += chars;
-        *total_used += chars;
-        selected_raw.insert(memory.seq());
-        selected_ranges.push((seq, seq));
-        selected.push(ContextItem::Raw(memory.clone()));
-    }
-    Ok(())
-}
-
-fn select_summaries(
-    candidates: &[MemorySegment],
-    budget: usize,
-    total_used: &mut usize,
-    selected_ranges: &mut Vec<(u64, u64)>,
-    selected: &mut Vec<ContextItem>,
-) -> Result<()> {
-    let mut pool_used = 0;
-    for segment in candidates {
-        let raw_range = node_range(segment.node())?;
-        let bounds = (raw_range.start(), raw_range.end());
-        if selected_ranges
-            .iter()
-            .any(|selected| ranges_overlap(*selected, bounds))
-        {
-            continue;
-        }
-        let chars = summary_output_char_count(segment, bounds) + usize::from(!selected.is_empty());
-        if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - *total_used {
-            continue;
-        }
-        pool_used += chars;
-        *total_used += chars;
-        selected_ranges.push(bounds);
-        selected.push(ContextItem::Summary(segment.clone()));
-    }
-    Ok(())
-}
-
-fn fill_remaining(
-    recent: &[Memory],
-    broad: &[MemorySegment],
-    total_used: &mut usize,
-    selected_raw: &mut BTreeSet<i64>,
-    selected_ranges: &mut Vec<(u64, u64)>,
-    selected: &mut Vec<ContextItem>,
-) -> Result<()> {
-    let remaining = MEMORY_CONTEXT_CHARS - *total_used;
-    let recent_budget = remaining * 60 / 100;
-    select_raw(
-        recent,
-        recent_budget,
-        total_used,
-        selected_raw,
-        selected_ranges,
-        selected,
-    )?;
-    select_summaries(
-        broad,
-        remaining - recent_budget,
-        total_used,
-        selected_ranges,
-        selected,
-    )?;
-
-    // If either fallback pool was sparse, let the other consume the residue.
-    select_raw(
-        recent,
-        MEMORY_CONTEXT_CHARS,
-        total_used,
-        selected_raw,
-        selected_ranges,
-        selected,
-    )?;
-    select_summaries(
-        broad,
-        MEMORY_CONTEXT_CHARS,
-        total_used,
-        selected_ranges,
-        selected,
-    )
 }
 
 pub(crate) fn context_output_char_count(items: &[ContextItem]) -> Result<usize> {
@@ -485,4 +422,140 @@ pub(super) fn lexical_summary_candidates(
         candidates.push(segment);
     }
     Ok(candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContextItem, ContextSelection, context_output_char_count, ranges_overlap};
+    use crate::memory::{
+        MEMORY_CONTEXT_CHARS, Memory, MemorySegment, NewMemory, NewSummary, SummaryNodeId,
+    };
+    use crate::note::Timestamp;
+
+    fn timestamp() -> Timestamp {
+        "2026-08-22T12:34:56Z".parse().unwrap()
+    }
+
+    fn memory(seq: i64, body: impl AsRef<str>) -> Memory {
+        Memory::from_new(seq, NewMemory::new(body).unwrap(), timestamp()).unwrap()
+    }
+
+    fn summary(pk: i64, level: u64, block: u64, body: impl AsRef<str>) -> MemorySegment {
+        MemorySegment::from_new(
+            pk,
+            SummaryNodeId::new(level, block).unwrap(),
+            NewSummary::new(body).unwrap(),
+            timestamp(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn raw_replaces_an_overlapping_summary() {
+        let mut selection = ContextSelection::default();
+        selection
+            .select_summaries(&[summary(1, 0, 0, "broad history")], MEMORY_CONTEXT_CHARS)
+            .unwrap();
+        selection
+            .select_raw(&[memory(7, "exact evidence")], MEMORY_CONTEXT_CHARS)
+            .unwrap();
+
+        let items = selection.finish().unwrap();
+        assert!(matches!(&items[..], [ContextItem::Raw(memory)] if memory.seq() == 7));
+    }
+
+    #[test]
+    fn final_ranges_do_not_overlap() {
+        let mut selection = ContextSelection::default();
+        selection
+            .select_summaries(
+                &[
+                    summary(1, 0, 0, "first block"),
+                    summary(2, 0, 1, "second block"),
+                ],
+                MEMORY_CONTEXT_CHARS,
+            )
+            .unwrap();
+        selection
+            .select_raw(
+                &[memory(16, "end of first"), memory(40, "later exact")],
+                MEMORY_CONTEXT_CHARS,
+            )
+            .unwrap();
+
+        let items = selection.finish().unwrap();
+        let ranges = items
+            .iter()
+            .map(ContextItem::raw_bounds)
+            .collect::<crate::error::Result<Vec<_>>>()
+            .unwrap();
+        assert!(ranges.iter().enumerate().all(|(index, range)| {
+            ranges[index + 1..]
+                .iter()
+                .all(|other| !ranges_overlap(*range, *other))
+        }));
+    }
+
+    #[test]
+    fn final_output_stays_within_the_context_limit() {
+        let body = "x".repeat(1_024);
+        let candidates = (1..=40).map(|seq| memory(seq, &body)).collect::<Vec<_>>();
+        let mut selection = ContextSelection::default();
+        selection
+            .select_raw(&candidates, MEMORY_CONTEXT_CHARS)
+            .unwrap();
+
+        let items = selection.finish().unwrap();
+        assert!(context_output_char_count(&items).unwrap() <= MEMORY_CONTEXT_CHARS);
+    }
+
+    #[test]
+    fn selection_is_deterministic() {
+        let candidates = (1..=40)
+            .rev()
+            .map(|seq| memory(seq, format!("memory {seq}")))
+            .collect::<Vec<_>>();
+        let select = || {
+            let mut selection = ContextSelection::default();
+            selection
+                .select_raw(&candidates, MEMORY_CONTEXT_CHARS)
+                .unwrap();
+            selection.finish().unwrap()
+        };
+
+        assert_eq!(select(), select());
+    }
+
+    #[test]
+    fn finish_orders_items_chronologically() {
+        let mut selection = ContextSelection::default();
+        selection
+            .select_raw(
+                &[memory(20, "newest"), memory(18, "older")],
+                MEMORY_CONTEXT_CHARS,
+            )
+            .unwrap();
+        selection
+            .select_summaries(&[summary(1, 0, 0, "earliest")], MEMORY_CONTEXT_CHARS)
+            .unwrap();
+
+        let items = selection.finish().unwrap();
+        assert!(matches!(&items[0], ContextItem::Summary(segment) if segment.node().block() == 0));
+        assert!(matches!(&items[1], ContextItem::Raw(memory) if memory.seq() == 18));
+        assert!(matches!(&items[2], ContextItem::Raw(memory) if memory.seq() == 20));
+    }
+
+    #[test]
+    fn oversized_candidate_pool_skips_whole_items_without_truncation() {
+        let body = format!("needle{}", "x".repeat(1_018));
+        let candidates = (1..=40).map(|seq| memory(seq, &body)).collect::<Vec<_>>();
+        let mut selection = ContextSelection::default();
+        selection
+            .select_raw(&candidates, MEMORY_CONTEXT_CHARS)
+            .unwrap();
+
+        let items = selection.finish().unwrap();
+        assert!(items.len() < candidates.len());
+        assert!(items.iter().all(|item| item.content() == body));
+    }
 }
