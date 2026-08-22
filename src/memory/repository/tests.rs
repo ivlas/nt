@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use rusqlite::Connection;
 
-use super::{ContextItem, ExpansionItem, Repository};
+use super::{ContextItem, ExpansionItem, Repository, context_output_char_count};
 use crate::error::NtError;
 use crate::memory::schema::OBJECTS;
 use crate::memory::{
@@ -326,13 +326,7 @@ fn context_is_bounded_never_truncates_deduplicates_and_is_deterministic() {
     let first = repository.context(&query).unwrap();
     let second = repository.context(&query).unwrap();
     assert_eq!(first, second);
-    assert!(
-        first
-            .iter()
-            .map(ContextItem::content_char_count)
-            .sum::<usize>()
-            <= MEMORY_CONTEXT_CHARS
-    );
+    assert!(context_output_char_count(&first).unwrap() <= MEMORY_CONTEXT_CHARS);
 
     let mut sequences = BTreeSet::new();
     let mut ordered = Vec::new();
@@ -346,6 +340,26 @@ fn context_is_bounded_never_truncates_deduplicates_and_is_deterministic() {
         ordered.push(memory.seq());
     }
     assert!(ordered.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn query_context_reallocates_unused_pools_to_recent_history() {
+    let mut repository = repository();
+    for index in 0..40 {
+        let body = format!("recent {index} {}", "x".repeat(1_010));
+        repository.append(NewMemory::new(body).unwrap()).unwrap();
+    }
+
+    let queryless = repository.context(&MemoryContextQuery::default()).unwrap();
+    let obscure = repository
+        .context(&MemoryContextQuery::parse(&strings(&["obscure-term"])).unwrap())
+        .unwrap();
+    assert_eq!(obscure, queryless);
+    assert!(
+        context_output_char_count(&obscure).unwrap() > MEMORY_CONTEXT_CHARS * 30 / 100,
+        "unused lexical pools should be available to recent history"
+    );
+    assert!(context_output_char_count(&obscure).unwrap() <= MEMORY_CONTEXT_CHARS);
 }
 
 #[test]
@@ -642,5 +656,155 @@ fn audit_one_million_memory_operations_and_database_size() {
          list={list_time:?} recall={recall_time:?} context={context_time:?} \
          expand={expand_time:?} pending={pending_time:?} status={status_time:?} \
          database_bytes={bytes}"
+    );
+}
+
+#[test]
+#[ignore = "manual complete one-million-memory pyramid benchmark"]
+fn audit_complete_million_memory_pyramid_queries() {
+    use std::time::Instant;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("complete-pyramid.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    connection
+        .execute_batch("PRAGMA journal_mode = WAL")
+        .unwrap();
+
+    let started = Instant::now();
+    connection
+        .execute_batch(
+            "WITH RECURSIVE generated(seq) AS (
+                 VALUES(1)
+                 UNION ALL
+                 SELECT seq + 1 FROM generated WHERE seq < 1000000
+             )
+             INSERT INTO memories(seq, body, created)
+             SELECT seq,
+                    printf(
+                        'common memory %d %s',
+                        seq,
+                        CASE WHEN seq = 777777 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM generated;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 62499
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 0,
+                    block,
+                    printf(
+                        'common L0 summary %d %s',
+                        block,
+                        CASE WHEN block = 48611 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 3905
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 1,
+                    block,
+                    printf(
+                        'common L1 summary %d %s',
+                        block,
+                        CASE WHEN block = 3038 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 243
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 2,
+                    block,
+                    printf(
+                        'common L2 summary %d %s',
+                        block,
+                        CASE WHEN block = 189 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 14
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 3,
+                    block,
+                    printf(
+                        'common L3 summary %d %s',
+                        block,
+                        CASE WHEN block = 11 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;",
+        )
+        .unwrap();
+    let populate = started.elapsed();
+    let repository = Repository::from_connection(connection);
+
+    let started = Instant::now();
+    let selective_recall = repository
+        .recall(&MemoryRecallQuery::parse(&strings(&["selective", "limit:20"])).unwrap())
+        .unwrap();
+    assert_eq!(selective_recall.len(), 1);
+    assert_eq!(selective_recall[0].seq(), 777_777);
+    let selective_recall_time = started.elapsed();
+
+    let started = Instant::now();
+    let common_recall = repository
+        .recall(&MemoryRecallQuery::parse(&strings(&["common", "limit:20"])).unwrap())
+        .unwrap();
+    assert_eq!(common_recall.len(), 20);
+    let common_recall_time = started.elapsed();
+
+    let started = Instant::now();
+    let selective_context = repository
+        .context(&MemoryContextQuery::parse(&strings(&["selective"])).unwrap())
+        .unwrap();
+    assert!(context_output_char_count(&selective_context).unwrap() <= MEMORY_CONTEXT_CHARS);
+    let selective_context_time = started.elapsed();
+
+    let started = Instant::now();
+    let common_context = repository
+        .context(&MemoryContextQuery::parse(&strings(&["common"])).unwrap())
+        .unwrap();
+    assert!(context_output_char_count(&common_context).unwrap() <= MEMORY_CONTEXT_CHARS);
+    let common_context_time = started.elapsed();
+
+    let started = Instant::now();
+    assert_eq!(repository.expand(node(3, 11)).unwrap().len(), 16);
+    let expand_time = started.elapsed();
+
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 1_000_000);
+    assert_eq!(status.summary_count(), 66_665);
+    assert_eq!(status.pending_count(), 0);
+    assert_eq!(status.highest_completed_level(), Some(3));
+
+    repository
+        .connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    let bytes = std::fs::metadata(&path).unwrap().len();
+    println!(
+        "populate={populate:?} selective_recall={selective_recall_time:?} \
+         common_recall={common_recall_time:?} selective_context={selective_context_time:?} \
+         common_context={common_context_time:?} expand={expand_time:?} database_bytes={bytes}"
     );
 }

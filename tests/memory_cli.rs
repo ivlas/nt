@@ -331,6 +331,34 @@ fn memory_retrieval_commands_use_read_only_connections() {
     std::fs::set_permissions(database, original).unwrap();
 }
 
+#[test]
+fn context_stdout_including_metadata_stays_within_the_character_limit() {
+    let home = tempfile::tempdir().unwrap();
+    assert_success(nt(home.path(), &["init"], None), b"initialized\n");
+    let database = home.path().join(".nt/nt.sqlite3");
+    let mut connection = Connection::open(database).unwrap();
+    let body = format!("needle{}", "é".repeat(1_018));
+    let transaction = connection.transaction().unwrap();
+    for _ in 0..40 {
+        transaction
+            .execute(
+                "INSERT INTO memories(body, created) VALUES (?1, '2026-08-22T12:34:56Z')",
+                [&body],
+            )
+            .unwrap();
+    }
+    transaction.commit().unwrap();
+    drop(connection);
+
+    let output = nt(home.path(), &["memory", "context", "needle"], None);
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let context = String::from_utf8(output.stdout).unwrap();
+    assert!(context.chars().count() <= 32_768);
+    assert!(context.contains("# memory "));
+    assert!(context.contains("2026-08-22T12:34:56Z"));
+    assert!(context.contains(&body));
+}
+
 fn nt(home: &Path, arguments: &[&str], stdin: Option<&[u8]>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nt"));
     command
