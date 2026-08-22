@@ -277,10 +277,9 @@ SQL-backed limit is supplied.
 Terms are split into Unicode letter-or-digit runs, sorted, deduplicated, quoted
 as FTS literals, and AND-combined. Unknown filter-looking expressions are
 errors. Matching is complete-token and uses SQLite `unicode61` with Latin
-diacritic removal where supported. Results are ordered by
-`bm25(memory_fts) ASC, seq ASC`: lower BM25 is more relevant and ascending
-sequence breaks relevance ties deterministically. The explicit positive limit,
-if any, is applied by SQLite.
+diacritic removal where supported. FTS5 acts only as a lexical filter. Results
+are ordered deterministically by `seq ASC`, independent of term frequency and
+document length. The explicit positive limit, if any, is applied by SQLite.
 
 Both commands output one raw memory per physical line with these TSV columns:
 
@@ -377,9 +376,11 @@ Every candidate query has a fixed SQL `LIMIT 256`. With no lexical terms, the
 `seq DESC` and 40% to broad summaries ordered `level DESC, block DESC`.
 
 With lexical terms, the budget is split 40% to lexical raw entries, 30% to
-recent raw entries, and 30% to lexical summaries. Lexical raw order is BM25
-ascending then `seq DESC`; lexical summary order is BM25 ascending then
-`level DESC, block DESC`. Integer remainder goes to the final pool.
+recent raw entries, and 30% to lexical summaries. FTS5 acts only as a lexical
+filter. Lexical raw candidates are ordered `seq DESC`, preferring newer exact
+evidence. Lexical summary candidates are ordered `level DESC, block DESC`,
+preferring coarser summaries and then newer blocks. Integer remainder goes to
+the final pool.
 
 Candidates that do not fit both their pool and the total budget are skipped;
 items are never truncated. After preferred selection, remaining capacity is

@@ -394,10 +394,10 @@ bodies into Rust.
 `memory list` applies inclusive `since:<seq>` and `until:<seq>` bounds and an
 optional positive SQL `limit:<n>`, then orders raw rows by `seq ASC`. `memory
 recall` applies the same filters to literal-token raw FTS. Recall orders by
-`bm25(memory_fts) ASC, seq ASC`, so lower BM25 is more relevant and sequence
-ascending breaks relevance ties deterministically. User terms are split into
-Unicode alphanumeric runs, sorted, deduplicated, quoted as FTS literals, and
-AND-combined. There is no raw FTS syntax, fuzzy match, semantic ranking, or
+`seq ASC`, independent of term frequency and document length. User terms are
+split into Unicode alphanumeric runs, sorted, deduplicated, quoted as FTS
+literals, and AND-combined. FTS5 is only a complete-token lexical filter. There
+is no raw FTS syntax, fuzzy match, relevance score, semantic ranking, or
 embedding lookup.
 
 The context compiler selects complete raw bodies and summaries under a fixed
@@ -424,9 +424,10 @@ recent raw budget = 32768 * 30 / 100 = 9830
 lexical summary budget = 32768 - lexical raw budget - recent raw budget = 9831
 ```
 
-Lexical raw candidates are ordered by `bm25(memory_fts) ASC, seq DESC`.
-Lexical summary candidates are ordered by `bm25(memory_segment_fts) ASC`, then
-`level DESC, block DESC`. Integer rounding remainder goes to the last pool.
+FTS5 acts only as a lexical filter for both pools. Lexical raw candidates are
+ordered by `seq DESC`, preferring newer exact evidence. Lexical summary
+candidates are ordered by `level DESC, block DESC`, preferring coarser summaries
+and then newer blocks. Integer rounding remainder goes to the last pool.
 
 After the preferred pools run, remaining capacity is offered to the already
 bounded recent-raw and broad-summary candidate sets with a 60/40 fallback split.
