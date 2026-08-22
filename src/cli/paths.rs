@@ -52,4 +52,18 @@ mod tests {
         }
         assert_eq!(select_home(None, Some(OsString::new())), None);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_absolute_non_utf8_home_paths() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = std::env::current_dir().unwrap();
+        let path = root.join(OsString::from_vec(b"home-\xff".to_vec()));
+
+        assert_eq!(
+            select_home(Some(path.clone().into_os_string()), None),
+            Some(path)
+        );
+    }
 }

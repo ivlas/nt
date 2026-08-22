@@ -141,6 +141,42 @@ fn invalid_home_values_cannot_create_working_directory_storage() {
 }
 
 #[test]
+fn unusual_home_paths_support_complete_storage_workflows() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home with spaces and unicode-界");
+    fs::create_dir(&home).unwrap();
+
+    assert_eq!(success(&home, &["init"], None), "initialized\n");
+    let id = add(&home, "# Unusual path\nBody", &[]);
+    assert_eq!(success(&home, &["show", &id], None), "# Unusual path\nBody");
+    assert_eq!(
+        success(&home, &["memory", "add"], Some("path memory")),
+        "saved 1\n"
+    );
+    assert_eq!(
+        success(&home, &["memory", "show", "1"], None),
+        "path memory"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_home_paths_round_trip_through_the_cli() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let home = root
+        .path()
+        .join(OsString::from_vec(b"non-utf8-\xff-home".to_vec()));
+    fs::create_dir(&home).unwrap();
+
+    assert_eq!(success(&home, &["init"], None), "initialized\n");
+    let id = add(&home, "# Non UTF-8 home", &[]);
+    assert_eq!(success(&home, &["show", &id], None), "# Non UTF-8 home");
+}
+
+#[test]
 fn read_only_commands_work_on_non_writable_databases() {
     let home = tempfile::tempdir().unwrap();
     success(home.path(), &["init"], None);

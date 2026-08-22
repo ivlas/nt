@@ -7,6 +7,7 @@ mod app;
 mod cli;
 mod commands;
 mod error;
+mod memory;
 mod note;
 mod schema;
 mod storage;

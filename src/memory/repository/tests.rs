@@ -1,0 +1,1302 @@
+use std::collections::BTreeSet;
+
+use rusqlite::Connection;
+
+use super::{
+    ContextItem, ExpansionItem, Repository,
+    context::{lexical_raw_candidates, lexical_summary_candidates},
+    context_output_char_count,
+};
+use crate::error::NtError;
+use crate::memory::schema::OBJECTS;
+use crate::memory::tree::span;
+use crate::memory::{
+    MEMORY_CONTEXT_CHARS, MemoryContextQuery, MemoryListQuery, MemoryRecallQuery, NewMemory,
+    NewSummary, SummaryNodeId, range,
+};
+
+fn repository() -> Repository {
+    let connection = Connection::open_in_memory().unwrap();
+    install_schema(&connection);
+    Repository::from_connection(connection)
+}
+
+fn install_schema(connection: &Connection) {
+    for object in OBJECTS {
+        connection.execute_batch(object.sql).unwrap();
+    }
+}
+
+fn append(repository: &mut Repository, count: usize, prefix: &str) {
+    for index in 0..count {
+        repository
+            .append(NewMemory::new(format!("{prefix} {index}")).unwrap())
+            .unwrap();
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
+fn node(level: u64, block: u64) -> SummaryNodeId {
+    SummaryNodeId::new(level, block).unwrap()
+}
+
+#[test]
+fn append_assigns_monotonic_sequences_and_enqueues_completed_raw_ranges() {
+    let mut repository = repository();
+    append(&mut repository, 32, "entry");
+
+    assert_eq!(repository.get_memory(1).unwrap().body(), "entry 0");
+    assert_eq!(repository.get_memory(32).unwrap().body(), "entry 31");
+    let jobs = repository.pending(None).unwrap();
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[0].node(), node(0, 0));
+    assert_eq!(jobs[0].raw_range().start(), 1);
+    assert_eq!(jobs[0].raw_range().end(), 16);
+    assert_eq!(jobs[1].node(), node(0, 1));
+    assert_eq!(repository.pending(Some(1)).unwrap().len(), 1);
+    assert!(repository.pending(Some(0)).is_err());
+}
+
+#[test]
+fn visit_pending_streams_in_order_applies_sql_limit_and_stops_on_visitor_error() {
+    let repository = repository();
+    repository
+        .connection
+        .execute_batch(
+            "WITH RECURSIVE jobs(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM jobs WHERE block < 9999
+             )
+             INSERT INTO memory_summary_jobs(level, block)
+             SELECT 0, block FROM jobs;",
+        )
+        .unwrap();
+
+    let mut limited = Vec::new();
+    repository
+        .visit_pending(Some(3), |job| {
+            limited.push(job.node());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(limited, [node(0, 0), node(0, 1), node(0, 2)]);
+
+    let mut visited = 0;
+    let error = repository
+        .visit_pending(None, |_| {
+            visited += 1;
+            Err(NtError::InvalidValue {
+                field: "test visit",
+                value: "stop".to_string(),
+            })
+        })
+        .unwrap_err();
+    assert_eq!(visited, 1);
+    assert!(matches!(
+        error,
+        NtError::InvalidValue {
+            field: "test visit",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn append_does_not_enqueue_an_incomplete_raw_range() {
+    let mut repository = repository();
+    for seq in 99..=111 {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memories(seq, body, created) VALUES (?1, ?2, ?3)",
+                rusqlite::params![seq, format!("sparse {seq}"), "2026-08-22T12:34:56Z"],
+            )
+            .unwrap();
+    }
+
+    assert_eq!(
+        repository
+            .append(NewMemory::new("boundary memory").unwrap())
+            .unwrap(),
+        112
+    );
+    assert!(repository.pending(None).unwrap().is_empty());
+}
+
+#[test]
+fn persisted_memories_survive_reopening() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("memory.sqlite3");
+    {
+        let connection = Connection::open(&path).unwrap();
+        install_schema(&connection);
+        let mut repository = Repository::from_connection(connection);
+        repository
+            .append(NewMemory::new("persistent body").unwrap())
+            .unwrap();
+    }
+
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    assert_eq!(repository.get_memory(1).unwrap().body(), "persistent body");
+}
+
+#[test]
+fn list_and_visit_apply_inclusive_bounds_ascending_order_and_sql_limit() {
+    let mut repository = repository();
+    append(&mut repository, 10, "listed");
+    let query = MemoryListQuery::parse(&strings(&["since:3", "until:8", "limit:3"])).unwrap();
+    let listed = repository.list_memories(&query).unwrap();
+    assert_eq!(
+        listed.iter().map(|memory| memory.seq()).collect::<Vec<_>>(),
+        [3, 4, 5]
+    );
+
+    let expected = NtError::InvalidValue {
+        field: "test visit",
+        value: "stop".to_string(),
+    };
+    let result = repository.visit_memories(&MemoryListQuery::default(), |memory| {
+        if memory.seq() == 2 {
+            return Err(NtError::InvalidValue {
+                field: "test visit",
+                value: "stop".to_string(),
+            });
+        }
+        Ok(())
+    });
+    assert_eq!(result.unwrap_err().to_string(), expected.to_string());
+    assert!(matches!(
+        repository.get_memory(99),
+        Err(NtError::MemoryNotFound(99))
+    ));
+}
+
+#[test]
+fn recall_uses_fts_with_bounds_sql_limit_and_sequence_order_only() {
+    let mut repository = repository();
+    for body in [
+        format!("alpha {}", "padding ".repeat(100)),
+        "alpha alpha alpha alpha alpha".to_string(),
+        "alpha final".to_string(),
+        "unrelated".to_string(),
+    ] {
+        repository.append(NewMemory::new(body).unwrap()).unwrap();
+    }
+    let query =
+        MemoryRecallQuery::parse(&strings(&["alpha", "since:1", "until:3", "limit:2"])).unwrap();
+    let recalled = repository.recall(&query).unwrap();
+    assert_eq!(
+        recalled
+            .iter()
+            .map(|memory| memory.seq())
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(recalled, repository.recall(&query).unwrap());
+}
+
+#[test]
+fn pending_inspection_requires_a_job_and_all_sixteen_children() {
+    let mut repository = repository();
+    append(&mut repository, 16, "child");
+    let inspected = repository.inspect_pending(node(0, 0)).unwrap();
+    assert_eq!(inspected.len(), 16);
+    assert!(
+        inspected
+            .iter()
+            .all(|item| matches!(item, ExpansionItem::Raw(_)))
+    );
+
+    repository
+        .connection
+        .execute("DROP TRIGGER memories_immutable_delete", [])
+        .unwrap();
+    repository
+        .connection
+        .execute("DELETE FROM memories WHERE seq = 8", [])
+        .unwrap();
+    assert!(matches!(
+        repository.inspect_pending(node(0, 0)),
+        Err(NtError::InvalidValue {
+            field: "memory node",
+            ..
+        })
+    ));
+    assert!(repository.inspect_pending(node(0, 1)).is_err());
+}
+
+#[test]
+fn summarize_is_idempotent_rejects_conflicts_and_keeps_fts_synchronized() {
+    let mut repository = repository();
+    append(&mut repository, 16, "source");
+    let node = node(0, 0);
+    let summary = NewSummary::new("stable lexical summary").unwrap();
+    repository.summarize(node, summary.clone()).unwrap();
+    assert!(repository.pending(None).unwrap().is_empty());
+
+    repository.summarize(node, summary).unwrap();
+    assert_eq!(repository.status().unwrap().summary_count(), 1);
+    let indexed = repository
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_segment_fts
+             WHERE memory_segment_fts MATCH 'lexical'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(indexed, 1);
+
+    let error = repository
+        .summarize(node, NewSummary::new("secret replacement").unwrap())
+        .unwrap_err();
+    assert!(matches!(
+        &error,
+        NtError::InvalidValue {
+            field: "memory summary",
+            value,
+        } if value == "conflicts with existing summary"
+    ));
+    assert!(!error.to_string().contains("secret"));
+}
+
+#[test]
+fn failed_summarization_leaves_the_job_and_summary_state_unchanged() {
+    let mut repository = repository();
+    append(&mut repository, 16, "source");
+    repository
+        .connection
+        .execute("DROP TRIGGER memories_immutable_delete", [])
+        .unwrap();
+    repository
+        .connection
+        .execute("DELETE FROM memories WHERE seq = 16", [])
+        .unwrap();
+
+    assert!(
+        repository
+            .summarize(node(0, 0), NewSummary::new("incomplete").unwrap())
+            .is_err()
+    );
+    assert_eq!(repository.pending(None).unwrap().len(), 1);
+    assert_eq!(repository.status().unwrap().summary_count(), 0);
+}
+
+#[test]
+fn sixteen_out_of_order_level_zero_summaries_enqueue_level_one() {
+    let mut repository = repository();
+    append(&mut repository, 256, "history");
+    for block in (0..16).rev() {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("block {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    let jobs = repository.pending(None).unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].node(), node(1, 0));
+
+    repository
+        .connection
+        .execute(
+            "DELETE FROM memory_summary_jobs WHERE level = 1 AND block = 0",
+            [],
+        )
+        .unwrap();
+    repository
+        .summarize(node(0, 0), NewSummary::new("block 0").unwrap())
+        .unwrap();
+    assert_eq!(repository.pending(None).unwrap()[0].node(), node(1, 0));
+
+    let children = repository.inspect_pending(node(1, 0)).unwrap();
+    assert_eq!(children.len(), 16);
+    assert!(
+        children
+            .iter()
+            .all(|item| matches!(item, ExpansionItem::Summary(_)))
+    );
+}
+
+#[test]
+fn expand_returns_exact_children_and_rejects_missing_nodes() {
+    let mut repository = repository();
+    append(&mut repository, 16, "raw");
+    repository
+        .summarize(node(0, 0), NewSummary::new("level zero").unwrap())
+        .unwrap();
+    let expanded = repository.expand(node(0, 0)).unwrap();
+    assert_eq!(expanded.len(), 16);
+    assert!(matches!(&expanded[0], ExpansionItem::Raw(memory) if memory.seq() == 1));
+    assert!(repository.expand(node(0, 1)).is_err());
+}
+
+#[test]
+fn invalidation_removes_dependent_ancestors_but_preserves_raw_memory() {
+    let mut repository = repository();
+    append(&mut repository, 256, "immutable raw");
+    for block in 0..16 {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("child {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    repository
+        .summarize(node(1, 0), NewSummary::new("ancestor").unwrap())
+        .unwrap();
+    assert_eq!(repository.expand(node(1, 0)).unwrap().len(), 16);
+
+    repository.invalidate(node(0, 3)).unwrap();
+    assert!(repository.expand(node(0, 3)).is_err());
+    assert!(repository.expand(node(1, 0)).is_err());
+    assert_eq!(
+        repository.get_memory(49).unwrap().body(),
+        "immutable raw 48"
+    );
+    let jobs = repository.pending(None).unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].node(), node(0, 3));
+    let ancestor_fts = repository
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_segment_fts
+             WHERE memory_segment_fts MATCH 'ancestor'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(ancestor_fts, 0);
+    assert!(repository.invalidate(node(0, 3)).is_err());
+}
+
+#[test]
+fn invalidation_removes_a_parent_job_that_is_no_longer_ready() {
+    let mut repository = repository();
+    append(&mut repository, 256, "raw");
+    for block in 0..16 {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("child {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    assert_eq!(repository.pending(None).unwrap()[0].node(), node(1, 0));
+
+    repository.invalidate(node(0, 3)).unwrap();
+    let jobs = repository.pending(None).unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].node(), node(0, 3));
+}
+
+#[test]
+fn context_is_bounded_never_truncates_deduplicates_and_is_deterministic() {
+    let mut repository = repository();
+    let body = format!("needle{}", "x".repeat(1_018));
+    assert_eq!(body.chars().count(), 1_024);
+    for _ in 0..40 {
+        repository.append(NewMemory::new(&body).unwrap()).unwrap();
+    }
+    let query = MemoryContextQuery::parse(&strings(&["needle"])).unwrap();
+    let first = repository.context(&query).unwrap();
+    let second = repository.context(&query).unwrap();
+    assert_eq!(first, second);
+    assert!(context_output_char_count(&first).unwrap() <= MEMORY_CONTEXT_CHARS);
+
+    let mut sequences = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for item in &first {
+        let ContextItem::Raw(memory) = item else {
+            panic!("unexpected summary without summarized input");
+        };
+        assert_eq!(memory.body(), body);
+        assert_eq!(item.content_char_count(), 1_024);
+        assert!(sequences.insert(memory.seq()));
+        ordered.push(memory.seq());
+    }
+    assert!(ordered.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn query_context_reallocates_unused_pools_to_recent_history() {
+    let mut repository = repository();
+    for index in 0..40 {
+        let body = format!("recent {index} {}", "x".repeat(1_010));
+        repository.append(NewMemory::new(body).unwrap()).unwrap();
+    }
+
+    let queryless = repository.context(&MemoryContextQuery::default()).unwrap();
+    let obscure = repository
+        .context(&MemoryContextQuery::parse(&strings(&["obscure-term"])).unwrap())
+        .unwrap();
+    assert_eq!(obscure, queryless);
+    assert!(
+        context_output_char_count(&obscure).unwrap() > MEMORY_CONTEXT_CHARS * 30 / 100,
+        "unused lexical pools should be available to recent history"
+    );
+    assert!(context_output_char_count(&obscure).unwrap() <= MEMORY_CONTEXT_CHARS);
+}
+
+#[test]
+fn context_prefers_exact_raw_and_excludes_overlapping_summaries() {
+    let mut repository = repository();
+    for index in 0..16 {
+        repository
+            .append(NewMemory::new(format!("needle raw {index}")).unwrap())
+            .unwrap();
+    }
+    repository
+        .summarize(
+            node(0, 0),
+            NewSummary::new("needle overlapping summary").unwrap(),
+        )
+        .unwrap();
+    let query = MemoryContextQuery::parse(&strings(&["needle"])).unwrap();
+    let context = repository.context(&query).unwrap();
+    assert_eq!(context.len(), 16);
+    assert!(
+        context
+            .iter()
+            .all(|item| matches!(item, ContextItem::Raw(_)))
+    );
+}
+
+#[test]
+fn context_fallback_raw_evicts_an_overlapping_lexical_summary() {
+    let mut repository = repository();
+    let body = format!("recent {}", "x".repeat(1_017));
+    for _ in 0..32 {
+        repository.append(NewMemory::new(&body).unwrap()).unwrap();
+    }
+    repository
+        .summarize(
+            node(0, 0),
+            NewSummary::new("needle overlapping summary").unwrap(),
+        )
+        .unwrap();
+
+    let query = MemoryContextQuery::parse(&strings(&["needle"])).unwrap();
+    let context = repository.context(&query).unwrap();
+
+    assert!(
+        context
+            .iter()
+            .all(|item| matches!(item, ContextItem::Raw(_)))
+    );
+    assert!(
+        context
+            .iter()
+            .any(|item| matches!(item, ContextItem::Raw(memory) if memory.seq() == 16))
+    );
+    assert!(context_output_char_count(&context).unwrap() <= MEMORY_CONTEXT_CHARS);
+}
+
+#[test]
+fn context_lexical_raw_candidates_are_bounded_and_prefer_newer_matches() {
+    let mut repository = repository();
+    repository
+        .append(NewMemory::new("common common common common common").unwrap())
+        .unwrap();
+    for index in 1..300 {
+        repository
+            .append(NewMemory::new(format!("common memory {index}")).unwrap())
+            .unwrap();
+    }
+    let query = MemoryContextQuery::parse(&strings(&["common"])).unwrap();
+
+    let candidates =
+        lexical_raw_candidates(&repository.connection, &query.fts_expression()).unwrap();
+    assert_eq!(candidates.len(), 256);
+    assert_eq!(candidates.first().unwrap().seq(), 300);
+    assert_eq!(candidates.last().unwrap().seq(), 45);
+    assert!(
+        candidates
+            .windows(2)
+            .all(|pair| pair[0].seq() > pair[1].seq())
+    );
+    assert_eq!(
+        candidates,
+        lexical_raw_candidates(&repository.connection, &query.fts_expression()).unwrap()
+    );
+}
+
+#[test]
+fn context_lexical_summary_candidates_prefer_higher_levels_then_newer_blocks() {
+    let repository = repository();
+    for (level, block, summary) in [
+        (0, 9, "common common common common common"),
+        (1, 0, "common older block"),
+        (2, 0, "common coarse summary"),
+        (1, 1, "common newer block with extra document length"),
+    ] {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (?1, ?2, ?3, '2026-08-22T12:34:56Z')",
+                rusqlite::params![level, block, summary],
+            )
+            .unwrap();
+    }
+    let query = MemoryContextQuery::parse(&strings(&["common"])).unwrap();
+
+    let candidates =
+        lexical_summary_candidates(&repository.connection, &query.fts_expression()).unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|segment| (segment.node().level(), segment.node().block()))
+            .collect::<Vec<_>>(),
+        [(2, 0), (1, 1), (1, 0), (0, 9)]
+    );
+}
+
+#[test]
+fn queryless_context_is_deterministic_and_uses_only_bounded_candidates() {
+    let mut repository = repository();
+    append(&mut repository, 300, "recent");
+    repository
+        .summarize(node(0, 0), NewSummary::new("coarse early history").unwrap())
+        .unwrap();
+    let query = MemoryContextQuery::default();
+    let context = repository.context(&query).unwrap();
+    assert_eq!(context, repository.context(&query).unwrap());
+    assert!(context.len() <= 257);
+    assert!(matches!(&context[0], ContextItem::Summary(segment) if segment.node() == node(0, 0)));
+    assert!(matches!(&context[1], ContextItem::Raw(memory) if memory.seq() == 45));
+}
+
+#[test]
+fn queryless_context_uses_the_canonical_frontier_and_falls_back_to_children() {
+    let mut repository = repository();
+    append(&mut repository, 512, "history");
+    for block in 0..16 {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (0, ?1, ?2, '2026-08-22T12:34:56Z')",
+                rusqlite::params![block, format!("child summary {block}")],
+            )
+            .unwrap();
+    }
+    repository
+        .connection
+        .execute(
+            "INSERT INTO memory_segments(level, block, summary, created)
+             VALUES (1, 0, 'canonical parent', '2026-08-22T12:34:56Z')",
+            [],
+        )
+        .unwrap();
+
+    let query = MemoryContextQuery::default();
+    let context = repository.context(&query).unwrap();
+    let summaries = context
+        .iter()
+        .filter_map(|item| match item {
+            ContextItem::Summary(segment) => Some(segment.node()),
+            ContextItem::Raw(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(summaries, [node(1, 0)]);
+    assert!(context.iter().all(|item| match item {
+        ContextItem::Raw(memory) => memory.seq() >= 257,
+        ContextItem::Summary(segment) => {
+            range(segment.node().level(), segment.node().block())
+                .unwrap()
+                .end()
+                < 257
+        }
+    }));
+
+    repository
+        .connection
+        .execute(
+            "DELETE FROM memory_segments WHERE level = 1 AND block = 0",
+            [],
+        )
+        .unwrap();
+    let context = repository.context(&query).unwrap();
+    let summaries = context
+        .iter()
+        .filter_map(|item| match item {
+            ContextItem::Summary(segment) => Some(segment.node()),
+            ContextItem::Raw(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries,
+        (0..16).map(|block| node(0, block)).collect::<Vec<_>>()
+    );
+    assert!(context_output_char_count(&context).unwrap() <= MEMORY_CONTEXT_CHARS);
+}
+
+#[test]
+fn repeated_expansion_recovers_exact_raw_evidence() {
+    let mut repository = repository();
+    append(&mut repository, 256, "evidence");
+    for block in 0..16 {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("summary {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    repository
+        .summarize(node(1, 0), NewSummary::new("coarse summary").unwrap())
+        .unwrap();
+
+    let level_zero = repository.expand(node(1, 0)).unwrap();
+    assert_eq!(level_zero.len(), 16);
+    assert!(
+        matches!(&level_zero[0], ExpansionItem::Summary(segment) if segment.node() == node(0, 0))
+    );
+    let raw = repository.expand(node(0, 0)).unwrap();
+    assert_eq!(raw.len(), 16);
+    assert!(
+        matches!(&raw[0], ExpansionItem::Raw(memory) if memory.seq() == 1 && memory.body() == "evidence 0")
+    );
+}
+
+#[test]
+fn append_reports_retryable_writer_contention() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("busy.sqlite3");
+    let first_connection = Connection::open(&path).unwrap();
+    install_schema(&first_connection);
+    let second_connection = Connection::open(&path).unwrap();
+    second_connection
+        .busy_timeout(std::time::Duration::from_millis(1))
+        .unwrap();
+    let mut first = Repository::from_connection(first_connection);
+    let mut second = Repository::from_connection(second_connection);
+    let transaction = first
+        .connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+
+    assert!(matches!(
+        second.append(NewMemory::new("contended").unwrap()),
+        Err(NtError::DatabaseBusy)
+    ));
+    transaction.rollback().unwrap();
+}
+
+#[test]
+fn failed_level_zero_job_creation_rolls_back_raw_and_fts_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-append.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
+    append(&mut repository, 15, "boundary");
+    repository
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_memory_job BEFORE INSERT ON memory_summary_jobs BEGIN
+                 SELECT RAISE(ABORT, 'injected job failure');
+             END",
+        )
+        .unwrap();
+
+    assert!(
+        repository
+            .append(NewMemory::new("rolled back").unwrap())
+            .is_err()
+    );
+
+    drop(repository);
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    assert_eq!(repository.status().unwrap().highest_seq(), Some(15));
+    assert_eq!(repository.status().unwrap().raw_count(), 15);
+    assert_eq!(repository.status().unwrap().pending_count(), 0);
+    let indexed: i64 = repository
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'rolled'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexed, 0);
+
+    drop(repository);
+    let mut repository = Repository::from_connection(Connection::open(&path).unwrap());
+    repository
+        .connection
+        .execute("DROP TRIGGER fail_memory_job", [])
+        .unwrap();
+    assert_eq!(
+        repository
+            .append(NewMemory::new("committed boundary").unwrap())
+            .unwrap(),
+        16
+    );
+    assert_eq!(repository.pending(None).unwrap().len(), 1);
+}
+
+#[test]
+fn failed_summary_transaction_has_no_persisted_segment_or_fts_state_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-summary.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
+    append(&mut repository, 16, "summary source");
+    repository
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_summary_job_delete
+             BEFORE DELETE ON memory_summary_jobs
+             WHEN OLD.level = 0 AND OLD.block = 0
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected summary failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(
+        repository
+            .summarize(
+                node(0, 0),
+                NewSummary::new("rolled back derived summary").unwrap(),
+            )
+            .is_err()
+    );
+    drop(repository);
+
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    let status = repository.status().unwrap();
+    assert_eq!(status.summary_count(), 0);
+    assert_eq!(status.pending_count(), 1);
+    assert_eq!(repository.pending(None).unwrap()[0].node(), node(0, 0));
+    let indexed: i64 = repository
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM memory_segment_fts
+             WHERE memory_segment_fts MATCH 'rolled'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexed, 0);
+}
+
+#[test]
+fn failed_invalidation_restores_descendants_ancestors_and_fts_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-invalidation.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    let mut repository = Repository::from_connection(connection);
+    append(&mut repository, 256, "invalidation source");
+    for block in 0..16 {
+        repository
+            .summarize(
+                node(0, block),
+                NewSummary::new(format!("durable child {block}")).unwrap(),
+            )
+            .unwrap();
+    }
+    repository
+        .summarize(node(1, 0), NewSummary::new("durable ancestor").unwrap())
+        .unwrap();
+    repository
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_ancestor_delete
+             BEFORE DELETE ON memory_segments
+             WHEN OLD.level = 1 AND OLD.block = 0
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected invalidation failure');
+             END;",
+        )
+        .unwrap();
+
+    assert!(repository.invalidate(node(0, 3)).is_err());
+    drop(repository);
+
+    let repository = Repository::from_connection(Connection::open(&path).unwrap());
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 256);
+    assert_eq!(status.summary_count(), 17);
+    assert_eq!(status.pending_count(), 0);
+    assert_eq!(repository.expand(node(0, 3)).unwrap().len(), 16);
+    assert_eq!(repository.expand(node(1, 0)).unwrap().len(), 16);
+    for term in ["child", "ancestor"] {
+        let indexed: i64 = repository
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM memory_segment_fts
+                 WHERE memory_segment_fts MATCH ?1",
+                [term],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(indexed > 0);
+    }
+}
+
+#[test]
+fn invalid_stored_memory_is_an_operational_error_with_safe_identity() {
+    let mut repository = repository();
+    repository
+        .append(NewMemory::new("valid body").unwrap())
+        .unwrap();
+    repository
+        .connection
+        .execute_batch(
+            "DROP TRIGGER memories_immutable_update;
+             PRAGMA ignore_check_constraints = ON;
+             UPDATE memories SET body = 'not\rnormalized' WHERE seq = 1",
+        )
+        .unwrap();
+
+    let error = repository.get_memory(1).unwrap_err();
+    assert!(matches!(
+        &error,
+        NtError::InvalidStoredMemory {
+            identity,
+            field: "body",
+            ..
+        } if identity == "seq: 1"
+    ));
+    assert_eq!(error.exit_code(), 1);
+    assert!(!error.to_string().contains("not\rnormalized"));
+}
+
+#[test]
+fn status_reports_dynamic_counts_and_levels() {
+    let mut repository = repository();
+    let empty = repository.status().unwrap();
+    assert_eq!(empty.raw_count(), 0);
+    assert_eq!(empty.highest_seq(), None);
+    assert_eq!(empty.highest_completed_level(), None);
+
+    append(&mut repository, 16, "status");
+    repository
+        .summarize(node(0, 0), NewSummary::new("status summary").unwrap())
+        .unwrap();
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 16);
+    assert_eq!(status.highest_seq(), Some(16));
+    assert_eq!(status.summary_count(), 1);
+    assert_eq!(status.pending_count(), 0);
+    assert_eq!(status.highest_completed_level(), Some(0));
+}
+
+#[test]
+fn status_counts_sparse_raw_sequences_independently_from_the_highest_sequence() {
+    let repository = repository();
+    repository
+        .connection
+        .execute(
+            "INSERT INTO memories(seq, body, created)
+             VALUES (100, 'sparse memory', '2026-08-22T12:34:56Z')",
+            [],
+        )
+        .unwrap();
+
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 1);
+    assert_eq!(status.highest_seq(), Some(100));
+}
+
+#[test]
+#[ignore = "manual one-million-memory SQLite scale fixture"]
+fn audit_one_million_memory_operations_and_database_size() {
+    use std::time::Instant;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("million.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    connection
+        .execute_batch("PRAGMA journal_mode = WAL")
+        .unwrap();
+
+    let started = Instant::now();
+    connection
+        .execute_batch(
+            "WITH RECURSIVE generated(seq) AS (
+                 VALUES(1)
+                 UNION ALL
+                 SELECT seq + 1 FROM generated WHERE seq < 1000000
+             )
+             INSERT INTO memories(seq, body, created)
+             SELECT seq,
+                    printf('scale memory %d sqlite recall', seq),
+                    '2026-08-22T12:34:56Z'
+             FROM generated;
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 15
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 0, block, printf('scale summary block %d', block),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+             WITH RECURSIVE jobs(block) AS (
+                 VALUES(16)
+                 UNION ALL
+                 SELECT block + 1 FROM jobs WHERE block < 62499
+             )
+             INSERT INTO memory_summary_jobs(level, block)
+             SELECT 0, block FROM jobs;
+             INSERT INTO memory_summary_jobs(level, block) VALUES (1, 0);",
+        )
+        .unwrap();
+    let populate = started.elapsed();
+    let mut repository = Repository::from_connection(connection);
+
+    let started = Instant::now();
+    assert_eq!(
+        repository
+            .append(NewMemory::new("measured append").unwrap())
+            .unwrap(),
+        1_000_001
+    );
+    let append_time = started.elapsed();
+
+    let started = Instant::now();
+    assert_eq!(repository.get_memory(900_000).unwrap().seq(), 900_000);
+    let show_time = started.elapsed();
+
+    let started = Instant::now();
+    let listed = repository
+        .list_memories(
+            &MemoryListQuery::parse(&strings(&["since:900000", "until:900100", "limit:50"]))
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(listed.len(), 50);
+    let list_time = started.elapsed();
+
+    let started = Instant::now();
+    let recalled = repository
+        .recall(&MemoryRecallQuery::parse(&strings(&["sqlite", "recall", "limit:20"])).unwrap())
+        .unwrap();
+    assert_eq!(recalled.len(), 20);
+    let recall_time = started.elapsed();
+
+    let started = Instant::now();
+    let context = repository
+        .context(&MemoryContextQuery::parse(&strings(&["sqlite"])).unwrap())
+        .unwrap();
+    assert!(!context.is_empty());
+    let context_time = started.elapsed();
+
+    let started = Instant::now();
+    assert_eq!(repository.expand(node(0, 0)).unwrap().len(), 16);
+    let expand_time = started.elapsed();
+
+    let started = Instant::now();
+    assert_eq!(repository.pending(Some(5)).unwrap().len(), 5);
+    let pending_time = started.elapsed();
+
+    let started = Instant::now();
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 1_000_001);
+    assert_eq!(status.pending_count(), 62_485);
+    let status_time = started.elapsed();
+
+    repository
+        .connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    let bytes = std::fs::metadata(&path).unwrap().len();
+    println!(
+        "populate={populate:?} append={append_time:?} show={show_time:?} \
+         list={list_time:?} recall={recall_time:?} context={context_time:?} \
+         expand={expand_time:?} pending={pending_time:?} status={status_time:?} \
+         database_bytes={bytes}"
+    );
+}
+
+#[test]
+#[ignore = "manual complete one-million-memory pyramid benchmark"]
+fn audit_complete_million_memory_pyramid_queries() {
+    use std::time::Instant;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("complete-pyramid.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    install_schema(&connection);
+    connection
+        .execute_batch("PRAGMA journal_mode = WAL")
+        .unwrap();
+
+    let started = Instant::now();
+    connection
+        .execute_batch(
+            "WITH RECURSIVE generated(seq) AS (
+                 VALUES(1)
+                 UNION ALL
+                 SELECT seq + 1 FROM generated WHERE seq < 1000000
+             )
+             INSERT INTO memories(seq, body, created)
+             SELECT seq,
+                    printf(
+                        'common memory %d %s',
+                        seq,
+                        CASE WHEN seq = 777777 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM generated;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 62499
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 0,
+                    block,
+                    printf(
+                        'common L0 summary %d %s',
+                        block,
+                        CASE WHEN block = 48611 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 3905
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 1,
+                    block,
+                    printf(
+                        'common L1 summary %d %s',
+                        block,
+                        CASE WHEN block = 3038 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 243
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 2,
+                    block,
+                    printf(
+                        'common L2 summary %d %s',
+                        block,
+                        CASE WHEN block = 189 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;
+
+             WITH RECURSIVE blocks(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM blocks WHERE block < 14
+             )
+             INSERT INTO memory_segments(level, block, summary, created)
+             SELECT 3,
+                    block,
+                    printf(
+                        'common L3 summary %d %s',
+                        block,
+                        CASE WHEN block = 11 THEN 'selective' ELSE 'ordinary' END
+                    ),
+                    '2026-08-22T12:34:56Z'
+             FROM blocks;",
+        )
+        .unwrap();
+    let populate = started.elapsed();
+    let repository = Repository::from_connection(connection);
+
+    let started = Instant::now();
+    let selective_recall = repository
+        .recall(&MemoryRecallQuery::parse(&strings(&["selective", "limit:20"])).unwrap())
+        .unwrap();
+    assert_eq!(selective_recall.len(), 1);
+    assert_eq!(selective_recall[0].seq(), 777_777);
+    let selective_recall_time = started.elapsed();
+
+    let started = Instant::now();
+    let common_recall = repository
+        .recall(&MemoryRecallQuery::parse(&strings(&["common", "limit:20"])).unwrap())
+        .unwrap();
+    assert_eq!(common_recall.len(), 20);
+    let common_recall_time = started.elapsed();
+
+    let started = Instant::now();
+    let selective_context = repository
+        .context(&MemoryContextQuery::parse(&strings(&["selective"])).unwrap())
+        .unwrap();
+    assert!(context_output_char_count(&selective_context).unwrap() <= MEMORY_CONTEXT_CHARS);
+    let selective_context_time = started.elapsed();
+
+    let started = Instant::now();
+    let common_context = repository
+        .context(&MemoryContextQuery::parse(&strings(&["common"])).unwrap())
+        .unwrap();
+    assert!(context_output_char_count(&common_context).unwrap() <= MEMORY_CONTEXT_CHARS);
+    let common_context_time = started.elapsed();
+
+    let started = Instant::now();
+    assert_eq!(repository.expand(node(3, 11)).unwrap().len(), 16);
+    let expand_time = started.elapsed();
+
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 1_000_000);
+    assert_eq!(status.summary_count(), 66_665);
+    assert_eq!(status.pending_count(), 0);
+    assert_eq!(status.highest_completed_level(), Some(3));
+
+    repository
+        .connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    let bytes = std::fs::metadata(&path).unwrap().len();
+    println!(
+        "populate={populate:?} selective_recall={selective_recall_time:?} \
+         common_recall={common_recall_time:?} selective_context={selective_context_time:?} \
+         common_context={common_context_time:?} expand={expand_time:?} database_bytes={bytes}"
+    );
+}
+
+#[test]
+#[ignore = "manual queryless context scale benchmark at 10k, 100k, 1M, and 10M memories"]
+fn benchmark_queryless_context_across_history_sizes() {
+    use std::time::{Duration, Instant};
+
+    fn populate_raw_history(connection: &Connection, raw_count: u64) {
+        connection
+            .execute(
+                "WITH RECURSIVE generated(seq) AS (
+                     VALUES(1)
+                     UNION ALL
+                     SELECT seq + 1 FROM generated WHERE seq < ?1
+                 )
+                 INSERT INTO memories(seq, body, created)
+                 SELECT seq, printf('benchmark memory %d', seq), '2026-08-22T12:34:56Z'
+                 FROM generated",
+                [i64::try_from(raw_count).unwrap()],
+            )
+            .unwrap();
+    }
+
+    fn populate_summary_level(connection: &Connection, raw_count: u64, level: u64) -> bool {
+        let Some(width) = span(level) else {
+            return false;
+        };
+        let blocks = raw_count / width;
+        if blocks == 0 {
+            return false;
+        }
+        connection
+            .execute(
+                "WITH RECURSIVE generated(block) AS (
+                     VALUES(0)
+                     UNION ALL
+                     SELECT block + 1 FROM generated WHERE block + 1 < ?2
+                 )
+                 INSERT INTO memory_segments(level, block, summary, created)
+                 SELECT ?1,
+                        block,
+                        printf('benchmark L%d summary %d', ?1, block),
+                        '2026-08-22T12:34:56Z'
+                 FROM generated",
+                rusqlite::params![
+                    i64::try_from(level).unwrap(),
+                    i64::try_from(blocks).unwrap()
+                ],
+            )
+            .unwrap();
+        true
+    }
+
+    fn measure(repository: &Repository) -> (Vec<ContextItem>, Duration) {
+        let query = MemoryContextQuery::default();
+        let warm = repository.context(&query).unwrap();
+        assert!(context_output_char_count(&warm).unwrap() <= MEMORY_CONTEXT_CHARS);
+        let mut best = Duration::MAX;
+        for _ in 0..10 {
+            let started = Instant::now();
+            let context = repository.context(&query).unwrap();
+            best = best.min(started.elapsed());
+            assert_eq!(context, warm);
+        }
+        (warm, best)
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    for raw_count in [10_000_u64, 100_000, 1_000_000, 10_000_000] {
+        let path = directory
+            .path()
+            .join(format!("queryless-{raw_count}.sqlite3"));
+        let connection = Connection::open(path).unwrap();
+        install_schema(&connection);
+        connection
+            .execute_batch("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF")
+            .unwrap();
+        let populate_started = Instant::now();
+        populate_raw_history(&connection, raw_count);
+        let raw_populate_time = populate_started.elapsed();
+        let repository = Repository::from_connection(connection);
+        let (_, no_summary_time) = measure(&repository);
+
+        let sparse_block = (raw_count - 256) / 16 - 1;
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (0, ?1, 'sparse benchmark summary', '2026-08-22T12:34:56Z')",
+                [i64::try_from(sparse_block).unwrap()],
+            )
+            .unwrap();
+        let (sparse, sparse_time) = measure(&repository);
+        assert!(sparse.iter().any(
+            |item| matches!(item, ContextItem::Summary(segment) if segment.node() == node(0, sparse_block))
+        ));
+        repository
+            .connection
+            .execute(
+                "DELETE FROM memory_segments WHERE level = 0 AND block = ?1",
+                [i64::try_from(sparse_block).unwrap()],
+            )
+            .unwrap();
+
+        assert!(populate_summary_level(&repository.connection, raw_count, 0));
+        let (level_zero, level_zero_time) = measure(&repository);
+        assert!(
+            level_zero
+                .iter()
+                .any(|item| matches!(item, ContextItem::Summary(_)))
+        );
+
+        for level in 1_u64.. {
+            if !populate_summary_level(&repository.connection, raw_count, level) {
+                break;
+            }
+        }
+        let (complete, complete_time) = measure(&repository);
+        let frontier_summaries = complete
+            .iter()
+            .filter(|item| matches!(item, ContextItem::Summary(_)))
+            .count();
+        println!(
+            "raw_count={raw_count} frontier_summaries={frontier_summaries} \
+             raw_populate={raw_populate_time:?} no_summaries={no_summary_time:?} \
+             sparse={sparse_time:?} level_zero_only={level_zero_time:?} \
+             complete={complete_time:?}"
+        );
+    }
+}

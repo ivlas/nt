@@ -1,39 +1,45 @@
 # Using nt
 
-`nt` stores canonical CommonMark notes and metadata in
-`$HOME/.nt/nt.sqlite3`. The database is local and directly inspectable with
-SQLite tools. Direct database writes are unsupported; use `nt` commands for
-mutations. Markdown remains ordinary CommonMark without nt-specific body syntax.
+This guide covers common workflows. See the [CLI reference](cli-reference.md)
+for the complete command and output contract.
 
-## Install And Initialize
+`nt` keeps two kinds of local data in one SQLite database:
+
+- **Notes** are editable CommonMark documents with a collection, optional tags,
+  and directional links.
+- **Memory** is an immutable sequence of short experiences. Derived summaries
+  keep retrieval bounded as history grows.
+
+## Start
 
 ```sh
-cargo install --path .
+cargo install --locked --path .
 nt init
 ```
 
-Only `nt init` creates storage. Running it again against a valid database prints
-`already initialized`. Other commands return `run nt init first` rather than
-creating files.
+`nt init` creates the database in the resolved home directory, normally at
+`$HOME/.nt/nt.sqlite3`. No other command creates storage. Running `init` again
+against a valid database prints `already initialized`.
 
-## Capture
+## Notes
 
-Pipe exact multiline content:
+### Capture
+
+Pipe a multiline note:
 
 ```sh
 printf '%s\n' '# Rust note' '' 'Ownership details.' | nt add tag:rust
 ```
 
-Use text after `--` for short bodies:
+Use text after `--` for a short note:
 
 ```sh
 nt add collection:work/nt tag:rust,sqlite -- '# Storage decision'
 ```
 
-Run `nt add collection:research/sqlite` with terminal stdin to compose in
-`$VISUAL` or `$EDITOR`. Capture uses exactly one of trailing text, piped stdin,
-or the editor. The first line must be a non-empty `# Title`. Collection defaults
-to `inbox`.
+Run `nt add collection:research/sqlite` interactively, without piped input, to
+compose in `$VISUAL` or `$EDITOR`. A note body must start with `# ` followed by
+a non-whitespace title. The default collection is `inbox`.
 
 Capture metadata is limited to:
 
@@ -43,130 +49,140 @@ tag:<tag,...>
 link:<id,...>
 ```
 
-Collections are lowercase paths such as `inbox`, `work/nt`, or
-`research/sqlite`. A note belongs to exactly one collection. Tags are optional,
-and links are directional.
+Collections are lowercase paths such as `work/nt`. Tags are lowercase values
+such as `rust` or `project_a`. Links are directional.
 
-## Find And Read
+### Find And Read
 
-Use summaries before loading exact bodies:
+Use result rows to select notes before loading exact bodies:
 
 ```sh
 nt list
 nt list collection:work/nt tag:rust
-nt list collection:work/nt limit:50
-nt list not:tag:archived
-nt list linked-from:<source-id>
+nt list not:tag:archived limit:50
 nt list tags
 nt list collections
 nt find 'ownership borrow' tag:rust
-nt find rust limit:100
-nt show <id>
+nt show "$NOTE_ID"
 ```
 
-`list` accepts structured filters. `find` accepts the same filters and literal
-lexical terms. All expressions are AND-combined. Filters are:
+`list` accepts structured filters. `find` adds literal lexical terms. All
+expressions are combined with AND, and results are complete unless `limit:` is
+present. Common filters include `collection:`, `tag:`, `id:`, `links-to:`,
+`linked-from:`, `created-since:`, and `updated-since:`. Timestamps use UTC
+seconds, for example `2026-08-22T14:30:12Z`.
 
-```text
-id:<prefix>
-collection:<path>
-tag:<tag>
-links-to:<id>
-linked-from:<id>
-created-since:<timestamp>
-updated-since:<timestamp>
-not:<filter>
-limit:<positive-integer>
-```
+Search is deterministic and token-based. SQLite's supported Latin-diacritic
+removal makes `cafe` match `café`, but `owner` does not match `ownership`. There
+is no fuzzy search, relevance ranking, or hidden semantic search.
 
-`list` and `find` return every match unless an explicit `limit:` is supplied.
-The limit selects the first N summaries in the normal deterministic order.
-`links-to:<target>` finds notes that point to a target; `linked-from:<source>`
-finds notes pointed to by a source. These filters describe the returned notes,
-inspect direct edges only, and require full canonical note IDs. A missing source
-or a source with no outgoing links returns no matches. Summaries keep the
-existing `outgoing` count column; they do not add an incoming-link count.
+`show` writes only the canonical body. On redirected stdout, `list` and `find`
+write headerless JSON-encoded TSV; see [Note Output](cli-reference.md#note-output).
 
-Lexical search uses complete Unicode tokens. Punctuation separates terms and
-has no FTS operator meaning. Terms may occur in any order. Supported Latin
-diacritics are removed, so `cafe` matches `café`. Prefixes are not expanded, so
-`owner` does not match `ownership`.
-
-On a terminal, list and find summaries have an aligned header row. Redirected
-list and find rows contain JSON-encoded `id`, `updated`, `collection`, `title`,
-and `tags` cells followed by a numeric `outgoing` link count, separated by tabs.
-Every note occupies one physical output line. Metadata inventories contain one
-current, distinct value per line in lexical order; redirected values are JSON
-strings. `show` writes only the exact canonical body.
-
-## Edit And Organize
-
-Replace the complete body from stdin:
+### Edit And Organize
 
 ```sh
-printf '%s\n' '# Updated title' '' 'Replacement body.' | nt edit <id>
+printf '%s\n' '# Updated title' '' 'Replacement body.' | nt edit "$NOTE_ID"
+nt move "$NOTE_ID" work/project_a
+nt tag "$NOTE_ID" +storage
+nt tag "$NOTE_ID" -storage
+nt link "$NOTE_ID" +"$TARGET_ID"
+nt link "$NOTE_ID" -"$TARGET_ID"
 ```
 
-Run `nt edit <id>` with terminal stdin to edit the current body in `$VISUAL` or
-`$EDITOR`. The update is rejected if another body edit commits first. Tag,
-collection, and link changes do not conflict with an open editor.
+Running `nt edit "$NOTE_ID"` interactively, without piped input, opens the
+current body in the configured editor. The update fails if another body edit
+commits first. Adding an existing tag or link, or removing a missing one,
+succeeds without changing the note. Self-links are rejected.
+
+Remove one or more notes atomically:
 
 ```sh
-nt move <id> work/project_a
-nt tag <id> +storage
-nt tag <id> -storage
-nt link <id> +<target-id>
-nt link <id> -<target-id>
+nt rm "$NOTE_ID"
+nt rm "$FIRST_ID" "$SECOND_ID"
 ```
 
-A real `nt link` addition or removal updates its source note, not its target.
-Adding an existing tag or link and removing a missing one succeeds without
-changing update timestamps. Self-links are rejected; links remain directional.
+If any ID is invalid, missing, or repeated, no requested note is removed.
 
-## Remove
+## Memory
+
+### Capture And Recall
+
+Append one short immutable memory from stdin or text after `--`:
 
 ```sh
-nt rm <id>
-nt rm <id> <id> <id>
+printf '%s\n' 'Deployment switched to blue-green.' | nt memory add
+nt memory add -- 'Customer prefers weekly summaries.'
 ```
 
-Removal validates every ID before deleting any note. Missing or duplicate IDs
-leave all requested notes intact. Before cascades remove incoming links,
-surviving source notes receive a new update timestamp because their outgoing-link
-sets changed. Deleting a source does not update its outgoing targets.
-
-## Resources And Backups
-
-`nt` reads each captured or edited body completely into memory before opening a
-write transaction. It does not impose an application-level body-size limit;
-available memory and disk space are the operational limits. SQLite also uses
-disk space for its lexical index and temporary WAL state, so check available
-resources before importing unusually large input.
-
-Use SQLite's backup mechanism for a consistent backup while `nt` or another
-SQLite connection may be active:
+The success line contains a monotonically increasing sequence number. Memory
+bodies do not need a Markdown title and are limited to 1,024 Unicode characters.
+They cannot be edited or removed.
 
 ```sh
-sqlite3 "$HOME/.nt/nt.sqlite3" ".backup /path/to/nt-backup.sqlite3"
+nt memory show "$SEQ"
+nt memory list since:1 limit:100
+nt memory recall deployment
+nt memory recall deployment since:100
+nt memory context deployment
+nt memory context
 ```
 
-Do not copy only `nt.sqlite3` while connections are active because committed
-changes may still be in `nt.sqlite3-wal`. For an offline filesystem copy, close
-all `nt` and SQLite processes, run `PRAGMA wal_checkpoint(TRUNCATE)`, close that
-SQLite connection, and then copy the main database file.
+`show` returns one exact raw body. `list` reads raw history in sequence order.
+`recall` searches exact raw history with literal tokens. `context` combines
+complete raw entries and derived summaries into deterministic output of at most
+32,768 Unicode characters; it never calls a model.
 
-## Shell Composition
+### Summarize And Expand
+
+Every complete group of 16 children can be summarized. The calling agent does
+this explicitly; `nt` has no background worker or built-in summarizer. This
+example assumes raw sequences 1 through 16 already exist:
+
+```sh
+nt memory pending
+nt memory pending L0:0
+printf '%s\n' 'Factual summary of the supplied children.' |
+  nt memory summarize L0:0
+nt memory expand L0:0
+```
+
+`pending L0:0` prints the 16 children and a compression instruction. `summarize`
+stores the caller-produced result. `expand` reveals one child level; repeating
+it through lower nodes eventually reaches exact raw entries.
+
+If a summary is wrong, invalidate it and its dependent ancestors while keeping
+raw history:
+
+```sh
+nt memory invalidate L0:0
+nt memory status
+```
+
+## Shell Use
 
 ```sh
 nt find rust | less
-nt find rust | head -100
-nt find rust | fzf --preview 'nt show {1}'
-nt list tag:decision | cut -f1
+nt find rust | head -n 100
+nt memory recall deployment | less
 ```
 
-Redirected note summaries stream as they are read. If a consumer such as `head`
-closes the pipe early, `nt` stops retrieval without reporting an error.
+Redirected note results and raw memory results stream one physical line per
+record. Closing a list or search pipeline early, as `head` does, is successful.
+Text fields are JSON encoded, so decode them before reusing them as command
+arguments.
 
-Agents use the same CLI. Prefer `list` or `find` for candidate construction,
-then `show` only selected IDs to bound context. Obtain user approval before
-mutations.
+## Backups
+
+Use SQLite's backup mechanism while any `nt` or SQLite process may be active.
+This example uses the normal `HOME` location; substitute the resolved database
+path when `nt` uses `USERPROFILE`. Use a new destination path unless replacing
+an existing backup is intentional:
+
+```sh
+sqlite3 "$HOME/.nt/nt.sqlite3" ".backup '/path/to/nt-backup.sqlite3'"
+```
+
+Do not copy only `nt.sqlite3` while connections are active; committed changes
+may still be in `nt.sqlite3-wal`. For a filesystem copy, first close every
+process using the database and checkpoint the WAL.

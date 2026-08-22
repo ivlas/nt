@@ -2,7 +2,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::error::Result;
+use super::output::write_stream;
+use crate::error::{NtError, Result, StoredNoteContext};
 use crate::note::{NoteQuery, NoteSummary, Repository};
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
@@ -20,19 +21,9 @@ pub(crate) fn print_notes(
         })?;
         output.flush()?;
     } else {
-        let mut output = BufWriter::new(output);
-        match repository.visit_note_summaries(query, |note| print_redirected(&mut output, &note)) {
-            Err(crate::error::NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => {
-                return Ok(());
-            }
-            result => result?,
-        }
-        if let Err(error) = output.flush() {
-            if error.kind() == io::ErrorKind::BrokenPipe {
-                return Ok(());
-            }
-            return Err(error.into());
-        }
+        write_stream(output, |output| {
+            repository.visit_note_summaries(query, |note| print_redirected(output, &note))
+        })?;
     }
     Ok(())
 }
@@ -48,13 +39,25 @@ fn note_row(note: &NoteSummary) -> [String; 6] {
         note.id().to_string(),
         note.updated().to_string(),
         note.collection().to_string(),
-        note.title().to_string(),
+        escape_terminal_controls(note.title()),
         tags,
         note.outgoing().to_string(),
     ]
 }
 
-fn print_redirected(output: &mut impl Write, note: &NoteSummary) -> Result<()> {
+fn escape_terminal_controls(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control() {
+            escaped.extend(character.escape_default());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
+fn print_redirected(output: &mut (impl Write + ?Sized), note: &NoteSummary) -> Result<()> {
     let tags = note
         .tags()
         .iter()
@@ -98,12 +101,16 @@ fn write_spooled_table<const N: usize>(
 
     write_table_row(output, headers, &widths)?;
     for line in BufReader::new(spool).lines() {
-        let row: [String; N] = serde_json::from_str::<Vec<String>>(&line?)?
-            .try_into()
-            .expect("spooled table rows preserve their column count");
+        let row = decode_spooled_row(&line?)?;
         write_table_row(output, row.each_ref().map(String::as_str), &widths)?;
     }
     Ok(())
+}
+
+fn decode_spooled_row<const N: usize>(line: &str) -> Result<[String; N]> {
+    serde_json::from_str::<Vec<String>>(line)?
+        .try_into()
+        .map_err(|_| NtError::invalid_stored(StoredNoteContext::new(None, None), "spooled row"))
 }
 
 fn write_table_row<const N: usize>(
@@ -140,22 +147,13 @@ pub(crate) fn print_values<T: AsRef<str>>(
             .collect::<Vec<_>>();
         output.write_all(format_table([header], &rows).as_bytes())?;
     } else {
-        let mut output = BufWriter::new(output);
-        for value in values {
-            let encoded = serde_json::to_string(value.as_ref())?;
-            if let Err(error) = writeln!(output, "{encoded}") {
-                if error.kind() == io::ErrorKind::BrokenPipe {
-                    return Ok(());
-                }
-                return Err(error.into());
+        write_stream(output, |output| {
+            for value in values {
+                let encoded = serde_json::to_string(value.as_ref())?;
+                writeln!(output, "{encoded}")?;
             }
-        }
-        if let Err(error) = output.flush() {
-            if error.kind() == io::ErrorKind::BrokenPipe {
-                return Ok(());
-            }
-            return Err(error.into());
-        }
+            Ok(())
+        })?;
     }
     Ok(())
 }
@@ -195,7 +193,14 @@ fn display_width(value: &str) -> usize {
 mod tests {
     use std::io::{self, Write};
 
-    use super::{display_width, format_table, print_values, write_spooled_table};
+    use rusqlite::Connection;
+
+    use super::{
+        decode_spooled_row, display_width, escape_terminal_controls, format_table, print_values,
+        write_spooled_table,
+    };
+    use crate::error::NtError;
+    use crate::note::{NoteQuery, Repository};
 
     #[test]
     fn tty_tables_include_headers_and_align_columns() {
@@ -234,6 +239,14 @@ mod tests {
             format_table(["v", "kind"], &rows),
             "v   kind\n界  wide\ne\u{301}   combining\n🙂  emoji\n"
         );
+    }
+
+    #[test]
+    fn tty_titles_escape_controls_without_escaping_unicode() {
+        let escaped = escape_terminal_controls("A\tB\u{1b}]界");
+
+        assert_eq!(escaped, r"A\tB\u{1b}]界");
+        assert!(!escaped.chars().any(char::is_control));
     }
 
     #[test]
@@ -278,6 +291,19 @@ mod tests {
     }
 
     #[test]
+    fn malformed_spooled_column_counts_return_stored_data_errors() {
+        let error = decode_spooled_row::<2>(r#"["only one"]"#).unwrap_err();
+
+        assert!(matches!(
+            error,
+            NtError::InvalidStoredNote {
+                field: "spooled row",
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn redirected_inventories_ignore_broken_pipes() {
         print_values(
             &mut BrokenPipeWriter,
@@ -286,6 +312,38 @@ mod tests {
             vec!["rust".to_string()],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn note_output_matches_redirected_and_tty_goldens() {
+        let connection = Connection::open_in_memory().unwrap();
+        for object in crate::note::schema::OBJECTS {
+            connection.execute_batch(object.sql).unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO notes(
+                     id, collection, body, title, created, updated
+                 ) VALUES (
+                     '018fbe0a-6c00-7000-8000-000000000001',
+                     'work/nt', '# Golden note', 'Golden note',
+                     '2026-08-22T12:34:56Z', '2026-08-22T12:34:56Z'
+                 );
+                 INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust'), (1, 'sqlite');",
+            )
+            .unwrap();
+        let repository = Repository::from_connection(connection);
+
+        let mut redirected = Vec::new();
+        super::print_notes(&repository, &NoteQuery::default(), &mut redirected, false).unwrap();
+        assert_eq!(
+            redirected,
+            include_bytes!("../../tests/fixtures/note-redirected.txt")
+        );
+
+        let mut tty = Vec::new();
+        super::print_notes(&repository, &NoteQuery::default(), &mut tty, true).unwrap();
+        assert_eq!(tty, include_bytes!("../../tests/fixtures/note-tty.txt"));
     }
 
     #[derive(Default)]
