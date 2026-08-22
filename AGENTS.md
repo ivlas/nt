@@ -87,9 +87,10 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 
 ## Testing
 
+- Pass `--locked` to every Cargo command that supports it.
 - Run `cargo fmt` before finishing Rust changes.
-- Run `cargo test` when behavior changes.
-- Run `cargo run -- help` for a command smoke test.
+- Run `cargo test --locked` when behavior changes.
+- Run `cargo run --locked -- help` for a command smoke test.
 - Add focused tests for database identity, schema constraints, transactions,
   UUIDv7 IDs, command routing, query syntax, body conflicts, and link cleanup.
 
