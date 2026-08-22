@@ -6,10 +6,10 @@ use clap::Parser;
 mod app;
 mod cli;
 mod commands;
-mod core;
-mod domains;
 mod error;
+mod note;
 mod schema;
+mod storage;
 
 pub fn run_process() -> ExitCode {
     let cli = cli::Cli::parse();

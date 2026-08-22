@@ -1,6 +1,14 @@
-use crate::core::storage::schema_engine::{SchemaFragment, SchemaObject};
+use crate::storage::schema_engine::SchemaObject;
 
-const OBJECTS: &[SchemaObject] = &[
+pub(crate) const OBJECTS: &[SchemaObject] = &[
+    SchemaObject {
+        object_type: "table",
+        name: "schema_version",
+        sql: "CREATE TABLE schema_version (
+         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+         version INTEGER NOT NULL CHECK (version = 1)
+     ) WITHOUT ROWID",
+    },
     SchemaObject {
         object_type: "table",
         name: "notes",
@@ -119,13 +127,12 @@ const OBJECTS: &[SchemaObject] = &[
     },
 ];
 
-pub(crate) const NOTE_SCHEMA: SchemaFragment = SchemaFragment {
-    objects: OBJECTS,
-    shadow_tables: &[
-        "note_fts_data",
-        "note_fts_idx",
-        "note_fts_docsize",
-        "note_fts_config",
-    ],
-    triggers: &["notes_fts_insert", "notes_fts_update", "notes_fts_delete"],
-};
+pub(crate) const REQUIRED_SHADOW_TABLES: &[&str] = &[
+    "note_fts_data",
+    "note_fts_idx",
+    "note_fts_docsize",
+    "note_fts_config",
+];
+
+pub(crate) const ALLOWED_TRIGGERS: &[&str] =
+    &["notes_fts_insert", "notes_fts_update", "notes_fts_delete"];

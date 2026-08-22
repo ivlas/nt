@@ -2,8 +2,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::domains::note::{NoteQuery, NoteSummary, Repository};
 use crate::error::Result;
+use crate::note::{NoteQuery, NoteSummary, Repository};
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
 

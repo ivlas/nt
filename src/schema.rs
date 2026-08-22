@@ -3,32 +3,23 @@ use std::path::Path;
 #[cfg(test)]
 use rusqlite::Connection;
 
-#[cfg(test)]
-use crate::core::storage::schema_engine::{self, Identity};
-use crate::core::storage::schema_engine::{SchemaFragment, SchemaManifest, SchemaObject};
-use crate::core::storage::{self, InitOutcome, OpenMode};
-use crate::domains::note::Repository;
-use crate::domains::note::schema::NOTE_SCHEMA;
 use crate::error::Result;
+use crate::note::Repository;
+use crate::note::schema::{ALLOWED_TRIGGERS, OBJECTS, REQUIRED_SHADOW_TABLES};
+use crate::storage::schema_engine::SchemaManifest;
+#[cfg(test)]
+use crate::storage::schema_engine::{self, Identity};
+use crate::storage::{self, InitOutcome, OpenMode};
 
 pub(crate) const APPLICATION_ID: i64 = 0x4e54_4e54;
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
-const VERSION_OBJECT: SchemaObject = SchemaObject {
-    object_type: "table",
-    name: "schema_version",
-    sql: "CREATE TABLE schema_version (
-         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-         version INTEGER NOT NULL CHECK (version = 1)
-     ) WITHOUT ROWID",
-};
-const FRAGMENTS: &[SchemaFragment] = &[NOTE_SCHEMA];
-
 pub(crate) static MANIFEST: SchemaManifest = SchemaManifest {
     application_id: APPLICATION_ID,
     version: SCHEMA_VERSION,
-    version_object: VERSION_OBJECT,
-    fragments: FRAGMENTS,
+    objects: OBJECTS,
+    required_shadow_tables: REQUIRED_SHADOW_TABLES,
+    allowed_triggers: ALLOWED_TRIGGERS,
     version_insert_sql: "INSERT INTO schema_version(singleton, version) VALUES (1, 1)",
 };
 

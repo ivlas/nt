@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 
 use super::*;
-use crate::domains::note::{CollectionPath, NewNote, NoteQuery, Repository};
 use crate::error::NtError;
+use crate::note::{CollectionPath, NewNote, NoteQuery, Repository};
 
 fn initialized() -> Connection {
     let mut connection = Connection::open_in_memory().unwrap();

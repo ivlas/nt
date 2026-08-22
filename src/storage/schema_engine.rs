@@ -10,38 +10,25 @@ pub(crate) struct SchemaObject {
     pub(crate) sql: &'static str,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct SchemaFragment {
-    pub(crate) objects: &'static [SchemaObject],
-    pub(crate) shadow_tables: &'static [&'static str],
-    pub(crate) triggers: &'static [&'static str],
-}
-
 pub(crate) struct SchemaManifest {
     pub(crate) application_id: i64,
     pub(crate) version: i64,
-    pub(crate) version_object: SchemaObject,
-    pub(crate) fragments: &'static [SchemaFragment],
+    pub(crate) objects: &'static [SchemaObject],
+    pub(crate) required_shadow_tables: &'static [&'static str],
+    pub(crate) allowed_triggers: &'static [&'static str],
     pub(crate) version_insert_sql: &'static str,
 }
 
 impl SchemaManifest {
     pub(crate) fn step_count(&self) -> usize {
-        2 + self
-            .fragments
-            .iter()
-            .map(|fragment| fragment.objects.len())
-            .sum::<usize>()
+        1 + self.objects.len()
     }
 
     #[cfg(test)]
     pub(crate) fn steps(&self) -> Vec<&'static str> {
-        std::iter::once(self.version_object.sql)
-            .chain(
-                self.fragments
-                    .iter()
-                    .flat_map(|fragment| fragment.objects.iter().map(|object| object.sql)),
-            )
+        self.objects
+            .iter()
+            .map(|object| object.sql)
             .chain(std::iter::once(self.version_insert_sql))
             .collect()
     }
@@ -115,15 +102,10 @@ fn initialize_transaction(
     mut after_step: impl FnMut(usize) -> Result<()>,
 ) -> Result<()> {
     let mut step = 0;
-    transaction.execute_batch(manifest.version_object.sql)?;
-    after_step(step)?;
-    step += 1;
-    for fragment in manifest.fragments {
-        for object in fragment.objects {
-            transaction.execute_batch(object.sql)?;
-            after_step(step)?;
-            step += 1;
-        }
+    for object in manifest.objects {
+        transaction.execute_batch(object.sql)?;
+        after_step(step)?;
+        step += 1;
     }
     transaction.execute_batch(manifest.version_insert_sql)?;
     after_step(step)?;
@@ -171,11 +153,8 @@ fn validate_version(connection: &Connection, manifest: &SchemaManifest) -> Resul
 }
 
 fn validate_required_schema(connection: &Connection, manifest: &SchemaManifest) -> Result<()> {
-    validate_object(connection, manifest.version_object)?;
-    for fragment in manifest.fragments {
-        for object in fragment.objects {
-            validate_object(connection, *object)?;
-        }
+    for object in manifest.objects {
+        validate_object(connection, *object)?;
     }
 
     let singleton: Option<i64> = connection
@@ -188,11 +167,7 @@ fn validate_required_schema(connection: &Connection, manifest: &SchemaManifest) 
     if singleton != Some(1) {
         return Err(NtError::NotNtDatabase);
     }
-    for name in manifest
-        .fragments
-        .iter()
-        .flat_map(|fragment| fragment.shadow_tables)
-    {
+    for name in manifest.required_shadow_tables {
         let exists = connection
             .query_row(
                 "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
@@ -206,12 +181,6 @@ fn validate_required_schema(connection: &Connection, manifest: &SchemaManifest) 
         }
     }
 
-    let allowed_triggers = manifest
-        .fragments
-        .iter()
-        .flat_map(|fragment| fragment.triggers)
-        .copied()
-        .collect::<Vec<_>>();
     let mut statement =
         connection.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")?;
     let triggers = statement
@@ -219,7 +188,7 @@ fn validate_required_schema(connection: &Connection, manifest: &SchemaManifest) 
         .collect::<std::result::Result<Vec<_>, _>>()?;
     if triggers
         .iter()
-        .any(|name| !allowed_triggers.contains(&name.as_str()))
+        .any(|name| !manifest.allowed_triggers.contains(&name.as_str()))
     {
         return Err(NtError::NotNtDatabase);
     }

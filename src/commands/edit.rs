@@ -1,5 +1,5 @@
-use crate::domains::note::{NoteId, Repository, timestamp_now};
 use crate::error::Result;
+use crate::note::{NoteId, Repository, timestamp_now};
 
 use super::{App, write_commit_output};
 
