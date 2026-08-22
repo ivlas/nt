@@ -66,6 +66,7 @@ mod tests {
     use std::path::Path;
 
     use clap::Parser;
+    use rusqlite::Connection;
 
     use super::{App, run};
     use crate::cli::Cli;
@@ -172,6 +173,50 @@ mod tests {
                 .unwrap()
                 .body(),
             "# Concurrent"
+        );
+    }
+
+    #[test]
+    fn note_editors_run_without_open_database_connections() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        schema::initialize_at(&database_path).unwrap();
+        let id = open_repository(&database_path)
+            .unwrap()
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+            .unwrap();
+
+        for (arguments, replacement) in [
+            (vec!["nt".to_string(), "add".to_string()], "# Added"),
+            (
+                vec!["nt".to_string(), "edit".to_string(), id.to_string()],
+                "# Edited",
+            ),
+        ] {
+            let editor_path = database_path.clone();
+            let mut editor = move |_| -> crate::error::Result<String> {
+                let connection = Connection::open(&editor_path)?;
+                let mode = connection.query_row("PRAGMA journal_mode = DELETE", [], |row| {
+                    row.get::<_, String>(0)
+                })?;
+                assert_eq!(mode, "delete");
+                Ok(replacement.to_string())
+            };
+            let mut stdin = Cursor::new(Vec::new());
+            let input = Input::new(&mut stdin, true, &mut editor);
+            let mut output = Vec::new();
+            let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+
+            run(Cli::parse_from(arguments), &mut app).unwrap();
+        }
+
+        assert_eq!(
+            open_repository(&database_path)
+                .unwrap()
+                .get_note(&id)
+                .unwrap()
+                .body(),
+            "# Edited"
         );
     }
 

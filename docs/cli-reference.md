@@ -547,7 +547,7 @@ write memory commands are `memory add`, `memory summarize`, and `memory
 invalidate`. `nt init` and write commands require a writable database and
 establish WAL. WAL lets readers continue from the last committed snapshot while
 another connection writes. A contending writer waits for the bounded busy
-timeout and then reports the stable retryable error. No transaction remains open
-while reading stdin or waiting for `$VISUAL`/`$EDITOR`.
+timeout and then reports the stable retryable error. No database connection
+remains open while reading stdin or waiting for `$VISUAL`/`$EDITOR`.
 
 Running `nt` without a command and `nt help [command...]` do not open storage.
