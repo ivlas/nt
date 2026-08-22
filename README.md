@@ -2,10 +2,10 @@
 
 > **Status: alpha** `nt` is functional but experimental; expect breaking changes.
 
-`nt` is a local, agent-first note layer for editable CommonMark, deterministic
-metadata, and lexical retrieval. Canonical notes live in one SQLite database.
-Humans and agents use the same shell-friendly commands, stdin, stdout, and
-`$VISUAL`/`$EDITOR`.
+`nt` is a local, agent-first note application for editable CommonMark,
+deterministic metadata, and lexical retrieval. Canonical notes live in one
+SQLite database. Humans and agents use the same shell-friendly commands, stdin,
+stdout, and `$VISUAL`/`$EDITOR`.
 
 ## Quick Start
 
@@ -33,10 +33,16 @@ configuration files, daemons, embeddings, or hidden agent-only commands.
 
 ## Architecture
 
-`nt` is a modular monolith with an application layer, independent domains, and
-shared SQLite infrastructure. Notes are the current domain. Domains own their
-model, queries, persistence operations, and schema fragments; the application
-owns CLI orchestration and explicitly composes the canonical database schema.
+`nt` is deliberately single-purpose: it takes, organizes, links, and retrieves
+notes. CLI adapters feed command orchestration, commands use the concrete note
+model and repository, and storage configures and validates SQLite. The note
+module owns note values, queries, persistence operations, and note schema SQL;
+the application owns one fixed, flat schema manifest.
+
+External resources, bookmarks, imported documents, and generated summaries can
+be represented as ordinary CommonMark notes using collections, tags, and
+directional links. They do not introduce reserved note kinds, source metadata,
+or hidden semantics.
 
 ## Documentation
 
