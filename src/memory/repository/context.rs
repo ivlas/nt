@@ -20,18 +20,12 @@ pub(crate) enum ContextItem {
 impl ContextItem {
     pub(crate) fn context_header(&self) -> Result<String> {
         match self {
-            Self::Raw(memory) => Ok(format!(
-                "# memory {} ({})\n",
-                memory.seq(),
-                memory.created()
-            )),
+            Self::Raw(memory) => Ok(raw_context_header(memory)),
             Self::Summary(segment) => {
                 let raw_range = node_range(segment.node())?;
-                Ok(format!(
-                    "# summary {} ({}-{})\n",
-                    segment.node(),
-                    raw_range.start(),
-                    raw_range.end()
+                Ok(summary_context_header(
+                    segment,
+                    (raw_range.start(), raw_range.end()),
                 ))
             }
         }
@@ -45,7 +39,16 @@ impl ContextItem {
     }
 
     pub(crate) fn output_char_count(&self) -> Result<usize> {
-        Ok(self.context_header()?.chars().count() + self.content().chars().count() + 1)
+        match self {
+            Self::Raw(memory) => Ok(raw_output_char_count(memory)),
+            Self::Summary(segment) => {
+                let raw_range = node_range(segment.node())?;
+                Ok(summary_output_char_count(
+                    segment,
+                    (raw_range.start(), raw_range.end()),
+                ))
+            }
+        }
     }
 
     #[cfg(test)]
@@ -68,6 +71,22 @@ impl ContextItem {
     }
 }
 
+fn raw_context_header(memory: &Memory) -> String {
+    format!("# memory {} ({})\n", memory.seq(), memory.created())
+}
+
+fn summary_context_header(segment: &MemorySegment, bounds: (u64, u64)) -> String {
+    format!("# summary {} ({}-{})\n", segment.node(), bounds.0, bounds.1)
+}
+
+fn raw_output_char_count(memory: &Memory) -> usize {
+    raw_context_header(memory).chars().count() + memory.body().chars().count() + 1
+}
+
+fn summary_output_char_count(segment: &MemorySegment, bounds: (u64, u64)) -> usize {
+    summary_context_header(segment, bounds).chars().count() + segment.summary().chars().count() + 1
+}
+
 impl Repository {
     pub(crate) fn context(&self, query: &MemoryContextQuery) -> Result<Vec<ContextItem>> {
         let transaction = self.connection.unchecked_transaction()?;
@@ -88,7 +107,7 @@ impl Repository {
         if query.terms().is_empty() {
             let raw_budget = MEMORY_CONTEXT_CHARS * 60 / 100;
             select_raw(
-                recent.clone(),
+                &recent,
                 raw_budget,
                 &mut total_used,
                 &mut selected_raw,
@@ -96,7 +115,7 @@ impl Repository {
                 &mut selected,
             )?;
             select_summaries(
-                broad.clone(),
+                &broad,
                 MEMORY_CONTEXT_CHARS - raw_budget,
                 &mut total_used,
                 &mut selected_ranges,
@@ -106,7 +125,7 @@ impl Repository {
             let lexical_raw_budget = MEMORY_CONTEXT_CHARS * 40 / 100;
             let recent_raw_budget = MEMORY_CONTEXT_CHARS * 30 / 100;
             select_raw(
-                lexical_raw_candidates(&transaction, &query.fts_expression())?,
+                &lexical_raw_candidates(&transaction, &query.fts_expression())?,
                 lexical_raw_budget,
                 &mut total_used,
                 &mut selected_raw,
@@ -114,7 +133,7 @@ impl Repository {
                 &mut selected,
             )?;
             select_raw(
-                recent.clone(),
+                &recent,
                 recent_raw_budget,
                 &mut total_used,
                 &mut selected_raw,
@@ -122,7 +141,7 @@ impl Repository {
                 &mut selected,
             )?;
             select_summaries(
-                lexical_summary_candidates(&transaction, &query.fts_expression())?,
+                &lexical_summary_candidates(&transaction, &query.fts_expression())?,
                 MEMORY_CONTEXT_CHARS - lexical_raw_budget - recent_raw_budget,
                 &mut total_used,
                 &mut selected_ranges,
@@ -155,7 +174,7 @@ impl Repository {
 }
 
 fn select_raw(
-    candidates: Vec<Memory>,
+    candidates: &[Memory],
     budget: usize,
     total_used: &mut usize,
     selected_raw: &mut BTreeSet<i64>,
@@ -168,7 +187,6 @@ fn select_raw(
             continue;
         }
         let seq = u64::try_from(memory.seq()).expect("validated memory sequences are positive");
-        let item = ContextItem::Raw(memory);
         let mut overlapping_summaries = BTreeSet::new();
         for (index, selected_item) in selected.iter().enumerate() {
             if matches!(selected_item, ContextItem::Summary(_))
@@ -186,7 +204,7 @@ fn select_raw(
                 Ok::<_, crate::error::NtError>(total + selected_item.output_char_count()?)
             })?
             + retained_count.saturating_sub(1);
-        let chars = item.output_char_count()? + usize::from(retained_count != 0);
+        let chars = raw_output_char_count(memory) + usize::from(retained_count != 0);
         if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - retained_chars {
             continue;
         }
@@ -203,20 +221,17 @@ fn select_raw(
             }
             *total_used = retained_chars;
         }
-        let ContextItem::Raw(memory) = &item else {
-            unreachable!();
-        };
         pool_used += chars;
         *total_used += chars;
         selected_raw.insert(memory.seq());
         selected_ranges.push((seq, seq));
-        selected.push(item);
+        selected.push(ContextItem::Raw(memory.clone()));
     }
     Ok(())
 }
 
 fn select_summaries(
-    candidates: Vec<MemorySegment>,
+    candidates: &[MemorySegment],
     budget: usize,
     total_used: &mut usize,
     selected_ranges: &mut Vec<(u64, u64)>,
@@ -232,15 +247,14 @@ fn select_summaries(
         {
             continue;
         }
-        let item = ContextItem::Summary(segment);
-        let chars = item.output_char_count()? + usize::from(!selected.is_empty());
+        let chars = summary_output_char_count(segment, bounds) + usize::from(!selected.is_empty());
         if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - *total_used {
             continue;
         }
         pool_used += chars;
         *total_used += chars;
         selected_ranges.push(bounds);
-        selected.push(item);
+        selected.push(ContextItem::Summary(segment.clone()));
     }
     Ok(())
 }
@@ -256,7 +270,7 @@ fn fill_remaining(
     let remaining = MEMORY_CONTEXT_CHARS - *total_used;
     let recent_budget = remaining * 60 / 100;
     select_raw(
-        recent.to_vec(),
+        recent,
         recent_budget,
         total_used,
         selected_raw,
@@ -264,7 +278,7 @@ fn fill_remaining(
         selected,
     )?;
     select_summaries(
-        broad.to_vec(),
+        broad,
         remaining - recent_budget,
         total_used,
         selected_ranges,
@@ -273,7 +287,7 @@ fn fill_remaining(
 
     // If either fallback pool was sparse, let the other consume the residue.
     select_raw(
-        recent.to_vec(),
+        recent,
         MEMORY_CONTEXT_CHARS,
         total_used,
         selected_raw,
@@ -281,7 +295,7 @@ fn fill_remaining(
         selected,
     )?;
     select_summaries(
-        broad.to_vec(),
+        broad,
         MEMORY_CONTEXT_CHARS,
         total_used,
         selected_ranges,
