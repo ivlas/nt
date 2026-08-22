@@ -13,6 +13,7 @@ mod find;
 mod init;
 mod link;
 mod list;
+mod memory;
 mod move_note;
 mod rm;
 mod show;
@@ -54,6 +55,7 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Move { id, collection }) => move_note::move_note(app, &id, &collection),
         Some(Command::Tag { id, operation }) => tag::tag(app, &id, &operation),
         Some(Command::Link { id, operation }) => link::link(app, &id, &operation),
+        Some(Command::Memory { command }) => memory::memory(app, command),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic, app.output),
     }
 }
@@ -64,16 +66,22 @@ mod tests {
     use std::path::Path;
 
     use clap::Parser;
+    use rusqlite::Connection;
 
     use super::{App, run};
     use crate::cli::Cli;
     use crate::cli::input::Input;
     use crate::error::{NtError, Result};
+    use crate::memory::Repository as MemoryRepository;
     use crate::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
     use crate::schema;
 
     fn open_repository(path: &Path) -> Result<Repository> {
         schema::open_read_write(path).map(Repository::from_connection)
+    }
+
+    fn open_memory_repository(path: &Path) -> Result<MemoryRepository> {
+        schema::open_read_write(path).map(MemoryRepository::from_connection)
     }
 
     #[test]
@@ -169,6 +177,50 @@ mod tests {
     }
 
     #[test]
+    fn note_editors_run_without_open_database_connections() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        schema::initialize_at(&database_path).unwrap();
+        let id = open_repository(&database_path)
+            .unwrap()
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+            .unwrap();
+
+        for (arguments, replacement) in [
+            (vec!["nt".to_string(), "add".to_string()], "# Added"),
+            (
+                vec!["nt".to_string(), "edit".to_string(), id.to_string()],
+                "# Edited",
+            ),
+        ] {
+            let editor_path = database_path.clone();
+            let mut editor = move |_| -> crate::error::Result<String> {
+                let connection = Connection::open(&editor_path)?;
+                let mode = connection.query_row("PRAGMA journal_mode = DELETE", [], |row| {
+                    row.get::<_, String>(0)
+                })?;
+                assert_eq!(mode, "delete");
+                Ok(replacement.to_string())
+            };
+            let mut stdin = Cursor::new(Vec::new());
+            let input = Input::new(&mut stdin, true, &mut editor);
+            let mut output = Vec::new();
+            let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+
+            run(Cli::parse_from(arguments), &mut app).unwrap();
+        }
+
+        assert_eq!(
+            open_repository(&database_path)
+                .unwrap()
+                .get_note(&id)
+                .unwrap()
+                .body(),
+            "# Edited"
+        );
+    }
+
+    #[test]
     fn mutations_remain_committed_when_success_output_fails() {
         let directory = tempfile::tempdir().unwrap();
         let database_path = directory.path().join(".nt/nt.sqlite3");
@@ -193,6 +245,16 @@ mod tests {
             .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
             .unwrap();
         drop(repository);
+
+        assert_committed_output_failure(&database_path, &["memory", "add"], "immutable event");
+        assert_eq!(
+            open_memory_repository(&database_path)
+                .unwrap()
+                .get_memory(1)
+                .unwrap()
+                .body(),
+            "immutable event"
+        );
 
         assert_committed_output_failure(&database_path, &["edit", &id.to_string()], "# Edited");
         let repository = open_repository(&database_path).unwrap();
@@ -267,6 +329,42 @@ mod tests {
             Err(NtError::CommittedButOutputFailed(_))
         ));
         assert!(open_repository(&database_path).is_ok());
+    }
+
+    #[test]
+    fn exact_body_commands_report_output_flush_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        schema::initialize_at(&database_path).unwrap();
+        let id = open_repository(&database_path)
+            .unwrap()
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Exact note").unwrap())
+            .unwrap();
+        open_memory_repository(&database_path)
+            .unwrap()
+            .append(crate::memory::NewMemory::new("exact memory").unwrap())
+            .unwrap();
+
+        for arguments in [
+            vec!["nt".to_string(), "show".to_string(), id.to_string()],
+            vec![
+                "nt".to_string(),
+                "memory".to_string(),
+                "show".to_string(),
+                "1".to_string(),
+            ],
+        ] {
+            let mut stdin = Cursor::new(Vec::new());
+            let mut editor = |_| panic!("editor should not run");
+            let input = Input::new(&mut stdin, false, &mut editor);
+            let mut output = FlushFailingWriter;
+            let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+
+            assert!(matches!(
+                run(Cli::parse_from(arguments), &mut app),
+                Err(NtError::Io(error)) if error.kind() == io::ErrorKind::Other
+            ));
+        }
     }
 
     fn assert_committed_output_failure(path: &Path, arguments: &[&str], body: &str) {

@@ -22,7 +22,7 @@ fn initialized() -> Connection {
 }
 
 #[test]
-fn initializes_version_one_with_nt_identity() {
+fn initializes_current_schema_with_nt_identity() {
     let mut connection = initialized();
     assert_eq!(inspect(&connection).unwrap(), Identity::Nt);
     assert!(!initialize(&mut connection).unwrap());

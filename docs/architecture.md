@@ -1,120 +1,96 @@
 # nt Architecture
 
-`nt` is a deliberately single-purpose note application. It is one Cargo package
-with direct, compile-time dependencies rather than traits, plugins, registries,
-or dependency-injection machinery.
+This document explains code ownership and execution boundaries. Product rules
+are in [Design](design.md), and public behavior is in
+[CLI Reference](cli-reference.md).
+
+`nt` is one Cargo package with direct compile-time dependencies. It does not use
+repository traits, plugins, registries, or dependency-injection frameworks.
 
 ## Dependency Direction
 
-The primary command paths are:
-
 ```text
 CLI -> commands -> application schema -> SQLite storage
-                -> note model/repository -> opened SQLite connection
+                -> note repository   -> opened SQLite connection
+                -> memory repository -> opened SQLite connection
 ```
 
-`src/lib.rs` is the process composition root and `run_process` is the only
-intentional public Rust entry point. It resolves process state, builds the
-application context, and dispatches the parsed command. Note, repository, CLI,
-and schema APIs remain implementation details rather than a supported SDK.
+`src/lib.rs` is the process entry point. `run_process` resolves process state,
+builds the concrete application context, and dispatches a parsed command. Other
+Rust APIs are implementation details, not a supported SDK.
 
-The source layout is:
+Production dependencies follow these rules:
 
 ```text
-src/
-  note/
-    body.rs
-    collection.rs
-    date.rs
-    id.rs
-    model.rs
-    query.rs
-    schema.rs
-    repository/
-  storage/
-  cli/
-  commands/
-  app.rs
-  schema.rs
-  error.rs
-  lib.rs
-  main.rs
+storage does not import note or memory
+note and memory do not import CLI, commands, or App
+note and memory remain separate concrete models and repositories
+application schema imports model schema definitions, not repositories
+repositories receive connections opened by the application schema layer
+commands construct the repository needed for one operation
 ```
-
-`src/error.rs` defines the concrete crate-wide error vocabulary, including the
-stable process categories consumed by the binary adapter.
 
 ## Responsibilities
 
-`src/cli/` owns command grammar, body input, editor execution, rendering,
-terminal behavior, help, and canonical home-directory resolution.
+| Area | Ownership |
+| --- | --- |
+| `src/cli/` | Command grammar, body input, note editor execution, rendering, terminal behavior, help, and home resolution |
+| `src/commands/` | Command orchestration; parses values, opens storage, invokes one repository operation, and renders results |
+| `src/note/` | Note values, validation, queries, persistence, edit conflicts, and note schema SQL |
+| `src/memory/` | Raw and summary values, tree arithmetic, queries, context selection, persistence, jobs, and memory schema SQL |
+| `src/storage/` | SQLite connections, foreign keys, WAL, busy handling, filesystem setup, atomic initialization, and schema validation mechanics |
+| `src/schema.rs` | Application identity, complete schema manifest, initialization, and validated read-only or read-write opening |
+| `src/app.rs` | Concrete process dependencies used to test command handlers without mutating global process state |
+| `src/error.rs` | Crate-wide errors and stable process exit categories |
 
-`src/commands/` owns orchestration. Handlers parse note values, select the
-appropriate concrete repository operation, and render the result without
-issuing SQL.
+Command handlers do not issue SQL. The note and memory `Repository` types are
+separate concrete interfaces over already-open connections. They do not
+resolve, initialize, open, or validate the application database.
 
-`src/note/` is the business boundary. It owns note identity and validation,
-collections, tags, CommonMark body rules, the query model, concrete persistence
-operations, rehydration, optimistic body-edit conflicts, and note schema SQL.
-`Repository` is a concrete facade over an already-open SQLite connection, not a
-generic abstraction. It does not initialize, open, or validate the application
-database.
+Note and memory stay separate at the schema and repository layers. Features
+that compose them belong in command or read-time application logic, not schema
+coupling or a generic entity model.
 
-`src/storage/` owns SQLite infrastructure: opening and configuring connections,
-foreign keys, WAL, busy handling, private filesystem setup, atomic publication
-of newly initialized databases, and exact schema-validation mechanics. It does
-not own note models or note schema SQL.
+## Command Lifecycle
 
-`src/app.rs` carries the concrete, testable process dependencies used by command
-handlers. `src/schema.rs` owns application database initialization and opening.
-It binds the fixed nt database identity and application schema manifest to the
-storage mechanics and returns configured, validated SQLite connections.
+Read commands open a validated read-only connection, execute repository
+operations, and render the result. Exact `show` commands write and flush the
+canonical body. Redirected note results and raw-memory list or recall results
+stream rows; an intentionally closed downstream pipe ends those commands
+successfully.
 
-The production dependency rules are:
+Multi-query reads may use a read transaction when they need one consistent
+snapshot. Input-taking mutations collect and validate their body outside a
+database connection where possible. Note editing reads the current body and
+version, closes storage while the editor runs, then reopens storage and commits
+only if the body version still matches. No transaction or connection remains
+open while waiting for editor input.
 
-```text
-storage does not import note
-note does not import CLI, commands, or App
-application schema imports model schema definitions, not repositories
-repositories operate only on connections opened by the application schema layer
-commands open the database through the application schema layer and construct concrete repositories
-CLI parses and renders note-facing values
-```
+Each mutation performs one short repository transaction. The commit completes
+before its success line is written, so a later output failure cannot roll back
+the mutation. This boundary is surfaced explicitly by the CLI error contract.
 
-Tests may construct the complete application across these boundaries to verify
-integration behavior.
+TTY note tables need full-column widths, so rendering spools encoded rows to an
+unnamed temporary file before replaying them. Redirected note tables and memory
+list, recall, or pending rows do not require alignment and stream directly.
 
 ## Schema Ownership
 
-`src/schema.rs` owns the application ID, schema version, and one concrete schema
-manifest. The manifest contains a flat ordered object list, required FTS
-shadow-table names, and allowed trigger names. There is no schema fragment
-composition or runtime registration model. It also owns application-level
-initialization and read-only/read-write opening; `src/storage/` implements those
-operations without knowing which models contribute schema objects.
+The application schema is a flat compile-time manifest in a fixed order:
 
-`src/note/schema.rs` owns the exact SQL for the version table, all note tables,
-the FTS virtual table, triggers, and indexes, together with the FTS shadow-table
-and trigger requirements. `src/storage/schema_engine.rs` consumes the manifest
-to perform transactional initialization, identity inspection, exact object
-validation, version checks, and unknown-trigger rejection.
+- `src/schema.rs` owns the application ID, schema version, and version table.
+- `src/note/schema.rs` owns note tables, note FTS, triggers, and indexes.
+- `src/memory/schema.rs` owns raw memories, summaries, jobs, both memory FTS
+  indexes, immutability triggers, FTS triggers, and memory indexes.
+- `src/storage/schema_engine.rs` initializes and validates the assembled
+  manifest without knowing the note or memory models.
 
-Version-1 SQL definitions are a compatibility boundary. Structural refactors
-must leave stored `sqlite_schema.sql` values and creation order unchanged. The
-independent fixture in `tests/fixtures/v1_schema.sql` protects that contract
-through the compiled binary interface.
+Opening storage validates identity, version, required object definitions, and
+allowed triggers before returning a configured connection. Foreign keys are
+enabled for every connection. Read-write connections establish WAL and use a
+bounded busy timeout; read-only commands can operate against a non-writable
+database when SQLite can read the database and referenced WAL.
 
-## Product Boundary
-
-`nt` currently has notes only. Search improvements, import and export, and
-similar work are capabilities around notes, not new first-class domains.
-
-Sources and generic metadata are not part of the note model. External resources,
-bookmarks, imported documents, and agent-generated summaries can instead be
-ordinary CommonMark notes organized by collections, tags, and directional note
-links. They receive no reserved note kinds or hidden semantics.
-
-This version has no memory model, tables, commands, or reserved extension point.
-If memory becomes a first-class model, it will have concrete schema, repository,
-and command code. The application manifest will include its schema explicitly;
-no traits, registries, plugins, or dependency-injection layer are implied.
+Initialization can adopt an empty SQLite database or atomically publish a new
+temporary sibling. On Unix it requests private directory and database modes.
+Ordinary commands never create storage or schema objects.

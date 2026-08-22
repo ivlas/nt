@@ -1,6 +1,7 @@
 use rusqlite::types::Value;
 
 use super::super::{Filter, NoteQuery};
+use crate::lexical::fts_and_expression;
 
 pub(super) fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
     if query.filters().is_empty() && query.lexical_terms().is_empty() {
@@ -13,12 +14,7 @@ pub(super) fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
         .map(|filter| compile_filter(filter, &mut parameters))
         .collect::<Vec<_>>();
     if !query.lexical_terms().is_empty() {
-        let fts_query = query
-            .lexical_terms()
-            .iter()
-            .map(|term| format!("\"{term}\""))
-            .collect::<Vec<_>>()
-            .join(" AND ");
+        let fts_query = fts_and_expression(query.lexical_terms());
         let parameter = push_parameter(&mut parameters, &fts_query);
         expressions.push(format!(
             "n.pk IN (SELECT rowid FROM note_fts WHERE note_fts MATCH ?{parameter})"

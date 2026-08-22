@@ -1,0 +1,20 @@
+nt
+
+Local, agent-first notes and persistent memory.
+
+Usage:
+  nt <command> [args...]
+
+Commands:
+  init                                 initialize canonical storage
+  add [metadata...] [-- body...]       add a CommonMark note
+  show <id>                            print one exact body
+  list [filter...]|tags|collections    list note summaries or metadata values
+  find <term-or-filter...>             search note summaries
+  rm <id...>                           remove notes atomically
+  edit <id> [-- body...]               replace one body
+  move <id> <collection>               move one note
+  tag <id> <+tag|-tag>                 change one tag
+  link <id> <+id|-id>                  change one directional link
+  memory <command> [args...]           use immutable persistent memory
+  help [command...]                    show command help
