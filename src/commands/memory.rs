@@ -3,8 +3,8 @@ use std::io::{self, BufWriter, Write};
 use crate::cli::MemoryCommand;
 use crate::error::{NtError, Result};
 use crate::memory::{
-    ContextItem, ExpansionItem, Memory, MemoryContextQuery, MemoryListQuery, MemoryRecallQuery,
-    NewMemory, NewSummary, Repository, SummaryNodeId, range,
+    ContextItem, ExpansionItem, MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemoryListQuery,
+    MemoryRecallQuery, NewMemory, NewSummary, Repository, SummaryNodeId, range,
 };
 use crate::schema;
 
@@ -62,34 +62,25 @@ fn context(app: &mut App<'_>, expressions: &[String]) -> Result<()> {
     let query = MemoryContextQuery::parse(expressions)?;
     let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
     let items = repository.context(&query)?;
-    let mut output = BufWriter::new(&mut *app.output);
+    let document = render_context(&items)?;
+    app.output.write_all(document.as_bytes())?;
+    Ok(())
+}
+
+fn render_context(items: &[ContextItem]) -> Result<String> {
+    let mut document = String::new();
     for (index, item) in items.iter().enumerate() {
         if index != 0 {
-            output.write_all(b"\n")?;
+            document.push('\n');
         }
-        match item {
-            ContextItem::Raw(memory) => {
-                writeln!(output, "# memory {} ({})", memory.seq(), memory.created())?;
-                output.write_all(memory.body().as_bytes())?;
-                output.write_all(b"\n")?;
-            }
-            ContextItem::Summary(segment) => {
-                let raw = range(segment.node().level(), segment.node().block())
-                    .expect("repository returns summaries with valid ranges");
-                writeln!(
-                    output,
-                    "# summary {} ({}-{})",
-                    segment.node(),
-                    raw.start(),
-                    raw.end()
-                )?;
-                output.write_all(segment.summary().as_bytes())?;
-                output.write_all(b"\n")?;
-            }
-        }
+        document.push_str(&item.context_header()?);
+        document.push_str(item.content());
+        document.push('\n');
     }
-    output.flush()?;
-    Ok(())
+    if document.chars().count() > MEMORY_CONTEXT_CHARS {
+        return Err(NtError::MemoryContextOverflow);
+    }
+    Ok(document)
 }
 
 fn pending(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
@@ -283,8 +274,9 @@ fn invalid_positive<T>(field: &'static str, value: &str) -> Result<T> {
 mod tests {
     use std::io::{self, Write};
 
-    use super::write_memories;
-    use crate::memory::{Memory, NewMemory};
+    use super::{render_context, write_memories};
+    use crate::memory::schema::OBJECTS;
+    use crate::memory::{MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, NewMemory, Repository};
 
     fn memory() -> Memory {
         Memory::from_new(
@@ -299,6 +291,26 @@ mod tests {
     fn streamed_memory_output_treats_broken_writes_and_flushes_as_success() {
         write_memories(&mut BrokenPipeWriter, |write| write(&memory())).unwrap();
         write_memories(&mut FlushBrokenPipeWriter, |write| write(&memory())).unwrap();
+    }
+
+    #[test]
+    fn rendered_context_including_headers_never_exceeds_the_limit() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        for object in OBJECTS {
+            connection.execute_batch(object.sql).unwrap();
+        }
+        let mut repository = Repository::from_connection(connection);
+        let body = format!("needle{}", "é".repeat(1_018));
+        for _ in 0..40 {
+            repository.append(NewMemory::new(&body).unwrap()).unwrap();
+        }
+        let query = MemoryContextQuery::parse(&["needle".to_string()]).unwrap();
+        let document = render_context(&repository.context(&query).unwrap()).unwrap();
+
+        assert!(document.chars().count() <= MEMORY_CONTEXT_CHARS);
+        assert!(document.contains("# memory "));
+        assert!(document.contains("2026-"));
+        assert!(document.contains(&body));
     }
 
     struct BrokenPipeWriter;
