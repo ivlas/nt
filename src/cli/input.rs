@@ -225,6 +225,17 @@ mod tests {
                 ],
             }
         );
+        assert_eq!(
+            parse_editor(None, Some(r#"code --profile "Team Alpha" 'note file.md'"#)).unwrap(),
+            EditorCommand {
+                program: "code".to_string(),
+                arguments: vec![
+                    "--profile".to_string(),
+                    "Team Alpha".to_string(),
+                    "note file.md".to_string(),
+                ],
+            }
+        );
     }
 
     #[test]
