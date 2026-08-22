@@ -47,6 +47,10 @@ Command handlers do not issue SQL. The note and memory `Repository` types are
 separate concrete interfaces over already-open connections. They do not
 resolve, initialize, open, or validate the application database.
 
+Note and memory stay separate at the schema and repository layers. Features
+that compose them belong in command or read-time application logic, not schema
+coupling or a generic entity model.
+
 ## Command Lifecycle
 
 Read commands open a validated read-only connection, execute repository
@@ -55,11 +59,12 @@ canonical body. Redirected note results and raw-memory list or recall results
 stream rows; an intentionally closed downstream pipe ends those commands
 successfully.
 
-Input-taking mutations collect and validate their body outside a database
-connection where possible. Note editing reads the current body and version,
-closes storage while the editor runs, then reopens storage and commits only if
-the body version still matches. No transaction remains open while reading stdin
-or waiting for an editor.
+Multi-query reads may use a read transaction when they need one consistent
+snapshot. Input-taking mutations collect and validate their body outside a
+database connection where possible. Note editing reads the current body and
+version, closes storage while the editor runs, then reopens storage and commits
+only if the body version still matches. No transaction or connection remains
+open while waiting for editor input.
 
 Each mutation performs one short repository transaction. The commit completes
 before its success line is written, so a later output failure cannot roll back
@@ -67,8 +72,7 @@ the mutation. This boundary is surfaced explicitly by the CLI error contract.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables and memory
-list or recall rows do not require alignment and stream directly. Pending jobs
-are collected before rendering.
+list, recall, or pending rows do not require alignment and stream directly.
 
 ## Schema Ownership
 

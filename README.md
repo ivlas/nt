@@ -70,6 +70,11 @@ metadata, or hidden semantics.
 Rust 1.95 is the intentional minimum supported Rust version (MSRV). CI verifies
 that version on Linux and current stable Rust on Linux, macOS, and Windows.
 
+Ignored scale and query-plan tests are manual release-mode audits. Run them with
+`cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`;
+the audit names cover million-memory operations, a complete memory pyramid,
+queryless context scaling, and note ID-prefix query plans.
+
 ## License
 
 MIT; see [LICENSE](./LICENSE).

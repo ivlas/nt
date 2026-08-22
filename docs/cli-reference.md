@@ -317,6 +317,10 @@ integrity audit or repair command.
 Operational errors use `error: <message>` on stderr. TTY errors may be colored;
 `NO_COLOR`, `TERM=dumb`, or redirected stderr disables color.
 
+Stdout is contractual command data and remains deterministic. Stderr is for
+actionable errors. Normal commands intentionally do not emit logs or tracing;
+any future optional diagnostics must not change normal stdout or stderr.
+
 | Exit | Meaning |
 | ---: | --- |
 | `0` | Success, including an intentionally closed streaming pipe |
