@@ -44,20 +44,14 @@ retrieval, or hidden agent-only commands.
 ## Architecture
 
 Notes and memory are separate concrete models. Notes provide editable durable
-knowledge with collections, tags, and directional links. Memory provides this
-fixed architecture:
+knowledge with collections, tags, and directional links. Memory keeps immutable
+raw experience in sequence order and uses a derived 16-way summary tree for
+bounded retrieval. `nt memory context` emits at most 32,768 Unicode characters,
+including formatting, without truncating selected items.
 
-```text
-immutable raw experience -> 16-way summary pyramid -> indexed retrieval
--> 32 KiB context compiler -> progressive expansion -> exact original history
-```
-
-Storage size and context size are independent. Raw history remains in SQLite;
-`nt memory context` emits at most 32,768 Unicode characters including complete
-memory content, headers, timestamps, ranges, separators, and newlines.
-Summaries, summary jobs, and FTS indexes are derived and rebuildable from
-immutable raw memory. Summarization is explicit work performed by the calling
-agent, not a daemon or automatic model call.
+Summarization is explicit work performed by the calling agent, not a daemon or
+automatic model call. Progressive expansion recovers exact raw history when a
+summary is insufficient.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,

@@ -40,7 +40,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
             "nt memory recall <term-or-filter...>\n\nSearch exact raw history with literal lexical terms.\n",
         ),
         "memory context" => Ok(
-            "nt memory context [term...]\n\nCompile deterministic useful memory under the fixed 32 KiB content budget.\n",
+            "nt memory context [term...]\n\nCompile deterministic useful memory under the 32,768-character output limit.\n",
         ),
         "memory pending" => Ok(
             "nt memory pending [L<level>:<block>|limit:<n>]\n\nList summary work or print one model-independent compression task.\n",
