@@ -1,8 +1,16 @@
 use rusqlite::Connection;
 
 use super::*;
-use crate::error::NtError;
+use crate::error::{NtError, Result};
 use crate::note::{CollectionPath, NewNote, NoteQuery, Repository};
+
+fn open_repository(path: &std::path::Path) -> Result<Repository> {
+    open_read_write(path).map(Repository::from_connection)
+}
+
+fn open_read_only_repository(path: &std::path::Path) -> Result<Repository> {
+    open_read_only(path).map(Repository::from_connection)
+}
 
 fn initialized() -> Connection {
     let mut connection = Connection::open_in_memory().unwrap();
@@ -313,9 +321,9 @@ fn malformed_schema_version_shape_is_a_schema_mismatch() {
 fn read_only_connections_read_notes_and_reject_writes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("nt.sqlite3");
-    Repository::initialize_at(&path).unwrap();
+    initialize_at(&path).unwrap();
     let id = {
-        let mut writer = Repository::open_at(&path).unwrap();
+        let mut writer = open_repository(&path).unwrap();
         writer
             .create_note(
                 NewNote::new(CollectionPath::inbox(), "# Read only")
@@ -325,7 +333,7 @@ fn read_only_connections_read_notes_and_reject_writes() {
             .unwrap()
     };
 
-    let reader = Repository::open_read_only(&path).unwrap();
+    let reader = open_read_only_repository(&path).unwrap();
     let foreign_keys: i64 = reader
         .connection
         .pragma_query_value(None, "foreign_keys", |row| row.get(0))
@@ -337,7 +345,7 @@ fn read_only_connections_read_notes_and_reject_writes() {
     assert_eq!((foreign_keys, journal.as_str()), (1, "wal"));
     drop(reader);
 
-    let mut reader = Repository::open_read_only(&path).unwrap();
+    let mut reader = open_read_only_repository(&path).unwrap();
     assert_eq!(reader.get_note(&id).unwrap().body(), "# Read only");
     assert_eq!(reader.list_tags().unwrap(), vec!["rust".parse().unwrap()]);
     let mut visited = 0;
@@ -360,9 +368,9 @@ fn read_only_connections_read_notes_and_reject_writes() {
 fn writer_contention_returns_the_retryable_busy_error() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("nt.sqlite3");
-    Repository::initialize_at(&path).unwrap();
-    let mut first = Repository::open_at(&path).unwrap();
-    let mut second = Repository::open_at(&path).unwrap();
+    initialize_at(&path).unwrap();
+    let mut first = open_repository(&path).unwrap();
+    let mut second = open_repository(&path).unwrap();
     second
         .connection
         .busy_timeout(std::time::Duration::from_millis(1))

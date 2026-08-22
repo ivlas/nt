@@ -6,10 +6,11 @@ or dependency-injection machinery.
 
 ## Dependency Direction
 
-The primary command path is:
+The primary command paths are:
 
 ```text
-CLI -> commands -> note model/repository -> SQLite storage
+CLI -> commands -> application schema -> SQLite storage
+                -> note model/repository -> opened SQLite connection
 ```
 
 `src/lib.rs` is the process composition root and `run_process` is the only
@@ -55,7 +56,9 @@ issuing SQL.
 `src/note/` is the business boundary. It owns note identity and validation,
 collections, tags, CommonMark body rules, the query model, concrete persistence
 operations, rehydration, optimistic body-edit conflicts, and note schema SQL.
-`Repository` is a concrete facade, not a generic abstraction.
+`Repository` is a concrete facade over an already-open SQLite connection, not a
+generic abstraction. It does not initialize, open, or validate the application
+database.
 
 `src/storage/` owns SQLite infrastructure: opening and configuring connections,
 foreign keys, WAL, busy handling, private filesystem setup, atomic publication
@@ -63,15 +66,18 @@ of newly initialized databases, and exact schema-validation mechanics. It does
 not own note models or note schema SQL.
 
 `src/app.rs` carries the concrete, testable process dependencies used by command
-handlers. `src/schema.rs` binds the fixed nt database identity and note schema to
-the storage mechanics and supplies storage-backed `Repository` construction.
+handlers. `src/schema.rs` owns application database initialization and opening.
+It binds the fixed nt database identity and application schema manifest to the
+storage mechanics and returns configured, validated SQLite connections.
 
 The production dependency rules are:
 
 ```text
 storage does not import note
 note does not import CLI, commands, or App
-commands orchestrate concrete note and storage operations
+application schema imports model schema definitions, not repositories
+repositories operate only on connections opened by the application schema layer
+commands open the database through the application schema layer and construct concrete repositories
 CLI parses and renders note-facing values
 ```
 
@@ -83,7 +89,9 @@ integration behavior.
 `src/schema.rs` owns the application ID, schema version, and one concrete schema
 manifest. The manifest contains a flat ordered object list, required FTS
 shadow-table names, and allowed trigger names. There is no schema fragment
-composition or runtime registration model.
+composition or runtime registration model. It also owns application-level
+initialization and read-only/read-write opening; `src/storage/` implements those
+operations without knowing which models contribute schema objects.
 
 `src/note/schema.rs` owns the exact SQL for the version table, all note tables,
 the FTS virtual table, triggers, and indexes, together with the FTS shadow-table
@@ -98,14 +106,15 @@ through the compiled binary interface.
 
 ## Product Boundary
 
-`nt` has notes only. Search improvements, import and export, and similar work are
-capabilities around notes, not new first-class domains.
+`nt` currently has notes only. Search improvements, import and export, and
+similar work are capabilities around notes, not new first-class domains.
 
 Sources and generic metadata are not part of the note model. External resources,
 bookmarks, imported documents, and agent-generated summaries can instead be
 ordinary CommonMark notes organized by collections, tags, and directional note
 links. They receive no reserved note kinds or hidden semantics.
 
-Append-only memory and other distinct product models are outside `nt` and belong
-in separate applications. The codebase reserves no extension point, directory,
-behavior, or storage for them.
+This version has no memory model, tables, commands, or reserved extension point.
+If memory becomes a first-class model, it will have concrete schema, repository,
+and command code. The application manifest will include its schema explicitly;
+no traits, registries, plugins, or dependency-injection layer are implied.

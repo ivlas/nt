@@ -68,8 +68,13 @@ mod tests {
     use super::{App, run};
     use crate::cli::Cli;
     use crate::cli::input::Input;
-    use crate::error::NtError;
+    use crate::error::{NtError, Result};
     use crate::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
+    use crate::schema;
+
+    fn open_repository(path: &Path) -> Result<Repository> {
+        schema::open_read_write(path).map(Repository::from_connection)
+    }
 
     #[test]
     fn commands_run_directly_with_supplied_storage_and_io() {
@@ -101,7 +106,7 @@ mod tests {
             String::from_utf8(output).unwrap(),
             format!("initialized\nsaved {id}\n# Direct input\nBody")
         );
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         assert_eq!(
             repository.get_note(&id.parse().unwrap()).unwrap().body(),
             "# Direct input\nBody"
@@ -126,8 +131,8 @@ mod tests {
     fn edit_reports_a_body_change_committed_while_editor_is_open() {
         let directory = tempfile::tempdir().unwrap();
         let database_path = directory.path().join(".nt/nt.sqlite3");
-        Repository::initialize_at(&database_path).unwrap();
-        let id = Repository::open_at(&database_path)
+        schema::initialize_at(&database_path).unwrap();
+        let id = open_repository(&database_path)
             .unwrap()
             .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
             .unwrap();
@@ -135,7 +140,7 @@ mod tests {
         let concurrent_path = database_path.clone();
         let concurrent_id = id.clone();
         let mut editor = move |_| -> crate::error::Result<String> {
-            let mut repository = Repository::open_at(&concurrent_path)?;
+            let mut repository = open_repository(&concurrent_path)?;
             let mut note = repository.get_note(&concurrent_id)?;
             let expected_version = note.body_version();
             note.replace_body("# Concurrent", timestamp_now()?)?;
@@ -154,7 +159,7 @@ mod tests {
         assert!(matches!(result, Err(NtError::ConcurrentEdit(changed)) if changed == id_text));
         assert!(output.is_empty());
         assert_eq!(
-            Repository::open_at(&database_path)
+            open_repository(&database_path)
                 .unwrap()
                 .get_note(&id)
                 .unwrap()
@@ -169,11 +174,11 @@ mod tests {
         let database_path = directory.path().join(".nt/nt.sqlite3");
 
         assert_committed_output_failure(&database_path, &["init"], "");
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["add"], "# Added");
-        let mut repository = Repository::open_at(&database_path).unwrap();
+        let mut repository = open_repository(&database_path).unwrap();
         let mut summaries = Vec::new();
         repository
             .visit_note_summaries(&NoteQuery::default(), |summary| {
@@ -190,12 +195,12 @@ mod tests {
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["edit", &id.to_string()], "# Edited");
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         assert_eq!(repository.get_note(&id).unwrap().body(), "# Edited");
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["move", &id.to_string(), "work/nt"], "");
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         let moved = NoteQuery::parse_list(&["collection:work/nt".to_string()]).unwrap();
         let mut moved_ids = Vec::new();
         repository
@@ -208,7 +213,7 @@ mod tests {
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["tag", &id.to_string(), "+rust"], "");
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         let tagged = NoteQuery::parse_list(&["tag:rust".to_string()]).unwrap();
         let mut tagged_ids = Vec::new();
         repository
@@ -225,7 +230,7 @@ mod tests {
             &["link", &id.to_string(), &format!("+{target}")],
             "",
         );
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         let mut outgoing = None;
         repository
             .visit_note_summaries(&NoteQuery::default(), |summary| {
@@ -239,7 +244,7 @@ mod tests {
         drop(repository);
 
         assert_committed_output_failure(&database_path, &["rm", &id.to_string()], "");
-        let repository = Repository::open_at(&database_path).unwrap();
+        let repository = open_repository(&database_path).unwrap();
         assert!(matches!(
             repository.get_note(&id),
             Err(NtError::NoteNotFound(_))
@@ -261,7 +266,7 @@ mod tests {
             run(Cli::parse_from(["nt", "init"]), &mut app),
             Err(NtError::CommittedButOutputFailed(_))
         ));
-        assert!(Repository::open_at(&database_path).is_ok());
+        assert!(open_repository(&database_path).is_ok());
     }
 
     fn assert_committed_output_failure(path: &Path, arguments: &[&str], body: &str) {
