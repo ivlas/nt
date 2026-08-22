@@ -193,11 +193,14 @@ fn display_width(value: &str) -> usize {
 mod tests {
     use std::io::{self, Write};
 
+    use rusqlite::Connection;
+
     use super::{
         decode_spooled_row, display_width, escape_terminal_controls, format_table, print_values,
         write_spooled_table,
     };
     use crate::error::NtError;
+    use crate::note::{NoteQuery, Repository};
 
     #[test]
     fn tty_tables_include_headers_and_align_columns() {
@@ -309,6 +312,38 @@ mod tests {
             vec!["rust".to_string()],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn note_output_matches_redirected_and_tty_goldens() {
+        let connection = Connection::open_in_memory().unwrap();
+        for object in crate::note::schema::OBJECTS {
+            connection.execute_batch(object.sql).unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO notes(
+                     id, collection, body, title, created, updated
+                 ) VALUES (
+                     '018fbe0a-6c00-7000-8000-000000000001',
+                     'work/nt', '# Golden note', 'Golden note',
+                     '2026-08-22T12:34:56Z', '2026-08-22T12:34:56Z'
+                 );
+                 INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust'), (1, 'sqlite');",
+            )
+            .unwrap();
+        let repository = Repository::from_connection(connection);
+
+        let mut redirected = Vec::new();
+        super::print_notes(&repository, &NoteQuery::default(), &mut redirected, false).unwrap();
+        assert_eq!(
+            redirected,
+            include_bytes!("../../tests/fixtures/note-redirected.txt")
+        );
+
+        let mut tty = Vec::new();
+        super::print_notes(&repository, &NoteQuery::default(), &mut tty, true).unwrap();
+        assert_eq!(tty, include_bytes!("../../tests/fixtures/note-tty.txt"));
     }
 
     #[derive(Default)]
