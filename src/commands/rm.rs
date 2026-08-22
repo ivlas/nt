@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::error::{NtError, Result};
 use crate::note::{NoteId, Repository};
+use crate::schema;
 
 use super::{App, write_commit_output};
 
@@ -15,7 +16,8 @@ pub(super) fn rm(app: &mut App<'_>, ids: &[String]) -> Result<()> {
         }
         parsed.push(id);
     }
-    let mut repository = Repository::open_at(app.database_path()?)?;
+    let mut repository =
+        Repository::from_connection(schema::open_read_write(app.database_path()?)?);
     repository.delete_notes(&parsed)?;
     write_commit_output(app.output, format_args!("removed {}\n", parsed.len()))?;
     Ok(())

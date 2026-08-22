@@ -1,15 +1,14 @@
 use std::path::Path;
 
-#[cfg(test)]
 use rusqlite::Connection;
 
 use crate::error::Result;
-use crate::note::Repository;
 use crate::note::schema::{ALLOWED_TRIGGERS, OBJECTS, REQUIRED_SHADOW_TABLES};
+pub(crate) use crate::storage::InitOutcome;
 use crate::storage::schema_engine::SchemaManifest;
 #[cfg(test)]
 use crate::storage::schema_engine::{self, Identity};
-use crate::storage::{self, InitOutcome, OpenMode};
+use crate::storage::{self, OpenMode};
 
 pub(crate) const APPLICATION_ID: i64 = 0x4e54_4e54;
 pub(crate) const SCHEMA_VERSION: i64 = 1;
@@ -23,22 +22,16 @@ pub(crate) static MANIFEST: SchemaManifest = SchemaManifest {
     version_insert_sql: "INSERT INTO schema_version(singleton, version) VALUES (1, 1)",
 };
 
-impl Repository {
-    pub fn initialize_at(path: &Path) -> Result<InitOutcome> {
-        storage::initialize_at(path, &MANIFEST)
-    }
-
-    pub fn open_at(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadWrite)
-    }
-
-    pub fn open_read_only(path: &Path) -> Result<Self> {
-        open_at(path, OpenMode::ReadOnly)
-    }
+pub(crate) fn initialize_at(path: &Path) -> Result<InitOutcome> {
+    storage::initialize_at(path, &MANIFEST)
 }
 
-fn open_at(path: &Path, mode: OpenMode) -> Result<Repository> {
-    storage::open_at(path, mode, &MANIFEST).map(Repository::from_connection)
+pub(crate) fn open_read_write(path: &Path) -> Result<Connection> {
+    storage::open_at(path, OpenMode::ReadWrite, &MANIFEST)
+}
+
+pub(crate) fn open_read_only(path: &Path) -> Result<Connection> {
+    storage::open_at(path, OpenMode::ReadOnly, &MANIFEST)
 }
 
 #[cfg(test)]

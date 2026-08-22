@@ -15,14 +15,15 @@ mod tests {
     use crate::storage::{InitOutcome, OpenMode};
 
     fn initialize_at(path: &std::path::Path) -> Result<InitOutcome> {
-        Repository::initialize_at(path)
+        schema::initialize_at(path)
     }
 
     fn open_at(path: &std::path::Path, mode: OpenMode) -> Result<Repository> {
-        match mode {
-            OpenMode::ReadOnly => Repository::open_read_only(path),
-            OpenMode::ReadWrite => Repository::open_at(path),
-        }
+        let connection = match mode {
+            OpenMode::ReadOnly => schema::open_read_only(path),
+            OpenMode::ReadWrite => schema::open_read_write(path),
+        }?;
+        Ok(Repository::from_connection(connection))
     }
 
     fn repository() -> Repository {

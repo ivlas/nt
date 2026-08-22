@@ -24,8 +24,8 @@ storage cannot resolve relative to the working directory.
 There are no note kinds, todos, agenda behavior, vaults, collection entities,
 many-to-many memberships, sources, generic metadata, configurable projections,
 reserved tags, automatic routing, or migration compatibility. Append-only
-memory and other distinct product models are outside `nt` and belong in separate
-applications.
+memory is not part of this version: there are no memory tables, commands, or
+reserved note semantics.
 
 External resources, bookmarks, imported documents, and agent-generated
 summaries can be captured as ordinary CommonMark notes and organized with the
@@ -68,6 +68,11 @@ Retrieval commands open the database read-only; initialization and mutation
 commands open read-write and establish WAL. Mutations use short transactions,
 and no transaction remains open while reading stdin or waiting for
 `$VISUAL`/`$EDITOR`.
+
+The application schema layer owns initialization, opening, and validation of the
+whole nt database. Storage implements model-agnostic SQLite mechanics. The note
+repository receives an already-open connection and owns only note persistence;
+it does not own the application database lifecycle.
 
 ## Notes
 

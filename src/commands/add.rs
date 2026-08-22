@@ -1,10 +1,12 @@
 use crate::error::{NtError, Result};
 use crate::note::{CollectionPath, NewNote, NoteId, Repository, Tag};
+use crate::schema;
 
 use super::{App, write_commit_output};
 
 pub(super) fn add(app: &mut App<'_>, metadata: &[String], body_arguments: &[String]) -> Result<()> {
-    let mut repository = Repository::open_at(app.database_path()?)?;
+    let mut repository =
+        Repository::from_connection(schema::open_read_write(app.database_path()?)?);
     let metadata = CaptureMetadata::parse(metadata)?;
     let body = app.input.read_body(body_arguments, None)?;
     let note = NewNote::new(metadata.collection, body)?
