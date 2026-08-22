@@ -199,7 +199,7 @@ impl Repository {
             values.push(until.into());
             sql.push_str(&format!(" AND m.seq <= ?{}", values.len()));
         }
-        sql.push_str(" ORDER BY bm25(memory_fts) ASC, m.seq ASC");
+        sql.push_str(" ORDER BY m.seq ASC");
         if let Some(limit) = query.limit() {
             values.push(limit.into());
             sql.push_str(&format!(" LIMIT ?{}", values.len()));

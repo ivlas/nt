@@ -275,7 +275,7 @@ fn recent_raw_candidates(connection: &rusqlite::Connection) -> Result<Vec<Memory
     Ok(candidates)
 }
 
-fn lexical_raw_candidates(
+pub(super) fn lexical_raw_candidates(
     connection: &rusqlite::Connection,
     expression: &str,
 ) -> Result<Vec<Memory>> {
@@ -284,7 +284,7 @@ fn lexical_raw_candidates(
          FROM memory_fts
          JOIN memories m ON m.seq = memory_fts.rowid
          WHERE memory_fts MATCH ?1
-         ORDER BY bm25(memory_fts) ASC, m.seq DESC
+         ORDER BY m.seq DESC
          LIMIT {CANDIDATE_LIMIT}"
     ))?;
     let mut rows = statement.query([expression])?;
@@ -311,7 +311,7 @@ fn broad_summary_candidates(connection: &rusqlite::Connection) -> Result<Vec<Mem
     Ok(candidates)
 }
 
-fn lexical_summary_candidates(
+pub(super) fn lexical_summary_candidates(
     connection: &rusqlite::Connection,
     expression: &str,
 ) -> Result<Vec<MemorySegment>> {
@@ -320,7 +320,7 @@ fn lexical_summary_candidates(
          FROM memory_segment_fts
          JOIN memory_segments s ON s.pk = memory_segment_fts.rowid
          WHERE memory_segment_fts MATCH ?1
-         ORDER BY bm25(memory_segment_fts) ASC, s.level DESC, s.block DESC
+         ORDER BY s.level DESC, s.block DESC
          LIMIT {CANDIDATE_LIMIT}"
     ))?;
     let mut rows = statement.query(params![expression])?;

@@ -2,7 +2,11 @@ use std::collections::BTreeSet;
 
 use rusqlite::Connection;
 
-use super::{ContextItem, ExpansionItem, Repository, context_output_char_count};
+use super::{
+    ContextItem, ExpansionItem, Repository,
+    context::{lexical_raw_candidates, lexical_summary_candidates},
+    context_output_char_count,
+};
 use crate::error::NtError;
 use crate::memory::schema::OBJECTS;
 use crate::memory::{
@@ -104,17 +108,27 @@ fn list_and_visit_apply_inclusive_bounds_ascending_order_and_sql_limit() {
 }
 
 #[test]
-fn recall_uses_fts_with_bounds_limit_and_deterministic_sequence_ties() {
+fn recall_uses_fts_with_bounds_sql_limit_and_sequence_order_only() {
     let mut repository = repository();
-    for body in ["alpha one", "unrelated", "alpha alpha three", "alpha four"] {
+    for body in [
+        format!("alpha {}", "padding ".repeat(100)),
+        "alpha alpha alpha alpha alpha".to_string(),
+        "alpha final".to_string(),
+        "unrelated".to_string(),
+    ] {
         repository.append(NewMemory::new(body).unwrap()).unwrap();
     }
     let query =
-        MemoryRecallQuery::parse(&strings(&["alpha", "since:2", "until:4", "limit:2"])).unwrap();
+        MemoryRecallQuery::parse(&strings(&["alpha", "since:1", "until:3", "limit:2"])).unwrap();
     let recalled = repository.recall(&query).unwrap();
-    assert_eq!(recalled.len(), 2);
-    assert_eq!(recalled[0].seq(), 3);
-    assert_eq!(recalled[1].seq(), 4);
+    assert_eq!(
+        recalled
+            .iter()
+            .map(|memory| memory.seq())
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(recalled, repository.recall(&query).unwrap());
 }
 
 #[test]
@@ -383,6 +397,66 @@ fn context_prefers_exact_raw_and_excludes_overlapping_summaries() {
         context
             .iter()
             .all(|item| matches!(item, ContextItem::Raw(_)))
+    );
+}
+
+#[test]
+fn context_lexical_raw_candidates_are_bounded_and_prefer_newer_matches() {
+    let mut repository = repository();
+    repository
+        .append(NewMemory::new("common common common common common").unwrap())
+        .unwrap();
+    for index in 1..300 {
+        repository
+            .append(NewMemory::new(format!("common memory {index}")).unwrap())
+            .unwrap();
+    }
+    let query = MemoryContextQuery::parse(&strings(&["common"])).unwrap();
+
+    let candidates =
+        lexical_raw_candidates(&repository.connection, &query.fts_expression()).unwrap();
+    assert_eq!(candidates.len(), 256);
+    assert_eq!(candidates.first().unwrap().seq(), 300);
+    assert_eq!(candidates.last().unwrap().seq(), 45);
+    assert!(
+        candidates
+            .windows(2)
+            .all(|pair| pair[0].seq() > pair[1].seq())
+    );
+    assert_eq!(
+        candidates,
+        lexical_raw_candidates(&repository.connection, &query.fts_expression()).unwrap()
+    );
+}
+
+#[test]
+fn context_lexical_summary_candidates_prefer_higher_levels_then_newer_blocks() {
+    let repository = repository();
+    for (level, block, summary) in [
+        (0, 9, "common common common common common"),
+        (1, 0, "common older block"),
+        (2, 0, "common coarse summary"),
+        (1, 1, "common newer block with extra document length"),
+    ] {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (?1, ?2, ?3, '2026-08-22T12:34:56Z')",
+                rusqlite::params![level, block, summary],
+            )
+            .unwrap();
+    }
+    let query = MemoryContextQuery::parse(&strings(&["common"])).unwrap();
+
+    let candidates =
+        lexical_summary_candidates(&repository.connection, &query.fts_expression()).unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|segment| (segment.node().level(), segment.node().block()))
+            .collect::<Vec<_>>(),
+        [(2, 0), (1, 1), (1, 0), (0, 9)]
     );
 }
 
