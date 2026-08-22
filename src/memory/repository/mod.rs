@@ -99,15 +99,19 @@ impl Repository {
         let seq = transaction.last_insert_rowid();
         if seq % 16 == 0 {
             let node = level0_for_seq(seq).ok_or_else(|| invalid_node_value("invalid sequence"))?;
+            let raw_range = node_range(node)?;
+            let raw_start = raw_bound(raw_range.start(), node)?;
+            let raw_end = raw_bound(raw_range.end(), node)?;
             let (level, block) = node_values(node)?;
             transaction.execute(
                 "INSERT INTO memory_summary_jobs(level, block)
                  SELECT ?1, ?2
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM memory_segments WHERE level = ?1 AND block = ?2
-                 )
+                 WHERE (SELECT COUNT(*) FROM memories WHERE seq BETWEEN ?3 AND ?4) = 16
+                   AND NOT EXISTS (
+                      SELECT 1 FROM memory_segments WHERE level = ?1 AND block = ?2
+                   )
                  ON CONFLICT(level, block) DO NOTHING",
-                params![level, block],
+                params![level, block, raw_start, raw_end],
             )?;
         }
         transaction.commit()?;

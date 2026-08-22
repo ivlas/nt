@@ -61,6 +61,28 @@ fn append_assigns_monotonic_sequences_and_enqueues_completed_raw_ranges() {
 }
 
 #[test]
+fn append_does_not_enqueue_an_incomplete_raw_range() {
+    let mut repository = repository();
+    for seq in 99..=111 {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memories(seq, body, created) VALUES (?1, ?2, ?3)",
+                rusqlite::params![seq, format!("sparse {seq}"), "2026-08-22T12:34:56Z"],
+            )
+            .unwrap();
+    }
+
+    assert_eq!(
+        repository
+            .append(NewMemory::new("boundary memory").unwrap())
+            .unwrap(),
+        112
+    );
+    assert!(repository.pending(None).unwrap().is_empty());
+}
+
+#[test]
 fn persisted_memories_survive_reopening() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("memory.sqlite3");
