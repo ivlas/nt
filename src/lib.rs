@@ -1,3 +1,12 @@
+//! `nt` is primarily a binary and CLI product.
+//!
+//! [`run_process`] is the only intentionally supported public Rust entry point.
+//! Other crate modules and types are implementation details; there is currently
+//! no stable embeddable SDK or library API. The internal `App` dependency
+//! injection supports testing and command composition, not a public API promise.
+//! Any public Rust API expansion should be deliberate rather than exposing
+//! domain types incrementally.
+
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 
