@@ -53,10 +53,11 @@ immutable raw experience -> 16-way summary pyramid -> indexed retrieval
 ```
 
 Storage size and context size are independent. Raw history remains in SQLite;
-the context compiler selects at most 32,768 Unicode characters of complete
-memory content for one invocation. Summaries, summary jobs, and FTS indexes are
-derived and rebuildable from immutable raw memory. Summarization is explicit
-work performed by the calling agent, not a daemon or automatic model call.
+`nt memory context` emits at most 32,768 Unicode characters including complete
+memory content, headers, timestamps, ranges, separators, and newlines.
+Summaries, summary jobs, and FTS indexes are derived and rebuildable from
+immutable raw memory. Summarization is explicit work performed by the calling
+agent, not a daemon or automatic model call.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,

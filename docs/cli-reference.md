@@ -221,7 +221,7 @@ Memory v1 has fixed compile-time limits and no configuration:
 | --- | ---: |
 | Raw body | 1,024 Unicode characters |
 | Summary | 1,024 Unicode characters |
-| Context memory content | at most 32,768 Unicode characters |
+| Context stdout | at most 32,768 Unicode characters |
 | Summary fanout | 16 |
 
 Storage size and context size are independent. The raw sequence can continue to
@@ -373,8 +373,8 @@ such as `since:1` are errors. Zero lexical tokens select queryless context.
 Retrieval is deterministic and has no model call.
 
 Every candidate query has a fixed SQL `LIMIT 256`. With no lexical terms, the
-32,768-character memory-content budget is split 60% to recent exact raw entries
-ordered `seq DESC` and 40% to broad summaries ordered `level DESC, block DESC`.
+32,768-character stdout budget is split 60% to recent exact raw entries ordered
+`seq DESC` and 40% to broad summaries ordered `level DESC, block DESC`.
 
 With lexical terms, the budget is split 40% to lexical raw entries, 30% to
 recent raw entries, and 30% to lexical summaries. Lexical raw order is BM25
@@ -382,15 +382,17 @@ ascending then `seq DESC`; lexical summary order is BM25 ascending then
 `level DESC, block DESC`. Integer remainder goes to the final pool.
 
 Candidates that do not fit both their pool and the total budget are skipped;
-items are never truncated and unused pool capacity is not transferred. Exact
-raw sequences are deduplicated across pools. A summary is rejected if its raw
-range overlaps a selected raw entry or summary. Exact raw is selected before
-summaries and therefore wins overlap. Final output is ordered chronologically by
-raw range.
+items are never truncated. After preferred selection, remaining capacity is
+split 60% to the same bounded recent-raw candidates and 40% to bounded broad
+summaries. If either fallback pool is sparse, the other can consume the residue;
+raw is considered first for the final residue. Exact raw sequences are
+deduplicated across pools. A summary is rejected if its raw range overlaps a
+selected raw entry or summary. Exact raw is selected before summaries and
+therefore wins overlap. Final output is ordered chronologically by raw range.
 
-The content budget includes every complete selected raw body and summary. It
-excludes generated document labels, timestamps, ranges, separators, and
-formatting newlines. Raw items render as:
+The output budget includes every complete selected raw body and summary plus all
+generated document labels, timestamps, ranges, separators, and formatting
+newlines. Raw items render as:
 
 ```text
 # memory <seq> (<created>)
@@ -406,11 +408,12 @@ Summary items render as:
 
 The renderer writes a newline after each complete body and one additional
 newline before each item after the first. A stored trailing newline is preserved,
-so it can produce additional visible blank space. The fixed candidate bounds
-make context predictable and SQL-bounded but not exhaustive over all history.
-Literal search does not recover synonyms, and a summary can omit or misstate
-facts supplied by its calling agent. Use expansion and raw history when exact
-evidence matters.
+so it can produce additional visible blank space. The complete stdout document
+is counted as Unicode characters and never exceeds 32,768. The fixed candidate
+bounds make context predictable and SQL-bounded but not exhaustive over all
+history. Literal search does not recover synonyms, and a summary can omit or
+misstate facts supplied by its calling agent. Use expansion and raw history when
+exact evidence matters.
 
 ### Expand And Invalidate
 

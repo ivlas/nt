@@ -42,8 +42,9 @@ approval is required before agent-driven mutations.
 - Do not add embeddings, vector databases, automatic summarization calls,
   background workers, daemons, or generic domain abstractions.
 - Memory v1 limits are fixed compile-time constants: entries and summaries are
-  at most 1,024 Unicode characters, context contains at most 32,768 characters
-  of memory content, and summary fanout is 16.
+  at most 1,024 Unicode characters, context stdout contains at most 32,768
+  Unicode characters including metadata and formatting, and summary fanout is
+  16.
 
 ## Commands
 
@@ -113,7 +114,7 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
   FTS, `nt memory context` for deterministic bounded context compilation, and
   `nt memory expand` for progressive recovery of exact raw history.
 - Every memory-context candidate query is SQL-bounded. Never truncate an item to
-  fit the 32 KiB memory-content budget; skip candidates that do not fit.
+  fit the 32 KiB output budget; skip candidates that do not fit.
 - Prefer exact raw evidence over overlapping summaries, avoid redundant summary
   ranges, and render selected context items chronologically.
 

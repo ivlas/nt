@@ -275,7 +275,7 @@ derived summaries and jobs; exact raw history remains available through `show`,
 Raw bodies normalize CRLF and CR line endings to LF, must be non-empty, and may
 not contain NUL. Raw bodies and summaries are each limited to 1,024 Unicode
 characters. Limits count Unicode scalar values through Rust's `char` count, not
-UTF-8 bytes. These values, the 32,768-character context content budget, and
+UTF-8 bytes. These values, the 32,768-character context stdout budget, and
 fanout 16 are fixed compile-time constants with no configuration.
 
 Raw memory has no CommonMark H1 requirement and no tags, links, collection,
@@ -401,8 +401,10 @@ AND-combined. There is no raw FTS syntax, fuzzy match, semantic ranking, or
 embedding lookup.
 
 The context compiler selects complete raw bodies and summaries under a fixed
-32,768-Unicode-character memory-content budget. Every candidate-producing SQL
-query has `LIMIT 256`; this bound applies independently to each pool.
+32,768-Unicode-character stdout budget. The cost of each item includes its
+header, timestamp or range, complete content, separators, and newlines. Every
+candidate-producing SQL query has `LIMIT 256`; this bound applies independently
+to each pool.
 
 With no lexical terms, allocation is:
 
@@ -426,21 +428,26 @@ Lexical raw candidates are ordered by `bm25(memory_fts) ASC, seq DESC`.
 Lexical summary candidates are ordered by `bm25(memory_segment_fts) ASC`, then
 `level DESC, block DESC`. Integer rounding remainder goes to the last pool.
 
-Candidates are considered in pool order. A candidate that does not fit its pool
-or the total content budget is skipped, not truncated. Unused capacity is not
-reallocated across pools. Raw sequence identities are deduplicated across raw
-pools. Any summary whose inclusive raw range overlaps a selected raw item or
-selected summary is rejected, so exact raw evidence wins and summary coverage
-does not overlap. Selected items are finally ordered chronologically by raw
-range, with deterministic end and kind ties.
+After the preferred pools run, remaining capacity is offered to the already
+bounded recent-raw and broad-summary candidate sets with a 60/40 fallback split.
+If either fallback pool is sparse or cannot fit another complete item, the other
+may consume the residue. Raw fallback is considered before broad-summary
+fallback when both can consume the final residue.
 
-The 32,768-character budget counts every complete raw body or summary selected.
-It excludes generated document labels, ranges, timestamps, separators, and
-formatting newlines. Storage size and context size are independent; no stored
-item is truncated merely because history is large. The fixed 256 candidates per
-pool mean context is deterministic and SQL-bounded but not exhaustive over all
-stored history. Literal lexical matching can miss synonyms, wording changes,
-and facts omitted or misstated by a caller-produced summary.
+Candidates are considered in pool order. A candidate that does not fit its pool
+or the total stdout budget is skipped, not truncated. Raw sequence identities
+are deduplicated across raw pools. Any summary whose inclusive raw range overlaps
+a selected raw item or selected summary is rejected, so exact raw evidence wins
+and summary coverage does not overlap. Selected items are finally ordered
+chronologically by raw range, with deterministic end and kind ties.
+
+The 32,768-character budget is checked against the complete rendered document,
+so `nt memory context` stdout never exceeds it. Storage size and context size are
+independent; no stored item is truncated merely because history is large. The
+fixed 256 candidates per pool mean context is deterministic and SQL-bounded but
+not exhaustive over all stored history. Literal lexical matching can miss
+synonyms, wording changes, and facts omitted or misstated by a caller-produced
+summary.
 
 ## Consistency
 
