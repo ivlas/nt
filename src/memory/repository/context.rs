@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rusqlite::{OptionalExtension, params};
 
 use super::{Repository, decode_memory, decode_segment, invalid_node, node_range, node_values};
-use crate::error::Result;
+use crate::error::{NtError, Result};
 use crate::memory::{
     MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemorySegment, SummaryNodeId, frontier,
 };
@@ -59,8 +59,7 @@ impl ContextItem {
     fn raw_bounds(&self) -> Result<(u64, u64)> {
         match self {
             Self::Raw(memory) => {
-                let seq = u64::try_from(memory.seq())
-                    .expect("validated memory sequences are positive integers");
+                let seq = memory_sequence(memory)?;
                 Ok((seq, seq))
             }
             Self::Summary(segment) => {
@@ -85,6 +84,12 @@ fn raw_output_char_count(memory: &Memory) -> usize {
 
 fn summary_output_char_count(segment: &MemorySegment, bounds: (u64, u64)) -> usize {
     summary_context_header(segment, bounds).chars().count() + segment.summary().chars().count() + 1
+}
+
+fn memory_sequence(memory: &Memory) -> Result<u64> {
+    u64::try_from(memory.seq()).map_err(|error| {
+        NtError::invalid_stored_memory_with_source(format!("seq: {}", memory.seq()), "seq", error)
+    })
 }
 
 impl Repository {
@@ -158,13 +163,19 @@ impl Repository {
             &mut selected,
         )?;
 
-        selected.sort_by_key(|item| {
-            let (start, end) = item
-                .raw_bounds()
-                .expect("selected context items have validated raw ranges");
-            let kind = matches!(item, ContextItem::Summary(_)) as u8;
-            (start, end, kind)
-        });
+        let mut ordered = selected
+            .into_iter()
+            .map(|item| {
+                let (start, end) = item.raw_bounds()?;
+                let kind = matches!(item, ContextItem::Summary(_)) as u8;
+                Ok(((start, end, kind), item))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ordered.sort_by_key(|(key, _)| *key);
+        let selected = ordered
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect::<Vec<_>>();
         if context_output_char_count(&selected)? > MEMORY_CONTEXT_CHARS {
             return Err(crate::error::NtError::MemoryContextOverflow);
         }
@@ -186,7 +197,7 @@ fn select_raw(
         if selected_raw.contains(&memory.seq()) {
             continue;
         }
-        let seq = u64::try_from(memory.seq()).expect("validated memory sequences are positive");
+        let seq = memory_sequence(memory)?;
         let mut overlapping_summaries = BTreeSet::new();
         for (index, selected_item) in selected.iter().enumerate() {
             if matches!(selected_item, ContextItem::Summary(_))
@@ -376,9 +387,8 @@ fn frontier_summary_candidates(
     if !any_summaries {
         return Ok(Vec::new());
     }
-    let highest_seq = u64::try_from(newest.seq()).expect("validated memory sequences are positive");
-    let recent_start =
-        u64::try_from(oldest.seq()).expect("validated memory sequences are positive");
+    let highest_seq = memory_sequence(newest)?;
+    let recent_start = memory_sequence(oldest)?;
     let mut next_by_level = BTreeMap::<u64, Option<u64>>::new();
     let mut next_summary = connection.prepare(
         "SELECT block FROM memory_segments
