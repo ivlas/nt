@@ -331,6 +331,42 @@ mod tests {
         assert!(open_repository(&database_path).is_ok());
     }
 
+    #[test]
+    fn exact_body_commands_report_output_flush_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join(".nt/nt.sqlite3");
+        schema::initialize_at(&database_path).unwrap();
+        let id = open_repository(&database_path)
+            .unwrap()
+            .create_note(NewNote::new(CollectionPath::inbox(), "# Exact note").unwrap())
+            .unwrap();
+        open_memory_repository(&database_path)
+            .unwrap()
+            .append(crate::memory::NewMemory::new("exact memory").unwrap())
+            .unwrap();
+
+        for arguments in [
+            vec!["nt".to_string(), "show".to_string(), id.to_string()],
+            vec![
+                "nt".to_string(),
+                "memory".to_string(),
+                "show".to_string(),
+                "1".to_string(),
+            ],
+        ] {
+            let mut stdin = Cursor::new(Vec::new());
+            let mut editor = |_| panic!("editor should not run");
+            let input = Input::new(&mut stdin, false, &mut editor);
+            let mut output = FlushFailingWriter;
+            let mut app = App::new(Some(database_path.clone()), input, &mut output, false);
+
+            assert!(matches!(
+                run(Cli::parse_from(arguments), &mut app),
+                Err(NtError::Io(error)) if error.kind() == io::ErrorKind::Other
+            ));
+        }
+    }
+
     fn assert_committed_output_failure(path: &Path, arguments: &[&str], body: &str) {
         let mut stdin = Cursor::new(body.as_bytes());
         let mut editor = |_| panic!("editor should not run");

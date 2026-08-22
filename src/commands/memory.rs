@@ -39,6 +39,7 @@ fn show(app: &mut App<'_>, seq: &str) -> Result<()> {
     let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
     let memory = repository.get_memory(seq)?;
     app.output.write_all(memory.body().as_bytes())?;
+    app.output.flush()?;
     Ok(())
 }
 
