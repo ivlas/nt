@@ -1,5 +1,5 @@
-use crate::domains::note::{NoteQuery, Repository};
 use crate::error::Result;
+use crate::note::{NoteQuery, Repository};
 
 use super::App;
 

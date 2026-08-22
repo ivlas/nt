@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 pub(crate) use crate::app::App;
 use crate::cli::{Cli, Command};
-use crate::domains::note::AddOrRemove;
 use crate::error::{NtError, Result};
+use crate::note::AddOrRemove;
 
 mod add;
 mod edit;
@@ -68,8 +68,8 @@ mod tests {
     use super::{App, run};
     use crate::cli::Cli;
     use crate::cli::input::Input;
-    use crate::domains::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
     use crate::error::NtError;
+    use crate::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
 
     #[test]
     fn commands_run_directly_with_supplied_storage_and_io() {

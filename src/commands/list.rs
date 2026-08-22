@@ -1,6 +1,6 @@
 use crate::cli::rendering::{print_notes, print_values};
-use crate::domains::note::{NoteQuery, Repository};
 use crate::error::Result;
+use crate::note::{NoteQuery, Repository};
 
 use super::App;
 

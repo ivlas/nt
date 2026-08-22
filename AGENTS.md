@@ -2,7 +2,7 @@
 
 ## Project
 
-`nt` is a local, agent-first note layer for editable CommonMark notes,
+`nt` is a local, agent-first note application for editable CommonMark notes,
 deterministic metadata, and lexical retrieval. It prioritizes fast capture,
 bounded context construction, low LLM token use, and local ownership.
 
@@ -13,6 +13,7 @@ approval is required before agent-driven mutations.
 ## Rules
 
 - The binary name is `nt` and core workflows are flagless and configless.
+- `nt` has only notes; do not add other first-class product domains.
 - Canonical state lives in `$HOME/.nt/nt.sqlite3`.
 - Store CommonMark note bodies directly in SQLite.
 - Use canonical lowercase UUIDv7 IDs for notes.
@@ -20,6 +21,9 @@ approval is required before agent-driven mutations.
 - Tags are optional, and links are explicit and directional.
 - There are no vaults, collection entities, note kinds, todos, sources, generic
   metadata, additional memberships, or active namespace state.
+- Represent external resources, bookmarks, imported documents, and generated
+  summaries as ordinary CommonMark notes with collections, tags, and links.
+  Do not assign them reserved kinds or hidden semantics.
 - There is no canonical Markdown vault, JSON index, or rebuild workflow.
 - Use SQLite transactions and foreign keys for consistency.
 - Do not add wiki-link syntax or nt-specific note-body markup.
@@ -91,9 +95,10 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 
 ## Design
 
-`docs/design.md` is the detailed clean-sheet contract. Append-only memory
-requires a separate RFC and must not be represented as a note kind, collection,
-or tag.
+`docs/design.md` is the detailed clean-sheet contract. Append-only memory and
+other distinct product models are outside `nt` and belong in separate
+applications. They must not be represented as reserved note kinds, collections,
+or tags.
 
 ## Commits
 

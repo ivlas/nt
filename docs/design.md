@@ -1,9 +1,9 @@
-# Notes Domain Design
+# nt Design
 
-This document specifies the notes domain and its current application interface.
-System-wide layer and dependency rules are documented in `architecture.md`.
+This document specifies the note model and application interface. Layer and
+dependency rules are documented in `architecture.md`.
 
-`nt` is a local, agent-first note layer for editable CommonMark notes,
+`nt` is a local, agent-first note application for editable CommonMark notes,
 deterministic metadata, and lexical retrieval. The previous vault, todo,
 membership, source, projection, and generic metadata model is obsolete and has
 no compatibility requirement.
@@ -24,8 +24,13 @@ storage cannot resolve relative to the working directory.
 There are no note kinds, todos, agenda behavior, vaults, collection entities,
 many-to-many memberships, sources, generic metadata, configurable projections,
 reserved tags, automatic routing, or migration compatibility. Append-only
-memory requires a separate workflow-backed RFC and must remain an independent
-domain.
+memory and other distinct product models are outside `nt` and belong in separate
+applications.
+
+External resources, bookmarks, imported documents, and agent-generated
+summaries can be captured as ordinary CommonMark notes and organized with the
+same collections, tags, and directional links. They have no reserved note kind,
+source metadata, or hidden semantics.
 
 ## Initialization
 
@@ -148,19 +153,19 @@ CREATE VIRTUAL TABLE note_fts USING fts5(
 
 Indexes support created and updated ordering, collection filtering, tag lookup,
 and target-link lookup. Cheap schema checks enforce canonical UUIDv7, collection,
-tag, and timestamp shapes. Full domain validation remains in Rust.
+tag, and timestamp shapes. Full note validation remains in Rust.
 
 External-content FTS5 state is maintained by isolated SQLite triggers. Inserts
 add an FTS row, body/title changes replace it, and deletion removes it.
 Metadata-only updates do not rewrite FTS state.
 
-## Domain And Repository
+## Note Model And Repository
 
-Domain types own UUIDv7 note identity, collection and tag validation, body
+Note types own UUIDv7 note identity, collection and tag validation, body
 normalization, H1 validation and title extraction, deduplication, self-link
 rejection, and body replacement. Invalid note state must not be constructible
-through validated domain constructors and methods. Domain code does not parse
-CLI tokens, render output, open SQLite, or know about FTS.
+through validated note constructors and methods. Validated note values do not
+parse CLI tokens, render output, open SQLite, issue SQL, or know about FTS.
 
 Command handlers orchestrate narrow repository operations and do not issue SQL.
 Existence and conflict checks happen inside each mutation transaction. Body

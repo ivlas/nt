@@ -10,7 +10,7 @@ pub(crate) mod terminal;
 #[command(
     name = "nt",
     version,
-    about = "Local agent-first note layer",
+    about = "Local agent-first note application",
     disable_help_subcommand = true,
     disable_help_flag = true,
     disable_version_flag = true

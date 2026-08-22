@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn tags_are_normalized_domain_values() {
+    fn tags_are_normalized_values() {
         assert_eq!("rust_2026".parse::<Tag>().unwrap().as_str(), "rust_2026");
         for value in ["", "Rust", "rust/sqlite", "rust.sqlite"] {
             assert!(value.parse::<Tag>().is_err(), "accepted {value:?}");

@@ -1,5 +1,5 @@
-use crate::domains::note::{NoteId, Repository, Tag};
 use crate::error::Result;
+use crate::note::{NoteId, Repository, Tag};
 
 use super::{App, parse_add_or_remove, write_commit_output};
 

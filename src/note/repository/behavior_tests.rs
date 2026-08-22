@@ -10,9 +10,9 @@ use super::{AddOrRemove, NoteSummary, Repository};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::storage::{InitOutcome, OpenMode};
     use crate::error::Result;
     use crate::schema;
+    use crate::storage::{InitOutcome, OpenMode};
 
     fn initialize_at(path: &std::path::Path) -> Result<InitOutcome> {
         Repository::initialize_at(path)

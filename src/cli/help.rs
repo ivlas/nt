@@ -33,7 +33,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
 
 const ROOT: &str = r#"nt
 
-Local, agent-first note layer.
+Local, agent-first note application.
 
 Usage:
   nt <command> [args...]

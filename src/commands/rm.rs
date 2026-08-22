@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use crate::domains::note::{NoteId, Repository};
 use crate::error::{NtError, Result};
+use crate::note::{NoteId, Repository};
 
 use super::{App, write_commit_output};
 

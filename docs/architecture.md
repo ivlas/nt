@@ -1,91 +1,111 @@
 # nt Architecture
 
-`nt` is a modular monolith with application, domain, and shared-core layers.
-It remains one Cargo package and uses explicit compile-time composition rather
-than plugins, registries, or generic repository traits.
-
-## Layers
-
-The application layer owns the CLI, process adapters, command orchestration,
-and the canonical database manifest:
-
-```text
-src/cli/
-src/commands/
-src/app.rs
-src/schema.rs
-src/lib.rs
-src/main.rs
-```
-
-`src/lib.rs` is a thin binary-support boundary. `run_process` is the only
-intentional public Rust entry point; domain, repository, CLI grammar, and schema
-APIs are implementation details rather than a supported SDK.
-
-Domains own their values, query model, persistence operations, and schema
-fragments. The current domain is notes:
-
-```text
-src/domains/note/
-```
-
-Shared core owns infrastructure that has no note semantics:
-
-```text
-src/core/storage/
-```
-
-`src/error.rs` is shared crate infrastructure. It defines the concrete error
-vocabulary used across the application, domains, and shared core, including the
-stable process categories consumed by the binary adapter.
-
-The storage core opens and configures SQLite connections, publishes new
-databases atomically, and initializes and validates an explicitly supplied
-schema manifest. It does not contain note types, table names, or FTS names.
+`nt` is a deliberately single-purpose note application. It is one Cargo package
+with direct, compile-time dependencies rather than traits, plugins, registries,
+or dependency-injection machinery.
 
 ## Dependency Direction
 
+The primary command path is:
+
 ```text
-application -> domains -> core
-application -----------> core
-all layers ------------> shared errors
+CLI -> commands -> note model/repository -> SQLite storage
 ```
+
+`src/lib.rs` is the process composition root and `run_process` is the only
+intentional public Rust entry point. It resolves process state, builds the
+application context, and dispatches the parsed command. Note, repository, CLI,
+and schema APIs remain implementation details rather than a supported SDK.
+
+The source layout is:
+
+```text
+src/
+  note/
+    body.rs
+    collection.rs
+    date.rs
+    id.rs
+    model.rs
+    query.rs
+    schema.rs
+    repository/
+  storage/
+  cli/
+  commands/
+  app.rs
+  schema.rs
+  error.rs
+  lib.rs
+  main.rs
+```
+
+`src/error.rs` defines the concrete crate-wide error vocabulary, including the
+stable process categories consumed by the binary adapter.
+
+## Responsibilities
+
+`src/cli/` owns command grammar, body input, editor execution, rendering,
+terminal behavior, help, and canonical home-directory resolution.
+
+`src/commands/` owns orchestration. Handlers parse note values, select the
+appropriate concrete repository operation, and render the result without
+issuing SQL.
+
+`src/note/` is the business boundary. It owns note identity and validation,
+collections, tags, CommonMark body rules, the query model, concrete persistence
+operations, rehydration, optimistic body-edit conflicts, and note schema SQL.
+`Repository` is a concrete facade, not a generic abstraction.
+
+`src/storage/` owns SQLite infrastructure: opening and configuring connections,
+foreign keys, WAL, busy handling, private filesystem setup, atomic publication
+of newly initialized databases, and exact schema-validation mechanics. It does
+not own note models or note schema SQL.
+
+`src/app.rs` carries the concrete, testable process dependencies used by command
+handlers. `src/schema.rs` binds the fixed nt database identity and note schema to
+the storage mechanics and supplies storage-backed `Repository` construction.
 
 The production dependency rules are:
 
 ```text
-core does not import a domain
-note does not import CLI, commands, App, or another domain
-commands may orchestrate domain operations
-schema.rs may compose domain schema fragments
+storage does not import note
+note does not import CLI, commands, or App
+commands orchestrate concrete note and storage operations
+CLI parses and renders note-facing values
 ```
 
 Tests may construct the complete application across these boundaries to verify
 integration behavior.
 
-## Schema Composition
+## Schema Ownership
 
-`src/schema.rs` is the closed application schema manifest. It owns the
-application ID and schema version and explicitly composes required domain
-fragments. `src/domains/note/schema.rs` owns all note tables, indexes,
-triggers, FTS definitions, and derived FTS object requirements.
+`src/schema.rs` owns the application ID, schema version, and one concrete schema
+manifest. The manifest contains a flat ordered object list, required FTS
+shadow-table names, and allowed trigger names. There is no schema fragment
+composition or runtime registration model.
 
-`src/core/storage/schema_engine.rs` knows only schema descriptors and mechanics:
-transactional initialization, identity inspection, exact object validation,
-version checks, and unknown-trigger rejection. A domain is never registered
-dynamically or made optional at runtime.
+`src/note/schema.rs` owns the exact SQL for the version table, all note tables,
+the FTS virtual table, triggers, and indexes, together with the FTS shadow-table
+and trigger requirements. `src/storage/schema_engine.rs` consumes the manifest
+to perform transactional initialization, identity inspection, exact object
+validation, version checks, and unknown-trigger rejection.
 
 Version-1 SQL definitions are a compatibility boundary. Structural refactors
-must leave their stored `sqlite_schema.sql` values and creation order unchanged.
-The independent fixture in `tests/fixtures/v1_schema.sql` protects that contract
+must leave stored `sqlite_schema.sql` values and creation order unchanged. The
+independent fixture in `tests/fixtures/v1_schema.sql` protects that contract
 through the compiled binary interface.
 
-## Extension
+## Product Boundary
 
-A future domain adds its own model, query model, repository, and schema fragment.
-Application commands orchestrate it, and the application manifest explicitly
-composes its schema if it shares the canonical database. New abstractions should
-be introduced only when concrete domain use demonstrates that they are shared.
+`nt` has notes only. Search improvements, import and export, and similar work are
+capabilities around notes, not new first-class domains.
 
-Append-only memory still requires its own workflow-backed RFC. This architecture
-does not decide memory behavior or storage merely by reserving a directory.
+Sources and generic metadata are not part of the note model. External resources,
+bookmarks, imported documents, and agent-generated summaries can instead be
+ordinary CommonMark notes organized by collections, tags, and directional note
+links. They receive no reserved note kinds or hidden semantics.
+
+Append-only memory and other distinct product models are outside `nt` and belong
+in separate applications. The codebase reserves no extension point, directory,
+behavior, or storage for them.
