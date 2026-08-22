@@ -2,7 +2,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::error::Result;
+use crate::error::{NtError, Result, StoredNoteContext};
 use crate::note::{NoteQuery, NoteSummary, Repository};
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
@@ -110,12 +110,16 @@ fn write_spooled_table<const N: usize>(
 
     write_table_row(output, headers, &widths)?;
     for line in BufReader::new(spool).lines() {
-        let row: [String; N] = serde_json::from_str::<Vec<String>>(&line?)?
-            .try_into()
-            .expect("spooled table rows preserve their column count");
+        let row = decode_spooled_row(&line?)?;
         write_table_row(output, row.each_ref().map(String::as_str), &widths)?;
     }
     Ok(())
+}
+
+fn decode_spooled_row<const N: usize>(line: &str) -> Result<[String; N]> {
+    serde_json::from_str::<Vec<String>>(line)?
+        .try_into()
+        .map_err(|_| NtError::invalid_stored(StoredNoteContext::new(None, None), "spooled row"))
 }
 
 fn write_table_row<const N: usize>(
@@ -208,8 +212,10 @@ mod tests {
     use std::io::{self, Write};
 
     use super::{
-        display_width, escape_terminal_controls, format_table, print_values, write_spooled_table,
+        decode_spooled_row, display_width, escape_terminal_controls, format_table, print_values,
+        write_spooled_table,
     };
+    use crate::error::NtError;
 
     #[test]
     fn tty_tables_include_headers_and_align_columns() {
@@ -297,6 +303,19 @@ mod tests {
         .unwrap();
 
         assert!(output.bytes > 80_000);
+    }
+
+    #[test]
+    fn malformed_spooled_column_counts_return_stored_data_errors() {
+        let error = decode_spooled_row::<2>(r#"["only one"]"#).unwrap_err();
+
+        assert!(matches!(
+            error,
+            NtError::InvalidStoredNote {
+                field: "spooled row",
+                ..
+            }
+        ));
     }
 
     #[test]

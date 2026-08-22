@@ -4,7 +4,7 @@ use crate::cli::MemoryCommand;
 use crate::error::{NtError, Result};
 use crate::memory::{
     ContextItem, ExpansionItem, MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemoryListQuery,
-    MemoryRecallQuery, NewMemory, NewSummary, Repository, SummaryNodeId, range,
+    MemoryRecallQuery, NewMemory, NewSummary, RawRange, Repository, SummaryNodeId, range,
 };
 use crate::schema;
 
@@ -223,7 +223,7 @@ fn write_summary_task(
     node: SummaryNodeId,
     children: &[ExpansionItem],
 ) -> Result<()> {
-    let raw = range(node.level(), node.block()).expect("pending jobs have valid ranges");
+    let raw = rendered_range(node)?;
     writeln!(output, "node\t{node}")?;
     writeln!(output, "raw range\t{}-{}", raw.start(), raw.end())?;
     writeln!(output, "level\t{}", node.level())?;
@@ -244,8 +244,7 @@ fn write_expansion(output: &mut dyn Write, children: &[ExpansionItem]) -> Result
         match child {
             ExpansionItem::Raw(memory) => write_memory_row(output, memory)?,
             ExpansionItem::Summary(segment) => {
-                let raw = range(segment.node().level(), segment.node().block())
-                    .expect("repository returns summaries with valid ranges");
+                let raw = rendered_range(segment.node())?;
                 writeln!(
                     output,
                     "{}\t{}-{}\t{}\t{}",
@@ -259,6 +258,13 @@ fn write_expansion(output: &mut dyn Write, children: &[ExpansionItem]) -> Result
         }
     }
     Ok(())
+}
+
+fn rendered_range(node: SummaryNodeId) -> Result<RawRange> {
+    range(node.level(), node.block()).ok_or_else(|| NtError::InvalidValue {
+        field: "memory node",
+        value: format!("{node} has an invalid raw range"),
+    })
 }
 
 fn parse_positive(value: &str, field: &'static str) -> Result<i64> {
@@ -286,9 +292,13 @@ fn invalid_positive<T>(field: &'static str, value: &str) -> Result<T> {
 mod tests {
     use std::io::{self, Write};
 
-    use super::{render_context, write_memories, write_pending_jobs};
+    use super::{render_context, write_expansion, write_memories, write_pending_jobs};
+    use crate::error::NtError;
     use crate::memory::schema::OBJECTS;
-    use crate::memory::{MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, NewMemory, Repository};
+    use crate::memory::{
+        ExpansionItem, MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemorySegment, NewMemory,
+        Repository, SummaryNodeId,
+    };
 
     fn memory() -> Memory {
         Memory::from_new(
@@ -331,6 +341,27 @@ mod tests {
             repository.visit_pending(None, |job| write(&job))
         })
         .unwrap();
+    }
+
+    #[test]
+    fn expansion_rendering_rejects_invalid_stored_summary_ranges() {
+        let segment = MemorySegment::from_stored(
+            1,
+            SummaryNodeId::new(14, 7).unwrap(),
+            "summary".to_string(),
+            "2026-08-22T12:34:56Z".parse().unwrap(),
+        )
+        .unwrap();
+        let error =
+            write_expansion(&mut Vec::new(), &[ExpansionItem::Summary(segment)]).unwrap_err();
+
+        assert!(matches!(
+            error,
+            NtError::InvalidValue {
+                field: "memory node",
+                ..
+            }
+        ));
     }
 
     #[test]
