@@ -13,6 +13,7 @@ mod tests;
 pub(crate) use context::ContextItem;
 #[cfg(test)]
 pub(crate) use context::context_output_char_count;
+pub(crate) use status::MemoryStatus;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PendingJob {
