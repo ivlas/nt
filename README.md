@@ -65,6 +65,11 @@ metadata, or hidden semantics.
 - [Architecture](docs/architecture.md)
 - [Design](docs/design.md)
 
+## Development
+
+Rust 1.95 is the intentional minimum supported Rust version (MSRV). CI verifies
+that version on Linux and current stable Rust on Linux, macOS, and Windows.
+
 ## License
 
 MIT; see [LICENSE](./LICENSE).
