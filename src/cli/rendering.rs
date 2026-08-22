@@ -48,10 +48,22 @@ fn note_row(note: &NoteSummary) -> [String; 6] {
         note.id().to_string(),
         note.updated().to_string(),
         note.collection().to_string(),
-        note.title().to_string(),
+        escape_terminal_controls(note.title()),
         tags,
         note.outgoing().to_string(),
     ]
+}
+
+fn escape_terminal_controls(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control() {
+            escaped.extend(character.escape_default());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 fn print_redirected(output: &mut impl Write, note: &NoteSummary) -> Result<()> {
@@ -195,7 +207,9 @@ fn display_width(value: &str) -> usize {
 mod tests {
     use std::io::{self, Write};
 
-    use super::{display_width, format_table, print_values, write_spooled_table};
+    use super::{
+        display_width, escape_terminal_controls, format_table, print_values, write_spooled_table,
+    };
 
     #[test]
     fn tty_tables_include_headers_and_align_columns() {
@@ -234,6 +248,14 @@ mod tests {
             format_table(["v", "kind"], &rows),
             "v   kind\n界  wide\ne\u{301}   combining\n🙂  emoji\n"
         );
+    }
+
+    #[test]
+    fn tty_titles_escape_controls_without_escaping_unicode() {
+        let escaped = escape_terminal_controls("A\tB\u{1b}]界");
+
+        assert_eq!(escaped, r"A\tB\u{1b}]界");
+        assert!(!escaped.chars().any(char::is_control));
     }
 
     #[test]

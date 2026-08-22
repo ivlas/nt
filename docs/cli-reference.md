@@ -157,12 +157,13 @@ per note:
 "<id>"\t"<updated>"\t"<collection>"\t"<title>"\t["<tag>"]\t<outgoing>
 ```
 
-TTY note output removes JSON quoting, adds a header row, and aligns columns with
-two spaces between them while preserving values and column order. Metadata
-inventories use one `tag` or `collection` column with a TTY header. Redirected
-inventory output is headerless and contains one JSON string per line. Redirected
-note summaries are streamed as SQLite rows are read. A downstream pipe closing
-early ends note retrieval successfully; other output errors remain failures.
+TTY note output removes JSON quoting, visibly escapes control characters in
+titles, adds a header row, and aligns columns with two spaces between them while
+preserving printable values and column order. Metadata inventories use one
+`tag` or `collection` column with a TTY header. Redirected inventory output is
+headerless and contains one JSON string per line. Redirected note summaries are
+streamed as SQLite rows are read. A downstream pipe closing early ends note
+retrieval successfully; other output errors remain failures.
 
 ## Mutations
 
