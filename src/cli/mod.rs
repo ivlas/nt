@@ -10,7 +10,7 @@ pub(crate) mod terminal;
 #[command(
     name = "nt",
     version,
-    about = "Local agent-first note application",
+    about = "Local agent-first notes and memory",
     disable_help_subcommand = true,
     disable_help_flag = true,
     disable_version_flag = true
@@ -62,10 +62,53 @@ pub enum Command {
         #[arg(allow_hyphen_values = true)]
         operation: String,
     },
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommand,
+    },
     Help {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         topic: Vec<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum MemoryCommand {
+    Add {
+        #[arg(last = true, allow_hyphen_values = true)]
+        body: Vec<String>,
+    },
+    Show {
+        seq: String,
+    },
+    List {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        filters: Vec<String>,
+    },
+    Recall {
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        expressions: Vec<String>,
+    },
+    Context {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        terms: Vec<String>,
+    },
+    Pending {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        arguments: Vec<String>,
+    },
+    Summarize {
+        node: String,
+        #[arg(last = true, allow_hyphen_values = true)]
+        summary: Vec<String>,
+    },
+    Expand {
+        node: String,
+    },
+    Invalidate {
+        node: String,
+    },
+    Status,
 }
 
 #[cfg(test)]
@@ -98,6 +141,16 @@ mod tests {
             &["nt", "move", ID, "work/nt"],
             &["nt", "tag", ID, "+rust"],
             &["nt", "link", ID, "+018fbe0a-6c00-7000-8000-000000000002"],
+            &["nt", "memory", "add", "--", "immutable history"],
+            &["nt", "memory", "show", "42"],
+            &["nt", "memory", "list", "since:10", "limit:5"],
+            &["nt", "memory", "recall", "deployment", "limit:5"],
+            &["nt", "memory", "context", "deployment"],
+            &["nt", "memory", "pending", "L0:0"],
+            &["nt", "memory", "summarize", "L0:0", "--", "summary"],
+            &["nt", "memory", "expand", "L1:0"],
+            &["nt", "memory", "invalidate", "L0:0"],
+            &["nt", "memory", "status"],
             &["nt", "help", "find"],
         ];
         for case in cases {
@@ -144,7 +197,8 @@ mod tests {
         assert_eq!(
             commands,
             [
-                "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link", "help",
+                "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link",
+                "memory", "help",
             ]
         );
     }

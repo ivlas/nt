@@ -13,6 +13,7 @@ mod find;
 mod init;
 mod link;
 mod list;
+mod memory;
 mod move_note;
 mod rm;
 mod show;
@@ -54,6 +55,7 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Move { id, collection }) => move_note::move_note(app, &id, &collection),
         Some(Command::Tag { id, operation }) => tag::tag(app, &id, &operation),
         Some(Command::Link { id, operation }) => link::link(app, &id, &operation),
+        Some(Command::Memory { command }) => memory::memory(app, command),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic, app.output),
     }
 }
@@ -69,11 +71,16 @@ mod tests {
     use crate::cli::Cli;
     use crate::cli::input::Input;
     use crate::error::{NtError, Result};
+    use crate::memory::Repository as MemoryRepository;
     use crate::note::{CollectionPath, NewNote, NoteQuery, Repository, timestamp_now};
     use crate::schema;
 
     fn open_repository(path: &Path) -> Result<Repository> {
         schema::open_read_write(path).map(Repository::from_connection)
+    }
+
+    fn open_memory_repository(path: &Path) -> Result<MemoryRepository> {
+        schema::open_read_write(path).map(MemoryRepository::from_connection)
     }
 
     #[test]
@@ -193,6 +200,16 @@ mod tests {
             .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
             .unwrap();
         drop(repository);
+
+        assert_committed_output_failure(&database_path, &["memory", "add"], "immutable event");
+        assert_eq!(
+            open_memory_repository(&database_path)
+                .unwrap()
+                .get_memory(1)
+                .unwrap()
+                .body(),
+            "immutable event"
+        );
 
         assert_committed_output_failure(&database_path, &["edit", &id.to_string()], "# Edited");
         let repository = open_repository(&database_path).unwrap();

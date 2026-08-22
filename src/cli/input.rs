@@ -46,6 +46,26 @@ impl<'a> Input<'a> {
 
         (self.editor)(seed.map(str::to_string))
     }
+
+    pub fn read_memory_body(&mut self, arguments: &[String]) -> Result<String> {
+        if !arguments.is_empty() {
+            if !self.stdin_is_terminal {
+                let mut stdin = String::new();
+                self.stdin.read_to_string(&mut stdin)?;
+                if !stdin.is_empty() {
+                    return Err(NtError::ConflictingBodyInput);
+                }
+            }
+            return Ok(arguments.join(" "));
+        }
+
+        let mut body = String::new();
+        self.stdin.read_to_string(&mut body)?;
+        if body.is_empty() {
+            return Err(NtError::EmptyBody);
+        }
+        Ok(body)
+    }
 }
 
 pub fn read_editor(
@@ -130,6 +150,32 @@ mod tests {
         let mut editor = |_| panic!("editor should not run");
         let mut input = Input::new(&mut stdin, false, &mut editor);
         assert!(matches!(input.read_body(&[], None), Err(NtError::Io(_))));
+    }
+
+    #[test]
+    fn memory_input_never_invokes_the_editor() {
+        let mut stdin = Cursor::new("immutable stdin");
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, true, &mut editor);
+        assert_eq!(input.read_memory_body(&[]).unwrap(), "immutable stdin");
+
+        let mut stdin = Cursor::new(Vec::new());
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, false, &mut editor);
+        assert_eq!(
+            input
+                .read_memory_body(&["joined".to_string(), "arguments".to_string()])
+                .unwrap(),
+            "joined arguments"
+        );
+
+        let mut stdin = Cursor::new("conflict");
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, false, &mut editor);
+        assert!(matches!(
+            input.read_memory_body(&["argument".to_string()]),
+            Err(NtError::ConflictingBodyInput)
+        ));
     }
 
     struct FailingReader;
