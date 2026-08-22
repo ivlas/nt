@@ -371,9 +371,14 @@ Terms use the same literal tokenization as recall. Filter-looking expressions
 such as `since:1` are errors. Zero lexical tokens select queryless context.
 Retrieval is deterministic and has no model call.
 
-Every candidate query has a fixed SQL `LIMIT 256`. With no lexical terms, the
-32,768-character stdout budget is split 60% to recent exact raw entries ordered
-`seq DESC` and 40% to broad summaries ordered `level DESC, block DESC`.
+Recent and lexical candidate queries have a fixed SQL `LIMIT 256`. With no
+lexical terms, the 32,768-character stdout budget is split 60% to recent exact
+raw entries ordered `seq DESC` and 40% to a canonical summary frontier. The
+frontier covers history before the recent raw tail with maximal non-overlapping
+completed nodes in chronological order. It prefers the highest node that fits a
+range and falls back to completed children when that node is missing. Indexed
+summary-availability probes compute the frontier, and at most 256 resulting
+nodes are batch-fetched for the context compiler.
 
 With lexical terms, the budget is split 40% to lexical raw entries, 30% to
 recent raw entries, and 30% to lexical summaries. FTS5 acts only as a lexical
@@ -384,10 +389,11 @@ the final pool.
 
 Candidates that do not fit both their pool and the total budget are skipped;
 items are never truncated. After preferred selection, remaining capacity is
-split 60% to the same bounded recent-raw candidates and 40% to bounded broad
-summaries. If either fallback pool is sparse, the other can consume the residue;
-raw is considered first for the final residue. Exact raw sequences are
-deduplicated across pools. A summary is rejected if its raw range overlaps a
+split 60% to the same bounded recent-raw candidates and 40% to the bounded
+queryless frontier or query-aware broad summaries. If either fallback pool is
+sparse, the other can consume the residue; raw is considered first for the final
+residue. Exact raw sequences are deduplicated across pools. A summary is rejected
+if its raw range overlaps a
 selected raw entry or summary. Exact raw is selected before summaries and
 therefore wins overlap. Final output is ordered chronologically by raw range.
 
@@ -410,9 +416,10 @@ Summary items render as:
 The renderer writes a newline after each complete body and one additional
 newline before each item after the first. A stored trailing newline is preserved,
 so it can produce additional visible blank space. The complete stdout document
-is counted as Unicode characters and never exceeds 32,768. The fixed candidate
-bounds make context predictable and SQL-bounded but not exhaustive over all
-history. Literal search does not recover synonyms, and a summary can omit or
+is counted as Unicode characters and never exceeds 32,768. Fixed candidate and
+frontier-fetch bounds make context predictable and SQL-bounded but not exhaustive
+over all history. Literal search does not recover synonyms, and a summary can
+omit or
 misstate facts supplied by its calling agent. Use expansion and raw history when
 exact evidence matters.
 

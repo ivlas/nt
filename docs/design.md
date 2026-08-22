@@ -402,9 +402,10 @@ embedding lookup.
 
 The context compiler selects complete raw bodies and summaries under a fixed
 32,768-Unicode-character stdout budget. The cost of each item includes its
-header, timestamp or range, complete content, separators, and newlines. Every
-candidate-producing SQL query has `LIMIT 256`; this bound applies independently
-to each pool.
+header, timestamp or range, complete content, separators, and newlines. Recent
+and lexical candidate pools have `LIMIT 256`. Queryless frontier construction
+uses indexed summary-availability probes and batch-fetches at most 256 selected
+nodes.
 
 With no lexical terms, allocation is:
 
@@ -413,8 +414,15 @@ recent raw budget = 32768 * 60 / 100 = 19660
 broad summary budget = 32768 - recent raw budget = 13108
 ```
 
-Recent raw candidates are ordered `seq DESC`. Broad summary candidates are
-ordered `level DESC, block DESC`.
+Recent raw candidates are ordered `seq DESC`. The earliest recent sequence
+separates the exact raw tail from older history. A pure base-16 tree walk
+computes the older canonical frontier from `highest_seq`, that boundary, and
+completed summary availability. At each chronological range it selects the
+largest aligned completed node, falling back through smaller children when an
+ancestor is missing. The full frontier is non-overlapping and, for a complete
+pyramid, has at most roughly 15 nodes per tree level. Context compilation
+consumes a bounded prefix and batch-fetches those exact nodes rather than
+scanning broad summary candidates.
 
 With lexical terms, allocation is:
 
@@ -430,7 +438,8 @@ candidates are ordered by `level DESC, block DESC`, preferring coarser summaries
 and then newer blocks. Integer rounding remainder goes to the last pool.
 
 After the preferred pools run, remaining capacity is offered to the already
-bounded recent-raw and broad-summary candidate sets with a 60/40 fallback split.
+bounded recent-raw and queryless-frontier or query-aware broad-summary candidate
+sets with a 60/40 fallback split.
 If either fallback pool is sparse or cannot fit another complete item, the other
 may consume the residue. Raw fallback is considered before broad-summary
 fallback when both can consume the final residue.
@@ -445,10 +454,10 @@ chronologically by raw range, with deterministic end and kind ties.
 The 32,768-character budget is checked against the complete rendered document,
 so `nt memory context` stdout never exceeds it. Storage size and context size are
 independent; no stored item is truncated merely because history is large. The
-fixed 256 candidates per pool mean context is deterministic and SQL-bounded but
-not exhaustive over all stored history. Literal lexical matching can miss
-synonyms, wording changes, and facts omitted or misstated by a caller-produced
-summary.
+fixed candidate and frontier-fetch bounds mean context is deterministic and
+SQL-bounded but not exhaustive over all stored history. Literal lexical matching
+can miss synonyms, wording changes, and facts omitted or misstated by a
+caller-produced summary.
 
 ## Consistency
 
