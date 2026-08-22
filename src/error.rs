@@ -69,6 +69,13 @@ pub enum NtError {
         #[source]
         source: Option<Box<dyn StdError + Send + Sync>>,
     },
+    #[error("stored memory is invalid ({identity}, field: {field})")]
+    InvalidStoredMemory {
+        identity: String,
+        field: &'static str,
+        #[source]
+        source: Option<Box<dyn StdError + Send + Sync>>,
+    },
     #[error("home directory not found")]
     HomeNotFound,
     #[error("run nt init first")]
@@ -91,6 +98,8 @@ pub enum NtError {
     InvalidBodyVersion(u64),
     #[error("note not found: {0}")]
     NoteNotFound(String),
+    #[error("memory not found: {0}")]
+    MemoryNotFound(i64),
     #[error("duplicate note id: {0}")]
     DuplicateNoteId(String),
     #[error("cannot combine body arguments with stdin")]
@@ -140,6 +149,18 @@ impl NtError {
         }
     }
 
+    pub(crate) fn invalid_stored_memory_with_source(
+        identity: impl Into<String>,
+        field: &'static str,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self::InvalidStoredMemory {
+            identity: identity.into(),
+            field,
+            source: Some(Box::new(source)),
+        }
+    }
+
     pub(crate) fn open_database(path: &Path, error: rusqlite::Error) -> Self {
         match Self::from(error) {
             Self::Database(source) => Self::OpenDatabase {
@@ -163,7 +184,7 @@ impl NtError {
             | Self::ConflictingBodyInput
             | Self::EditorNotSet
             | Self::InvalidEditor => 2,
-            Self::MissingDatabase | Self::NoteNotFound(_) => 3,
+            Self::MissingDatabase | Self::NoteNotFound(_) | Self::MemoryNotFound(_) => 3,
             Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
             Self::Io(_)
             | Self::PathIo { .. }
@@ -176,6 +197,7 @@ impl NtError {
             | Self::InvalidDatabasePath
             | Self::ClockOutOfRange
             | Self::InvalidStoredNote { .. }
+            | Self::InvalidStoredMemory { .. }
             | Self::HomeNotFound
             | Self::NotNtDatabase
             | Self::UnsupportedSchema(_)
