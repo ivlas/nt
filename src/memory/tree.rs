@@ -262,6 +262,82 @@ mod tests {
     }
 
     #[test]
+    fn valid_children_exhaustively_partition_sampled_parent_ranges() {
+        for level in 1..=14 {
+            let width = span(level).unwrap();
+            let max_block = i64::MAX as u64 / width - 1;
+            let mut blocks = (0..=max_block.min(1_024)).collect::<BTreeSet<_>>();
+            for block in max_block.saturating_sub(2)..=max_block {
+                blocks.insert(block);
+            }
+
+            for block in blocks {
+                let parent_node = node(level, block);
+                let parent_range = range(level, block).unwrap();
+                let Children::Nodes(nodes) = children(level, block).unwrap() else {
+                    unreachable!();
+                };
+                let child_ranges = nodes
+                    .iter()
+                    .map(|child| {
+                        assert_eq!(parent(child.level(), child.block()), Some(parent_node));
+                        range(child.level(), child.block()).unwrap()
+                    })
+                    .collect::<Vec<_>>();
+
+                assert_eq!(child_ranges[0].start(), parent_range.start());
+                assert_eq!(child_ranges[15].end(), parent_range.end());
+                assert!(child_ranges.iter().all(|raw| {
+                    raw.start() > 0 && raw.start() <= raw.end() && raw.end() <= i64::MAX as u64
+                }));
+                assert!(
+                    child_ranges
+                        .windows(2)
+                        .all(|pair| pair[0].end().checked_add(1) == Some(pair[1].start()))
+                );
+                assert_eq!(
+                    child_ranges
+                        .iter()
+                        .map(|raw| raw.end() - raw.start() + 1)
+                        .sum::<u64>(),
+                    parent_range.end() - parent_range.start() + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn level_zero_mapping_contains_sequences_around_fanout_powers_and_ceiling() {
+        let mut sequences = (1..=100_000_i64).collect::<BTreeSet<_>>();
+        let mut power = MEMORY_FANOUT;
+        while power <= i64::MAX as u64 {
+            for candidate in [power.saturating_sub(1), power, power.saturating_add(1)] {
+                if let Ok(candidate) = i64::try_from(candidate) {
+                    sequences.insert(candidate);
+                }
+            }
+            let Some(next) = power.checked_mul(MEMORY_FANOUT) else {
+                break;
+            };
+            power = next;
+        }
+        for offset in 0..=32 {
+            sequences.insert(i64::MAX - offset);
+        }
+
+        for seq in sequences {
+            if let Some(node) = level0_for_seq(seq) {
+                let raw = range(node.level(), node.block()).unwrap();
+                let seq = seq as u64;
+                assert!(raw.start() <= seq && seq <= raw.end());
+                assert!(raw.start() > 0);
+                assert!(raw.end() <= i64::MAX as u64);
+            }
+        }
+        assert!(level0_for_seq(i64::MAX).is_none());
+    }
+
+    #[test]
     fn frontier_is_empty_without_completed_historical_blocks() {
         for (highest_seq, recent_start) in [(0, 1), (15, 16), (1_000, 1)] {
             let nodes = frontier(
@@ -331,6 +407,42 @@ mod tests {
                 .sum::<u64>(),
             240
         );
+    }
+
+    #[test]
+    fn complete_frontiers_are_chronological_and_non_overlapping_at_boundaries() {
+        let mut highest_values =
+            BTreeSet::from([1_u64, 15, 16, 17, 255, 256, 257, i64::MAX as u64]);
+        let mut power = MEMORY_FANOUT;
+        while power <= i64::MAX as u64 {
+            highest_values.insert(power.saturating_sub(1));
+            highest_values.insert(power);
+            if power < i64::MAX as u64 {
+                highest_values.insert(power + 1);
+            }
+            let Some(next) = power.checked_mul(MEMORY_FANOUT) else {
+                break;
+            };
+            power = next;
+        }
+
+        for highest_seq in highest_values {
+            let nodes = complete_frontier(highest_seq, highest_seq.saturating_add(1));
+            let ranges = nodes
+                .iter()
+                .map(|candidate| range(candidate.level(), candidate.block()).unwrap())
+                .collect::<Vec<_>>();
+            assert!(ranges.iter().all(|raw| {
+                raw.start() > 0
+                    && raw.start() <= raw.end()
+                    && raw.end() <= highest_seq.min(i64::MAX as u64)
+            }));
+            assert!(
+                ranges
+                    .windows(2)
+                    .all(|pair| pair[0].end() < pair[1].start())
+            );
+        }
     }
 
     #[test]
