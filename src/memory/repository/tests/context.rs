@@ -163,6 +163,31 @@ fn context_lexical_summary_candidates_prefer_higher_levels_then_newer_blocks() {
 }
 
 #[test]
+fn context_finds_stemmed_english_terms_in_summaries() {
+    let mut repository = repository();
+    append(&mut repository, 272, "ordinary history");
+    repository
+        .summarize(
+            node(0, 0),
+            NewSummary::new("Agent skills improved onboarding.").unwrap(),
+        )
+        .unwrap();
+
+    for term in ["skill", "skills"] {
+        let query = MemoryContextQuery::parse(&strings(&[term])).unwrap();
+        let context = repository.context(&query).unwrap();
+        assert!(context.iter().any(|item| {
+            matches!(
+                item,
+                ContextItem::Summary(segment)
+                    if segment.node() == node(0, 0)
+                        && segment.summary() == "Agent skills improved onboarding."
+            )
+        }));
+    }
+}
+
+#[test]
 fn queryless_context_is_deterministic_and_uses_only_bounded_candidates() {
     let mut repository = repository();
     append(&mut repository, 300, "recent");

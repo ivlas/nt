@@ -94,3 +94,8 @@ database when SQLite can read the database and referenced WAL.
 Initialization can adopt an empty SQLite database or atomically publish a new
 temporary sibling. On Unix it requests private directory and database modes.
 Ordinary commands never create storage or schema objects.
+
+Memory FTS indexes are derived and rebuildable. They use SQLite FTS5 Porter
+stemming over Unicode61 for primarily English technical memory; tokenizer
+changes are explicit schema changes. Retrieval remains deterministic and
+non-scored.

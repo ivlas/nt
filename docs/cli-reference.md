@@ -64,7 +64,7 @@ for a valid existing database. The resolved home path must be non-empty and
 absolute.
 
 Ordinary commands never create or repair storage. They require application ID
-`0x4e544e54`, schema version `2`, and the expected schema definitions. This
+`0x4e544e54`, schema version `3`, and the expected schema definitions. This
 alpha version does not migrate older databases in place.
 
 ## Note Input
@@ -197,9 +197,13 @@ nt memory recall <term-or-filter...>
 `since:` and `until:` are inclusive. Each filter may occur once, and `since:`
 cannot exceed `until:`. `list` orders raw rows by `seq ASC`.
 
-`recall` requires at least one lexical token and accepts the same filters. It
-uses the literal matching rules above and orders results by `seq ASC`, without
-ranking. Limits are positive and applied by SQLite.
+`recall` requires at least one lexical token and accepts the same filters.
+Memory FTS uses SQLite FTS5 Porter stemming over Unicode61, so common English
+forms such as `skill` and `skills` can match the same raw memory. Porter is
+primarily English-oriented and does not promise morphological normalization for
+arbitrary languages. Queries remain literals: there is no raw FTS syntax,
+prefix expansion, ranking, fuzzy matching, or semantic search. Results are
+ordered by `seq ASC`; limits are positive and applied by SQLite.
 
 Both commands stream headerless TSV with one raw memory per physical line:
 
@@ -253,11 +257,11 @@ background worker or built-in model call.
 ## Memory Context
 
 `memory context [term...]` compiles deterministic context from complete raw
-entries and summaries. Terms use literal token matching; filter expressions are
-not accepted. Terms influence selection rather than filtering every output
-item: context also includes recent raw history and may fill unused space with
-broad summaries. With no terms, it combines recent raw history with broad
-summary coverage.
+entries and summaries. Terms use the memory lexical matching above; filter
+expressions are not accepted. Terms influence selection rather than filtering
+every output item: context also includes recent raw history and may fill unused
+space with broad summaries. With no terms, it combines recent raw history with
+broad summary coverage.
 
 The complete stdout document is limited to 32,768 Unicode characters, including
 headers, timestamps, ranges, separators, and newlines. Items that do not fit are

@@ -112,6 +112,49 @@ fn recall_uses_fts_with_bounds_sql_limit_and_sequence_order_only() {
 }
 
 #[test]
+fn recall_stems_common_english_noun_and_verb_forms() {
+    let mut repository = repository();
+    for body in [
+        "Agent skills are useful for onboarding.",
+        "We optimized the connected systems.",
+        "The team decided on the rollout.",
+        "Café deployment notes.",
+    ] {
+        repository.append(NewMemory::new(body).unwrap()).unwrap();
+    }
+
+    for (term, expected) in [
+        ("skill", 1),
+        ("skills", 1),
+        ("optimize", 2),
+        ("optimized", 2),
+        ("optimizing", 2),
+        ("connect", 2),
+        ("connected", 2),
+        ("connecting", 2),
+        ("decide", 3),
+        ("decided", 3),
+        ("deciding", 3),
+        ("cafe", 4),
+        ("café", 4),
+    ] {
+        let query = MemoryRecallQuery::parse(&strings(&[term])).unwrap();
+        let sequences = repository
+            .recall(&query)
+            .unwrap()
+            .iter()
+            .map(|memory| memory.seq())
+            .collect::<Vec<_>>();
+        assert_eq!(sequences, [expected]);
+    }
+
+    let exact_and = MemoryRecallQuery::parse(&strings(&["skills", "onboarding"])).unwrap();
+    assert_eq!(repository.recall(&exact_and).unwrap().len(), 1);
+    let missing_and = MemoryRecallQuery::parse(&strings(&["skills", "missing"])).unwrap();
+    assert!(repository.recall(&missing_and).unwrap().is_empty());
+}
+
+#[test]
 fn append_reports_retryable_writer_contention() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("busy.sqlite3");

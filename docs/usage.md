@@ -129,9 +129,11 @@ nt memory context
 ```
 
 `show` returns one exact raw body. `list` reads raw history in sequence order.
-`recall` searches exact raw history with literal tokens. `context` combines
-complete raw entries and derived summaries into deterministic output of at most
-32,768 Unicode characters; it never calls a model.
+`recall` searches exact raw history with literal terms and English-oriented
+Porter stemming, so forms such as `skill` and `skills` normally match the same
+memory. This is not fuzzy or semantic search. `context` uses the same lexical
+matching for raw entries and derived summaries, producing deterministic output
+of at most 32,768 Unicode characters; it never calls a model.
 
 ### Summarize And Expand
 
