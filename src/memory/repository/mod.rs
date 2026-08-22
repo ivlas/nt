@@ -361,7 +361,7 @@ impl Repository {
     pub(crate) fn status(&self) -> Result<MemoryStatus> {
         let values = self.connection.query_row(
             "SELECT
-                 COALESCE((SELECT MAX(seq) FROM memories), 0),
+                 (SELECT COUNT(*) FROM memories),
                  (SELECT MAX(seq) FROM memories),
                  (SELECT COUNT(*) FROM memory_segments),
                  (SELECT COUNT(*) FROM memory_summary_jobs),

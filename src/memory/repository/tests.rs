@@ -718,6 +718,23 @@ fn status_reports_counts_levels_jobs_and_fts_readiness() {
 }
 
 #[test]
+fn status_counts_sparse_raw_sequences_independently_from_the_highest_sequence() {
+    let repository = repository();
+    repository
+        .connection
+        .execute(
+            "INSERT INTO memories(seq, body, created)
+             VALUES (100, 'sparse memory', '2026-08-22T12:34:56Z')",
+            [],
+        )
+        .unwrap();
+
+    let status = repository.status().unwrap();
+    assert_eq!(status.raw_count(), 1);
+    assert_eq!(status.highest_seq(), Some(100));
+}
+
+#[test]
 #[ignore = "manual one-million-memory SQLite scale fixture"]
 fn audit_one_million_memory_operations_and_database_size() {
     use std::time::Instant;
