@@ -44,8 +44,6 @@ pub(crate) struct MemoryStatus {
     summary_count: u64,
     pending_count: u64,
     highest_completed_level: Option<u64>,
-    raw_fts_ready: bool,
-    summary_fts_ready: bool,
 }
 
 impl MemoryStatus {
@@ -67,14 +65,6 @@ impl MemoryStatus {
 
     pub(crate) fn highest_completed_level(&self) -> Option<u64> {
         self.highest_completed_level
-    }
-
-    pub(crate) fn raw_fts_ready(&self) -> bool {
-        self.raw_fts_ready
-    }
-
-    pub(crate) fn summary_fts_ready(&self) -> bool {
-        self.summary_fts_ready
     }
 }
 
@@ -369,10 +359,7 @@ impl Repository {
                  (SELECT MAX(seq) FROM memories),
                  (SELECT COUNT(*) FROM memory_segments),
                  (SELECT COUNT(*) FROM memory_summary_jobs),
-                  (SELECT MAX(level) FROM memory_segments),
-                  EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'memory_fts'),
-                  EXISTS(SELECT 1 FROM sqlite_schema
-                         WHERE type = 'table' AND name = 'memory_segment_fts')",
+                 (SELECT MAX(level) FROM memory_segments)",
             [],
             |row| {
                 Ok((
@@ -381,8 +368,6 @@ impl Repository {
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, Option<i64>>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
                 ))
             },
         )?;
@@ -399,8 +384,6 @@ impl Repository {
                     u64::try_from(level).map_err(|_| invalid_node_value("invalid stored level"))
                 })
                 .transpose()?,
-            raw_fts_ready: values.5 != 0,
-            summary_fts_ready: values.6 != 0,
         })
     }
 }

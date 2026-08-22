@@ -716,14 +716,12 @@ fn invalid_stored_memory_is_an_operational_error_with_safe_identity() {
 }
 
 #[test]
-fn status_reports_counts_levels_jobs_and_fts_readiness() {
+fn status_reports_dynamic_counts_and_levels() {
     let mut repository = repository();
     let empty = repository.status().unwrap();
     assert_eq!(empty.raw_count(), 0);
     assert_eq!(empty.highest_seq(), None);
     assert_eq!(empty.highest_completed_level(), None);
-    assert!(empty.raw_fts_ready());
-    assert!(empty.summary_fts_ready());
 
     append(&mut repository, 16, "status");
     repository
@@ -735,8 +733,6 @@ fn status_reports_counts_levels_jobs_and_fts_readiness() {
     assert_eq!(status.summary_count(), 1);
     assert_eq!(status.pending_count(), 0);
     assert_eq!(status.highest_completed_level(), Some(0));
-    assert!(status.raw_fts_ready());
-    assert!(status.summary_fts_ready());
 }
 
 #[test]

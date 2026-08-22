@@ -156,12 +156,6 @@ fn status(app: &mut App<'_>) -> Result<()> {
             .highest_completed_level()
             .map_or_else(|| "none".to_string(), |value| value.to_string())
     )?;
-    writeln!(app.output, "raw FTS ready\t{}", status.raw_fts_ready())?;
-    writeln!(
-        app.output,
-        "summary FTS ready\t{}",
-        status.summary_fts_ready()
-    )?;
     Ok(())
 }
 

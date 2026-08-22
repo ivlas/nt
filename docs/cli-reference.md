@@ -305,15 +305,12 @@ highest sequence\t<seq|none>
 summary count\t<count>
 pending summary count\t<count>
 highest completed level\t<level|none>
-raw FTS ready\t<true|false>
-summary FTS ready\t<true|false>
 ```
 
 The count is the number of raw rows; highest sequence is the greatest assigned
-identity and can differ for a manually damaged or inspected database. The FTS
-fields test only whether the corresponding virtual tables exist, not whether
-their contents are synchronized. Validated storage normally reports both as
-`true`; status is not an integrity audit or repair command.
+identity and can differ for a manually damaged or inspected database. Schema
+opening validates required FTS objects before status runs; status is not an
+integrity audit or repair command.
 
 ## Errors And Operation
 
