@@ -1,5 +1,6 @@
 use super::{CollectionPath, NoteId, Tag, Timestamp};
 use crate::error::{NtError, Result};
+use crate::lexical::normalized_terms;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Filter {
@@ -38,7 +39,7 @@ impl NoteQuery {
 
     pub fn parse_find(expressions: &[String]) -> Result<Self> {
         let mut filters = Vec::new();
-        let mut lexical_terms = Vec::new();
+        let mut lexical_values = Vec::new();
         let mut limit = None;
         for expression in expressions {
             if parse_limit(expression, &mut limit)? {
@@ -46,11 +47,10 @@ impl NoteQuery {
             } else if is_filter_expression(expression) {
                 filters.push(parse_filter(expression)?);
             } else {
-                lexical_terms.extend(literal_tokens(expression));
+                lexical_values.push(expression.clone());
             }
         }
-        lexical_terms.sort();
-        lexical_terms.dedup();
+        let lexical_terms = normalized_terms(&lexical_values);
         if lexical_terms.is_empty() {
             return Err(NtError::InvalidValue {
                 field: "search term",
@@ -167,22 +167,6 @@ fn invalid_limit<T>(value: &str) -> Result<T> {
         field: "limit",
         value: value.to_string(),
     })
-}
-
-fn literal_tokens(value: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut start = None;
-    for (index, character) in value.char_indices() {
-        if character.is_alphanumeric() {
-            start.get_or_insert(index);
-        } else if let Some(start) = start.take() {
-            tokens.push(value[start..index].to_string());
-        }
-    }
-    if let Some(start) = start {
-        tokens.push(value[start..].to_string());
-    }
-    tokens
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use crate::error::{NtError, Result};
+use crate::lexical::{fts_and_expression, normalized_terms};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MemoryListQuery {
@@ -41,7 +42,7 @@ pub(crate) struct MemoryRecallQuery {
 impl MemoryRecallQuery {
     pub(crate) fn parse(expressions: &[String]) -> Result<Self> {
         let mut parsed = ParsedFilters::default();
-        let mut terms = Vec::new();
+        let mut lexical_values = Vec::new();
         for expression in expressions {
             if parsed.parse_filter(expression)? {
                 continue;
@@ -49,10 +50,10 @@ impl MemoryRecallQuery {
             if is_filter_expression(expression) {
                 return invalid("memory filter", expression);
             }
-            terms.extend(literal_tokens(expression));
+            lexical_values.push(expression.clone());
         }
         parsed.validate_range()?;
-        sort_and_deduplicate(&mut terms);
+        let terms = normalized_terms(&lexical_values);
         if terms.is_empty() {
             return Err(NtError::InvalidValue {
                 field: "memory recall term",
@@ -85,7 +86,7 @@ impl MemoryRecallQuery {
     }
 
     pub(crate) fn fts_expression(&self) -> String {
-        fts_expression(&self.terms)
+        fts_and_expression(&self.terms)
     }
 }
 
@@ -96,14 +97,12 @@ pub(crate) struct MemoryContextQuery {
 
 impl MemoryContextQuery {
     pub(crate) fn parse(expressions: &[String]) -> Result<Self> {
-        let mut terms = Vec::new();
         for expression in expressions {
             if is_filter_expression(expression) {
                 return invalid("memory context filter", expression);
             }
-            terms.extend(literal_tokens(expression));
         }
-        sort_and_deduplicate(&mut terms);
+        let terms = normalized_terms(expressions);
         Ok(Self { terms })
     }
 
@@ -112,16 +111,8 @@ impl MemoryContextQuery {
     }
 
     pub(crate) fn fts_expression(&self) -> String {
-        fts_expression(&self.terms)
+        fts_and_expression(&self.terms)
     }
-}
-
-pub(crate) fn fts_expression(terms: &[String]) -> String {
-    terms
-        .iter()
-        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" AND ")
 }
 
 #[derive(Default)]
@@ -205,27 +196,6 @@ fn is_filter_expression(expression: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
 }
 
-fn literal_tokens(value: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut start = None;
-    for (index, character) in value.char_indices() {
-        if character.is_alphanumeric() {
-            start.get_or_insert(index);
-        } else if let Some(start) = start.take() {
-            tokens.push(value[start..index].to_string());
-        }
-    }
-    if let Some(start) = start {
-        tokens.push(value[start..].to_string());
-    }
-    tokens
-}
-
-fn sort_and_deduplicate(terms: &mut Vec<String>) {
-    terms.sort();
-    terms.dedup();
-}
-
 fn invalid<T>(field: &'static str, value: &str) -> Result<T> {
     Err(NtError::InvalidValue {
         field,
@@ -235,7 +205,8 @@ fn invalid<T>(field: &'static str, value: &str) -> Result<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MemoryContextQuery, MemoryListQuery, MemoryRecallQuery, fts_expression};
+    use super::{MemoryContextQuery, MemoryListQuery, MemoryRecallQuery};
+    use crate::lexical::fts_and_expression;
 
     fn expressions(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
@@ -313,9 +284,9 @@ mod tests {
 
     #[test]
     fn fts_builder_quotes_and_escapes_every_literal() {
-        assert_eq!(fts_expression(&[]), "");
+        assert_eq!(fts_and_expression(&[]), "");
         assert_eq!(
-            fts_expression(&["a\"b".to_string(), "c".to_string()]),
+            fts_and_expression(&["a\"b".to_string(), "c".to_string()]),
             "\"a\"\"b\" AND \"c\""
         );
     }
