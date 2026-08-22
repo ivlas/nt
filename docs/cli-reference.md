@@ -215,7 +215,7 @@ summarization explicitly with `pending` and `summarize`; append does not wait fo
 it. Retrieval makes no model call and requires no embeddings. There is no daemon
 or background worker.
 
-Memory v1 has fixed compile-time limits and no configuration:
+Memory limits are fixed at compile time and have no configuration:
 
 | Limit | Value |
 | --- | ---: |

@@ -152,7 +152,7 @@ changing the bounded context allocation. `nt memory expand` reveals exactly one
 child level at a time, allowing progressive recovery from a selected summary to
 exact original history.
 
-The memory v1 limits are compile-time constants with no configuration:
+Memory limits are compile-time constants with no configuration:
 
 | Limit | Value |
 | --- | ---: |
