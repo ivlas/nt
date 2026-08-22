@@ -2,13 +2,13 @@ use std::fmt;
 
 use rusqlite::Connection;
 
-#[cfg(test)]
-mod behavior_tests;
 mod query_sql;
 mod relationships;
 mod store;
 mod stored;
 mod summaries;
+#[cfg(test)]
+mod tests;
 
 pub use summaries::NoteSummary;
 
