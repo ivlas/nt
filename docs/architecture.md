@@ -141,7 +141,8 @@ recent raw tail. The frontier prefers the largest completed summary at each
 chronological range and falls back to completed children when an ancestor is
 missing. It is derived from sequence bounds and indexed summary availability;
 there is no persisted frontier table. Complete base-16 pyramids produce only a
-small number of frontier nodes proportional to tree depth.
+small number of frontier nodes proportional to tree depth. Sparse pyramids use
+the next completed block at each level to jump over empty historical ranges.
 
 The context compiler has a fixed 32,768-Unicode-character stdout budget and
 selects only complete raw bodies or summaries. Headers, timestamps, ranges,

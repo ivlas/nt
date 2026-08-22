@@ -1030,6 +1030,27 @@ fn benchmark_queryless_context_across_history_sizes() {
         let repository = Repository::from_connection(connection);
         let (_, no_summary_time) = measure(&repository);
 
+        let sparse_block = (raw_count - 256) / 16 - 1;
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (0, ?1, 'sparse benchmark summary', '2026-08-22T12:34:56Z')",
+                [i64::try_from(sparse_block).unwrap()],
+            )
+            .unwrap();
+        let (sparse, sparse_time) = measure(&repository);
+        assert!(sparse.iter().any(
+            |item| matches!(item, ContextItem::Summary(segment) if segment.node() == node(0, sparse_block))
+        ));
+        repository
+            .connection
+            .execute(
+                "DELETE FROM memory_segments WHERE level = 0 AND block = ?1",
+                [i64::try_from(sparse_block).unwrap()],
+            )
+            .unwrap();
+
         assert!(populate_summary_level(&repository.connection, raw_count, 0));
         let (level_zero, level_zero_time) = measure(&repository);
         assert!(
@@ -1051,7 +1072,8 @@ fn benchmark_queryless_context_across_history_sizes() {
         println!(
             "raw_count={raw_count} frontier_summaries={frontier_summaries} \
              raw_populate={raw_populate_time:?} no_summaries={no_summary_time:?} \
-             level_zero_only={level_zero_time:?} complete={complete_time:?}"
+             sparse={sparse_time:?} level_zero_only={level_zero_time:?} \
+             complete={complete_time:?}"
         );
     }
 }

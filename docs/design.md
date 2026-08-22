@@ -422,7 +422,9 @@ largest aligned completed node, falling back through smaller children when an
 ancestor is missing. The full frontier is non-overlapping and, for a complete
 pyramid, has at most roughly 15 nodes per tree level. Context compilation
 consumes a bounded prefix and batch-fetches those exact nodes rather than
-scanning broad summary candidates.
+scanning broad summary candidates. Availability lookups seek the next completed
+block at each level, allowing the tree walk to jump directly across sparse empty
+ranges rather than visiting every level-zero block.
 
 With lexical terms, allocation is:
 

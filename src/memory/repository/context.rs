@@ -345,7 +345,8 @@ fn frontier_summary_candidates(
         highest_seq,
         recent_start,
         CANDIDATE_LIMIT,
-        |node| -> Result<bool> {
+        |level, first_block| -> Result<Option<u64>> {
+            let node = SummaryNodeId::new(level, first_block)?;
             let (level, block) = node_values(node)?;
             let seek = next_by_level
                 .get(&node.level())
@@ -361,7 +362,7 @@ fn frontier_summary_candidates(
                     .transpose()?;
                 next_by_level.insert(node.level(), next);
             }
-            Ok(next_by_level.get(&node.level()).copied().flatten() == Some(node.block()))
+            Ok(next_by_level.get(&node.level()).copied().flatten())
         },
     )?;
     drop(next_summary);

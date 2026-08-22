@@ -378,7 +378,8 @@ frontier covers history before the recent raw tail with maximal non-overlapping
 completed nodes in chronological order. It prefers the highest node that fits a
 range and falls back to completed children when that node is missing. Indexed
 summary-availability probes compute the frontier, and at most 256 resulting
-nodes are batch-fetched for the context compiler.
+nodes are batch-fetched for the context compiler. Each probe seeks the next
+completed block at its level, so sparse histories skip empty ranges directly.
 
 With lexical terms, the budget is split 40% to lexical raw entries, 30% to
 recent raw entries, and 30% to lexical summaries. FTS5 acts only as a lexical

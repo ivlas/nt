@@ -74,47 +74,57 @@ pub(crate) fn frontier<E>(
     highest_seq: u64,
     recent_start: u64,
     limit: usize,
-    mut summary_exists: impl FnMut(SummaryNodeId) -> std::result::Result<bool, E>,
+    mut next_summary_block: impl FnMut(u64, u64) -> std::result::Result<Option<u64>, E>,
 ) -> std::result::Result<Vec<SummaryNodeId>, E> {
     let history_end = highest_seq
         .min(recent_start.saturating_sub(1))
         .min(i64::MAX as u64);
     let completed_level_zero_blocks = history_end / MEMORY_FANOUT;
+    let mut widths = Vec::new();
+    let mut width = 1_u64;
+    while width <= completed_level_zero_blocks {
+        widths.push(width);
+        let Some(next) = width.checked_mul(MEMORY_FANOUT) else {
+            break;
+        };
+        width = next;
+    }
     let mut nodes = Vec::new();
     let mut level_zero_block = 0;
 
     while level_zero_block < completed_level_zero_blocks && nodes.len() < limit {
-        let remaining = completed_level_zero_blocks - level_zero_block;
-        let mut level = 0;
-        let mut width = 1_u64;
-        while let Some(next_width) = width.checked_mul(MEMORY_FANOUT) {
-            if level_zero_block % next_width != 0 || next_width > remaining {
-                break;
-            }
-            level += 1;
-            width = next_width;
-        }
-
         let mut selected = None;
-        loop {
-            let node = SummaryNodeId::new(level, level_zero_block / width)
+        let mut next_start = None;
+        for (level, width) in widths.iter().copied().enumerate() {
+            let first_block = level_zero_block.div_ceil(width);
+            let complete_blocks = completed_level_zero_blocks / width;
+            if first_block >= complete_blocks {
+                continue;
+            }
+            let Some(block) = next_summary_block(level as u64, first_block)? else {
+                continue;
+            };
+            if block < first_block || block >= complete_blocks {
+                continue;
+            }
+            let start = block
+                .checked_mul(width)
                 .expect("frontier nodes fit the canonical memory range");
-            if summary_exists(node)? {
+            next_start = Some(next_start.map_or(start, |next: u64| next.min(start)));
+            if start == level_zero_block {
+                let node = SummaryNodeId::new(level as u64, block)
+                    .expect("frontier nodes fit the canonical memory range");
                 selected = Some((node, width));
-                break;
             }
-            if level == 0 {
-                break;
-            }
-            level -= 1;
-            width /= MEMORY_FANOUT;
         }
 
         if let Some((node, width)) = selected {
             nodes.push(node);
             level_zero_block += width;
+        } else if let Some(next) = next_start {
+            level_zero_block = next;
         } else {
-            level_zero_block += 1;
+            break;
         }
     }
 
@@ -123,6 +133,7 @@ pub(crate) fn frontier<E>(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::collections::BTreeSet;
     use std::convert::Infallible;
 
@@ -134,9 +145,31 @@ mod tests {
     }
 
     fn complete_frontier(highest_seq: u64, recent_start: u64) -> Vec<SummaryNodeId> {
-        frontier(highest_seq, recent_start, usize::MAX, |_| {
-            Ok::<_, Infallible>(true)
+        frontier(highest_seq, recent_start, usize::MAX, |_, first_block| {
+            Ok::<_, Infallible>(Some(first_block))
         })
+        .unwrap()
+    }
+
+    fn available_frontier(
+        highest_seq: u64,
+        recent_start: u64,
+        available: &BTreeSet<SummaryNodeId>,
+    ) -> Vec<SummaryNodeId> {
+        frontier(
+            highest_seq,
+            recent_start,
+            usize::MAX,
+            |level, first_block| {
+                Ok::<_, Infallible>(
+                    available
+                        .range(node(level, first_block)..)
+                        .next()
+                        .filter(|candidate| candidate.level() == level)
+                        .map(|candidate| candidate.block()),
+                )
+            },
+        )
         .unwrap()
     }
 
@@ -235,7 +268,7 @@ mod tests {
                 highest_seq,
                 recent_start,
                 usize::MAX,
-                |_| -> Result<bool, Infallible> {
+                |_, _| -> Result<Option<u64>, Infallible> {
                     panic!("an empty frontier must not inspect summaries")
                 },
             )
@@ -265,17 +298,11 @@ mod tests {
     #[test]
     fn frontier_falls_back_to_completed_children_when_parents_are_missing() {
         let level_zero = (0..16).map(|block| node(0, block)).collect::<BTreeSet<_>>();
-        let nodes = frontier(256, 257, usize::MAX, |candidate| {
-            Ok::<_, Infallible>(level_zero.contains(&candidate))
-        })
-        .unwrap();
+        let nodes = available_frontier(256, 257, &level_zero);
         assert_eq!(nodes, level_zero.into_iter().collect::<Vec<_>>());
 
         let level_one = (0..16).map(|block| node(1, block)).collect::<BTreeSet<_>>();
-        let nodes = frontier(4_096, 4_097, usize::MAX, |candidate| {
-            Ok::<_, Infallible>(level_one.contains(&candidate))
-        })
-        .unwrap();
+        let nodes = available_frontier(4_096, 4_097, &level_one);
         assert_eq!(nodes, level_one.into_iter().collect::<Vec<_>>());
     }
 
@@ -285,10 +312,7 @@ mod tests {
             .filter(|block| *block != 3)
             .map(|block| node(0, block))
             .collect::<BTreeSet<_>>();
-        let nodes = frontier(256, 257, usize::MAX, |candidate| {
-            Ok::<_, Infallible>(available.contains(&candidate))
-        })
-        .unwrap();
+        let nodes = available_frontier(256, 257, &available);
         assert_eq!(nodes.len(), 15);
 
         let ranges = nodes
@@ -341,13 +365,30 @@ mod tests {
 
     #[test]
     fn frontier_prefix_bounds_incomplete_pyramids_without_changing_order() {
-        let nodes = frontier(10_000_000, 10_000_001, 256, |candidate| {
-            Ok::<_, Infallible>(candidate.level() == 0)
+        let nodes = frontier(10_000_000, 10_000_001, 256, |level, first_block| {
+            Ok::<_, Infallible>((level == 0).then_some(first_block))
         })
         .unwrap();
         assert_eq!(
             nodes,
             (0..256).map(|block| node(0, block)).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn frontier_jumps_across_sparse_history() {
+        let probes = Cell::new(0);
+        let nodes = frontier(
+            100_000_000,
+            100_000_001,
+            usize::MAX,
+            |level, first_block| {
+                probes.set(probes.get() + 1);
+                Ok::<_, Infallible>((level == 0 && first_block <= 6_249_999).then_some(6_249_999))
+            },
+        )
+        .unwrap();
+        assert_eq!(nodes, [node(0, 6_249_999)]);
+        assert!(probes.get() < 20, "{} availability probes", probes.get());
     }
 }
