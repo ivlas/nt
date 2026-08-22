@@ -167,15 +167,45 @@ fn select_raw(
         if selected_raw.contains(&memory.seq()) {
             continue;
         }
+        let seq = u64::try_from(memory.seq()).expect("validated memory sequences are positive");
         let item = ContextItem::Raw(memory);
-        let chars = item.output_char_count()? + usize::from(!selected.is_empty());
-        if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - *total_used {
+        let mut overlapping_summaries = BTreeSet::new();
+        for (index, selected_item) in selected.iter().enumerate() {
+            if matches!(selected_item, ContextItem::Summary(_))
+                && ranges_overlap(selected_item.raw_bounds()?, (seq, seq))
+            {
+                overlapping_summaries.insert(index);
+            }
+        }
+        let retained_count = selected.len() - overlapping_summaries.len();
+        let retained_chars = selected
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !overlapping_summaries.contains(index))
+            .try_fold(0_usize, |total, (_, selected_item)| {
+                Ok::<_, crate::error::NtError>(total + selected_item.output_char_count()?)
+            })?
+            + retained_count.saturating_sub(1);
+        let chars = item.output_char_count()? + usize::from(retained_count != 0);
+        if chars > budget - pool_used || chars > MEMORY_CONTEXT_CHARS - retained_chars {
             continue;
+        }
+        if !overlapping_summaries.is_empty() {
+            let mut index = 0;
+            selected.retain(|_| {
+                let retain = !overlapping_summaries.contains(&index);
+                index += 1;
+                retain
+            });
+            selected_ranges.clear();
+            for selected_item in selected.iter() {
+                selected_ranges.push(selected_item.raw_bounds()?);
+            }
+            *total_used = retained_chars;
         }
         let ContextItem::Raw(memory) = &item else {
             unreachable!();
         };
-        let seq = u64::try_from(memory.seq()).expect("validated memory sequences are positive");
         pool_used += chars;
         *total_used += chars;
         selected_raw.insert(memory.seq());

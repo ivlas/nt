@@ -402,6 +402,36 @@ fn context_prefers_exact_raw_and_excludes_overlapping_summaries() {
 }
 
 #[test]
+fn context_fallback_raw_evicts_an_overlapping_lexical_summary() {
+    let mut repository = repository();
+    let body = format!("recent {}", "x".repeat(1_017));
+    for _ in 0..32 {
+        repository.append(NewMemory::new(&body).unwrap()).unwrap();
+    }
+    repository
+        .summarize(
+            node(0, 0),
+            NewSummary::new("needle overlapping summary").unwrap(),
+        )
+        .unwrap();
+
+    let query = MemoryContextQuery::parse(&strings(&["needle"])).unwrap();
+    let context = repository.context(&query).unwrap();
+
+    assert!(
+        context
+            .iter()
+            .all(|item| matches!(item, ContextItem::Raw(_)))
+    );
+    assert!(
+        context
+            .iter()
+            .any(|item| matches!(item, ContextItem::Raw(memory) if memory.seq() == 16))
+    );
+    assert!(context_output_char_count(&context).unwrap() <= MEMORY_CONTEXT_CHARS);
+}
+
+#[test]
 fn context_lexical_raw_candidates_are_bounded_and_prefer_newer_matches() {
     let mut repository = repository();
     repository
