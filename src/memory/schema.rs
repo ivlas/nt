@@ -48,7 +48,7 @@ pub(crate) const MEMORY_FTS: SchemaObject = SchemaObject {
          body,
          content = 'memories',
          content_rowid = 'seq',
-         tokenize = 'unicode61 remove_diacritics 2'
+         tokenize = 'porter unicode61 remove_diacritics 2'
      )",
 };
 
@@ -59,7 +59,7 @@ pub(crate) const MEMORY_SEGMENT_FTS: SchemaObject = SchemaObject {
          summary,
          content = 'memory_segments',
          content_rowid = 'pk',
-         tokenize = 'unicode61 remove_diacritics 2'
+         tokenize = 'porter unicode61 remove_diacritics 2'
      )",
 };
 

@@ -1,6 +1,6 @@
 CREATE TABLE schema_version (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-         version INTEGER NOT NULL CHECK (version = 2)
+         version INTEGER NOT NULL CHECK (version = 3)
      ) WITHOUT ROWID;
 CREATE TABLE notes (
          pk INTEGER PRIMARY KEY,
@@ -100,13 +100,13 @@ CREATE VIRTUAL TABLE memory_fts USING fts5(
          body,
          content = 'memories',
          content_rowid = 'seq',
-         tokenize = 'unicode61 remove_diacritics 2'
+         tokenize = 'porter unicode61 remove_diacritics 2'
      );
 CREATE VIRTUAL TABLE memory_segment_fts USING fts5(
          summary,
          content = 'memory_segments',
          content_rowid = 'pk',
-         tokenize = 'unicode61 remove_diacritics 2'
+         tokenize = 'porter unicode61 remove_diacritics 2'
      );
 CREATE TRIGGER memories_fts_insert AFTER INSERT ON memories BEGIN
          INSERT INTO memory_fts(rowid, body) VALUES (new.seq, new.body);
@@ -147,5 +147,5 @@ CREATE TRIGGER memory_segments_immutable_identity
 CREATE INDEX memories_created_idx ON memories(created DESC, seq DESC);
 CREATE INDEX memory_segments_created_idx
          ON memory_segments(created DESC, level DESC, block DESC);
-INSERT INTO schema_version(singleton, version) VALUES (1, 2);
+INSERT INTO schema_version(singleton, version) VALUES (1, 3);
 PRAGMA application_id = 1314147924;

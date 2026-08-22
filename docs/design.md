@@ -104,6 +104,14 @@ full-text search (FTS) terms; there is no scoring, fuzzy matching, raw FTS
 syntax, embedding search, or automatic model call. SQL applies explicit limits
 and stable ordering.
 
+Memory FTS uses SQLite FTS5 Porter stemming over Unicode61 so common English
+word forms, such as singular/plural nouns and verb inflections, can retrieve the
+same memory. Porter is primarily English-oriented and does not promise
+morphological normalization for arbitrary languages. It is not semantic or
+fuzzy search. Raw memory remains canonical; both memory FTS indexes are derived,
+rebuildable retrieval infrastructure whose tokenizer may change through a
+future schema change.
+
 Note `list` and `find` return metadata rows without bodies. They are complete by
 default and stream redirected output. Memory `list` and `recall` return exact
 raw entries in sequence order.
@@ -137,7 +145,7 @@ facts. Progressive expansion and raw recall provide exact evidence.
 ## Storage And Consistency
 
 Only `nt init` creates storage. The database uses application ID `0x4e544e54`
-(`NTNT`) and clean-sheet schema version `2`. This alpha policy rejects
+(`NTNT`) and clean-sheet schema version `3`. This alpha policy rejects
 incompatible databases instead of migrating them in place. Every mutation is
 transactional, including its relationship and full-text index changes.
 
