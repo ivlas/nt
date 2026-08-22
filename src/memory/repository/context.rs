@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Repository, decode_memory, decode_segment, invalid_node, node_range, node_values};
+use super::Repository;
+use super::stored::{decode_memory, decode_segment, invalid_node, node_range, node_values};
 use crate::error::{NtError, Result};
 use crate::memory::{
     MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemorySegment, SummaryNodeId, frontier,
