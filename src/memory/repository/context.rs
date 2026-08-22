@@ -1,12 +1,15 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
-use super::{Repository, decode_memory, decode_segment, invalid_node, node_range};
+use super::{Repository, decode_memory, decode_segment, invalid_node, node_range, node_values};
 use crate::error::Result;
-use crate::memory::{MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemorySegment};
+use crate::memory::{
+    MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, MemorySegment, SummaryNodeId, frontier,
+};
 
 const CANDIDATE_LIMIT: usize = 256;
+const FRONTIER_FETCH_BATCH_SIZE: usize = 256;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ContextItem {
@@ -74,7 +77,11 @@ impl Repository {
         let mut total_used = 0;
 
         let recent = recent_raw_candidates(&transaction)?;
-        let broad = broad_summary_candidates(&transaction)?;
+        let broad = if query.terms().is_empty() {
+            frontier_summary_candidates(&transaction, &recent)?
+        } else {
+            broad_summary_candidates(&transaction)?
+        };
 
         // Preferred pools are 60/40 without terms and 40/30/30 with terms.
         // Remaining output capacity falls back to recent raw and broad summaries.
@@ -309,6 +316,96 @@ fn broad_summary_candidates(connection: &rusqlite::Connection) -> Result<Vec<Mem
         candidates.push(segment);
     }
     Ok(candidates)
+}
+
+fn frontier_summary_candidates(
+    connection: &rusqlite::Connection,
+    recent: &[Memory],
+) -> Result<Vec<MemorySegment>> {
+    let (Some(newest), Some(oldest)) = (recent.first(), recent.last()) else {
+        return Ok(Vec::new());
+    };
+    let any_summaries =
+        connection.query_row("SELECT EXISTS(SELECT 1 FROM memory_segments)", [], |row| {
+            row.get::<_, bool>(0)
+        })?;
+    if !any_summaries {
+        return Ok(Vec::new());
+    }
+    let highest_seq = u64::try_from(newest.seq()).expect("validated memory sequences are positive");
+    let recent_start =
+        u64::try_from(oldest.seq()).expect("validated memory sequences are positive");
+    let mut next_by_level = BTreeMap::<u64, Option<u64>>::new();
+    let mut next_summary = connection.prepare(
+        "SELECT block FROM memory_segments
+         WHERE level = ?1 AND block >= ?2
+         ORDER BY block ASC LIMIT 1",
+    )?;
+    let nodes = frontier(
+        highest_seq,
+        recent_start,
+        CANDIDATE_LIMIT,
+        |node| -> Result<bool> {
+            let (level, block) = node_values(node)?;
+            let seek = next_by_level
+                .get(&node.level())
+                .is_none_or(|next| next.is_some_and(|next| next < node.block()));
+            if seek {
+                let next = next_summary
+                    .query_row(params![level, block], |row| row.get::<_, i64>(0))
+                    .optional()?
+                    .map(|next| {
+                        u64::try_from(next)
+                            .map_err(|_| invalid_node(node, "has an invalid stored block"))
+                    })
+                    .transpose()?;
+                next_by_level.insert(node.level(), next);
+            }
+            Ok(next_by_level.get(&node.level()).copied().flatten() == Some(node.block()))
+        },
+    )?;
+    drop(next_summary);
+
+    load_frontier_segments(connection, &nodes)
+}
+
+fn load_frontier_segments(
+    connection: &rusqlite::Connection,
+    nodes: &[SummaryNodeId],
+) -> Result<Vec<MemorySegment>> {
+    let mut by_node = BTreeMap::new();
+    for batch in nodes.chunks(FRONTIER_FETCH_BATCH_SIZE) {
+        let mut sql =
+            String::from("SELECT pk, level, block, summary, created FROM memory_segments WHERE ");
+        let mut values = Vec::with_capacity(batch.len() * 2);
+        for (index, node) in batch.iter().enumerate() {
+            if index != 0 {
+                sql.push_str(" OR ");
+            }
+            sql.push_str("(level = ? AND block = ?)");
+            let (level, block) = node_values(*node)?;
+            values.push(level);
+            values.push(block);
+        }
+
+        let mut statement = connection.prepare(&sql)?;
+        let mut rows = statement.query(rusqlite::params_from_iter(values))?;
+        while let Some(row) = rows.next()? {
+            let segment = decode_segment(row)?;
+            node_range(segment.node())
+                .map_err(|_| invalid_node(segment.node(), "has an invalid raw range"))?;
+            by_node.insert(segment.node(), segment);
+        }
+    }
+
+    nodes
+        .iter()
+        .map(|node| {
+            by_node
+                .remove(node)
+                .ok_or_else(|| invalid_node(*node, "summary not found"))
+        })
+        .collect()
 }
 
 pub(super) fn lexical_summary_candidates(

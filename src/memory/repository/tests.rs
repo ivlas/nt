@@ -9,9 +9,10 @@ use super::{
 };
 use crate::error::NtError;
 use crate::memory::schema::OBJECTS;
+use crate::memory::tree::span;
 use crate::memory::{
     MEMORY_CONTEXT_CHARS, MemoryContextQuery, MemoryListQuery, MemoryRecallQuery, NewMemory,
-    NewSummary, SummaryNodeId,
+    NewSummary, SummaryNodeId, range,
 };
 
 fn repository() -> Repository {
@@ -476,6 +477,71 @@ fn queryless_context_is_deterministic_and_uses_only_bounded_candidates() {
 }
 
 #[test]
+fn queryless_context_uses_the_canonical_frontier_and_falls_back_to_children() {
+    let mut repository = repository();
+    append(&mut repository, 512, "history");
+    for block in 0..16 {
+        repository
+            .connection
+            .execute(
+                "INSERT INTO memory_segments(level, block, summary, created)
+                 VALUES (0, ?1, ?2, '2026-08-22T12:34:56Z')",
+                rusqlite::params![block, format!("child summary {block}")],
+            )
+            .unwrap();
+    }
+    repository
+        .connection
+        .execute(
+            "INSERT INTO memory_segments(level, block, summary, created)
+             VALUES (1, 0, 'canonical parent', '2026-08-22T12:34:56Z')",
+            [],
+        )
+        .unwrap();
+
+    let query = MemoryContextQuery::default();
+    let context = repository.context(&query).unwrap();
+    let summaries = context
+        .iter()
+        .filter_map(|item| match item {
+            ContextItem::Summary(segment) => Some(segment.node()),
+            ContextItem::Raw(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(summaries, [node(1, 0)]);
+    assert!(context.iter().all(|item| match item {
+        ContextItem::Raw(memory) => memory.seq() >= 257,
+        ContextItem::Summary(segment) => {
+            range(segment.node().level(), segment.node().block())
+                .unwrap()
+                .end()
+                < 257
+        }
+    }));
+
+    repository
+        .connection
+        .execute(
+            "DELETE FROM memory_segments WHERE level = 1 AND block = 0",
+            [],
+        )
+        .unwrap();
+    let context = repository.context(&query).unwrap();
+    let summaries = context
+        .iter()
+        .filter_map(|item| match item {
+            ContextItem::Summary(segment) => Some(segment.node()),
+            ContextItem::Raw(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries,
+        (0..16).map(|block| node(0, block)).collect::<Vec<_>>()
+    );
+    assert!(context_output_char_count(&context).unwrap() <= MEMORY_CONTEXT_CHARS);
+}
+
+#[test]
 fn repeated_expansion_recovers_exact_raw_evidence() {
     let mut repository = repository();
     append(&mut repository, 256, "evidence");
@@ -881,4 +947,111 @@ fn audit_complete_million_memory_pyramid_queries() {
          common_recall={common_recall_time:?} selective_context={selective_context_time:?} \
          common_context={common_context_time:?} expand={expand_time:?} database_bytes={bytes}"
     );
+}
+
+#[test]
+#[ignore = "manual queryless context scale benchmark at 10k, 100k, 1M, and 10M memories"]
+fn benchmark_queryless_context_across_history_sizes() {
+    use std::time::{Duration, Instant};
+
+    fn populate_raw_history(connection: &Connection, raw_count: u64) {
+        connection
+            .execute(
+                "WITH RECURSIVE generated(seq) AS (
+                     VALUES(1)
+                     UNION ALL
+                     SELECT seq + 1 FROM generated WHERE seq < ?1
+                 )
+                 INSERT INTO memories(seq, body, created)
+                 SELECT seq, printf('benchmark memory %d', seq), '2026-08-22T12:34:56Z'
+                 FROM generated",
+                [i64::try_from(raw_count).unwrap()],
+            )
+            .unwrap();
+    }
+
+    fn populate_summary_level(connection: &Connection, raw_count: u64, level: u64) -> bool {
+        let Some(width) = span(level) else {
+            return false;
+        };
+        let blocks = raw_count / width;
+        if blocks == 0 {
+            return false;
+        }
+        connection
+            .execute(
+                "WITH RECURSIVE generated(block) AS (
+                     VALUES(0)
+                     UNION ALL
+                     SELECT block + 1 FROM generated WHERE block + 1 < ?2
+                 )
+                 INSERT INTO memory_segments(level, block, summary, created)
+                 SELECT ?1,
+                        block,
+                        printf('benchmark L%d summary %d', ?1, block),
+                        '2026-08-22T12:34:56Z'
+                 FROM generated",
+                rusqlite::params![
+                    i64::try_from(level).unwrap(),
+                    i64::try_from(blocks).unwrap()
+                ],
+            )
+            .unwrap();
+        true
+    }
+
+    fn measure(repository: &Repository) -> (Vec<ContextItem>, Duration) {
+        let query = MemoryContextQuery::default();
+        let warm = repository.context(&query).unwrap();
+        assert!(context_output_char_count(&warm).unwrap() <= MEMORY_CONTEXT_CHARS);
+        let mut best = Duration::MAX;
+        for _ in 0..10 {
+            let started = Instant::now();
+            let context = repository.context(&query).unwrap();
+            best = best.min(started.elapsed());
+            assert_eq!(context, warm);
+        }
+        (warm, best)
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    for raw_count in [10_000_u64, 100_000, 1_000_000, 10_000_000] {
+        let path = directory
+            .path()
+            .join(format!("queryless-{raw_count}.sqlite3"));
+        let connection = Connection::open(path).unwrap();
+        install_schema(&connection);
+        connection
+            .execute_batch("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF")
+            .unwrap();
+        let populate_started = Instant::now();
+        populate_raw_history(&connection, raw_count);
+        let raw_populate_time = populate_started.elapsed();
+        let repository = Repository::from_connection(connection);
+        let (_, no_summary_time) = measure(&repository);
+
+        assert!(populate_summary_level(&repository.connection, raw_count, 0));
+        let (level_zero, level_zero_time) = measure(&repository);
+        assert!(
+            level_zero
+                .iter()
+                .any(|item| matches!(item, ContextItem::Summary(_)))
+        );
+
+        for level in 1_u64.. {
+            if !populate_summary_level(&repository.connection, raw_count, level) {
+                break;
+            }
+        }
+        let (complete, complete_time) = measure(&repository);
+        let frontier_summaries = complete
+            .iter()
+            .filter(|item| matches!(item, ContextItem::Summary(_)))
+            .count();
+        println!(
+            "raw_count={raw_count} frontier_summaries={frontier_summaries} \
+             raw_populate={raw_populate_time:?} no_summaries={no_summary_time:?} \
+             level_zero_only={level_zero_time:?} complete={complete_time:?}"
+        );
+    }
 }
