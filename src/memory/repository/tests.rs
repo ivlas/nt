@@ -61,6 +61,51 @@ fn append_assigns_monotonic_sequences_and_enqueues_completed_raw_ranges() {
 }
 
 #[test]
+fn visit_pending_streams_in_order_applies_sql_limit_and_stops_on_visitor_error() {
+    let repository = repository();
+    repository
+        .connection
+        .execute_batch(
+            "WITH RECURSIVE jobs(block) AS (
+                 VALUES(0)
+                 UNION ALL
+                 SELECT block + 1 FROM jobs WHERE block < 9999
+             )
+             INSERT INTO memory_summary_jobs(level, block)
+             SELECT 0, block FROM jobs;",
+        )
+        .unwrap();
+
+    let mut limited = Vec::new();
+    repository
+        .visit_pending(Some(3), |job| {
+            limited.push(job.node());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(limited, [node(0, 0), node(0, 1), node(0, 2)]);
+
+    let mut visited = 0;
+    let error = repository
+        .visit_pending(None, |_| {
+            visited += 1;
+            Err(NtError::InvalidValue {
+                field: "test visit",
+                value: "stop".to_string(),
+            })
+        })
+        .unwrap_err();
+    assert_eq!(visited, 1);
+    assert!(matches!(
+        error,
+        NtError::InvalidValue {
+            field: "test visit",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn append_does_not_enqueue_an_incomplete_raw_range() {
     let mut repository = repository();
     for seq in 99..=111 {

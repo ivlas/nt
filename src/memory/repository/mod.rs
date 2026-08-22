@@ -207,7 +207,21 @@ impl Repository {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn pending(&self, limit: Option<i64>) -> Result<Vec<PendingJob>> {
+        let mut jobs = Vec::new();
+        self.visit_pending(limit, |job| {
+            jobs.push(job);
+            Ok(())
+        })?;
+        Ok(jobs)
+    }
+
+    pub(crate) fn visit_pending(
+        &self,
+        limit: Option<i64>,
+        mut visit: impl FnMut(PendingJob) -> Result<()>,
+    ) -> Result<()> {
         if limit.is_some_and(|value| value <= 0) {
             return Err(NtError::InvalidValue {
                 field: "memory pending limit",
@@ -227,15 +241,14 @@ impl Repository {
         } else {
             statement.query([])?
         };
-        let mut jobs = Vec::new();
         while let Some(row) = rows.next()? {
             let node = decode_node(row.get(0)?, row.get(1)?)?;
-            jobs.push(PendingJob {
+            visit(PendingJob {
                 node,
                 raw_range: node_range(node)?,
-            });
+            })?;
         }
-        Ok(jobs)
+        Ok(())
     }
 
     pub(crate) fn inspect_pending(&self, node: SummaryNodeId) -> Result<Vec<ExpansionItem>> {

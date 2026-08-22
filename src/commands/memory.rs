@@ -87,13 +87,17 @@ fn render_context(items: &[ContextItem]) -> Result<String> {
 fn pending(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
     let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
     match arguments {
-        [] => write_pending_jobs(app.output, repository.pending(None)?),
+        [] => write_pending_jobs(app.output, |write| {
+            repository.visit_pending(None, |job| write(&job))
+        }),
         [argument] if argument.starts_with("limit:") => {
             let limit = parse_positive(
                 argument.strip_prefix("limit:").unwrap_or_default(),
                 "memory pending limit",
             )?;
-            write_pending_jobs(app.output, repository.pending(Some(limit))?)
+            write_pending_jobs(app.output, |write| {
+                repository.visit_pending(Some(limit), |job| write(&job))
+            })
         }
         [node] => {
             let node: SummaryNodeId = node.parse()?;
@@ -187,8 +191,12 @@ fn write_memory_row(output: &mut (impl Write + ?Sized), memory: &Memory) -> Resu
     Ok(())
 }
 
-fn write_pending_jobs(output: &mut dyn Write, jobs: Vec<crate::memory::PendingJob>) -> Result<()> {
-    for job in jobs {
+fn write_pending_jobs(
+    output: &mut dyn Write,
+    produce: impl FnOnce(&mut dyn FnMut(&crate::memory::PendingJob) -> Result<()>) -> Result<()>,
+) -> Result<()> {
+    let mut output = BufWriter::new(output);
+    let mut write = |job: &crate::memory::PendingJob| {
         writeln!(
             output,
             "{}\t{}-{}\t{}",
@@ -197,8 +205,17 @@ fn write_pending_jobs(output: &mut dyn Write, jobs: Vec<crate::memory::PendingJo
             job.raw_range().end(),
             job.node().level()
         )?;
+        Ok(())
+    };
+    match produce(&mut write) {
+        Err(NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => return Ok(()),
+        result => result?,
     }
-    Ok(())
+    match output.flush() {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(()) => Ok(()),
+    }
 }
 
 fn write_summary_task(
@@ -269,7 +286,7 @@ fn invalid_positive<T>(field: &'static str, value: &str) -> Result<T> {
 mod tests {
     use std::io::{self, Write};
 
-    use super::{render_context, write_memories};
+    use super::{render_context, write_memories, write_pending_jobs};
     use crate::memory::schema::OBJECTS;
     use crate::memory::{MEMORY_CONTEXT_CHARS, Memory, MemoryContextQuery, NewMemory, Repository};
 
@@ -286,6 +303,34 @@ mod tests {
     fn streamed_memory_output_treats_broken_writes_and_flushes_as_success() {
         write_memories(&mut BrokenPipeWriter, |write| write(&memory())).unwrap();
         write_memories(&mut FlushBrokenPipeWriter, |write| write(&memory())).unwrap();
+    }
+
+    #[test]
+    fn streamed_pending_output_stops_before_decoding_later_malformed_rows() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        for object in OBJECTS {
+            connection.execute_batch(object.sql).unwrap();
+        }
+        connection
+            .execute_batch(
+                "WITH RECURSIVE jobs(block) AS (
+                     VALUES(0)
+                     UNION ALL
+                     SELECT block + 1 FROM jobs WHERE block < 1999
+                 )
+                 INSERT INTO memory_summary_jobs(level, block)
+                 SELECT 0, block FROM jobs;
+                 PRAGMA ignore_check_constraints = ON;
+                 INSERT INTO memory_summary_jobs(level, block) VALUES (14, 7);
+                 PRAGMA ignore_check_constraints = OFF;",
+            )
+            .unwrap();
+        let repository = Repository::from_connection(connection);
+
+        write_pending_jobs(&mut BrokenPipeWriter, |write| {
+            repository.visit_pending(None, |job| write(&job))
+        })
+        .unwrap();
     }
 
     #[test]
