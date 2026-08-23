@@ -61,7 +61,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt tag <id> <+tag|-tag>`
 - `nt link <id> <+id|-id>`
 - `nt memory add [-- body...]`
-- `nt memory show <seq>`
+- `nt memory show <seq|node>`
 - `nt memory list [filter...]`
 - `nt memory recall <term-or-filter...>`
 - `nt memory context [term...]`

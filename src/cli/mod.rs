@@ -80,7 +80,7 @@ pub enum MemoryCommand {
         body: Vec<String>,
     },
     Show {
-        seq: String,
+        target: String,
     },
     List {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -144,6 +144,7 @@ mod tests {
             &["nt", "link", ID, "+018fbe0a-6c00-7000-8000-000000000002"],
             &["nt", "memory", "add", "--", "immutable history"],
             &["nt", "memory", "show", "42"],
+            &["nt", "memory", "show", "L0:0"],
             &["nt", "memory", "list", "since:10", "limit:5"],
             &["nt", "memory", "recall", "deployment", "limit:5"],
             &["nt", "memory", "context", "deployment"],

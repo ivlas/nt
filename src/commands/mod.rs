@@ -340,10 +340,19 @@ mod tests {
             .unwrap()
             .create_note(NewNote::new(CollectionPath::inbox(), "# Exact note").unwrap())
             .unwrap();
-        open_memory_repository(&database_path)
-            .unwrap()
-            .append(crate::memory::NewMemory::new("exact memory").unwrap())
+        let mut memory_repository = open_memory_repository(&database_path).unwrap();
+        for index in 0..16 {
+            memory_repository
+                .append(crate::memory::NewMemory::new(format!("exact memory {index}")).unwrap())
+                .unwrap();
+        }
+        memory_repository
+            .summarize(
+                crate::memory::SummaryNodeId::new(0, 0).unwrap(),
+                crate::memory::NewSummary::new("exact summary").unwrap(),
+            )
             .unwrap();
+        drop(memory_repository);
 
         for arguments in [
             vec!["nt".to_string(), "show".to_string(), id.to_string()],
@@ -352,6 +361,12 @@ mod tests {
                 "memory".to_string(),
                 "show".to_string(),
                 "1".to_string(),
+            ],
+            vec![
+                "nt".to_string(),
+                "memory".to_string(),
+                "show".to_string(),
+                "L0:0".to_string(),
             ],
         ] {
             let mut stdin = Cursor::new(Vec::new());
