@@ -5,10 +5,23 @@ use super::stored::{
 };
 use super::{ExpansionItem, PendingJob, Repository};
 use crate::error::{NtError, Result};
-use crate::memory::{Children, NewSummary, SummaryNodeId, children, parent, range};
+use crate::memory::{Children, MemorySegment, NewSummary, SummaryNodeId, children, parent, range};
 use crate::note::timestamp_now;
 
 impl Repository {
+    pub(crate) fn get_summary(&self, node: SummaryNodeId) -> Result<MemorySegment> {
+        let (level, block) = node_values(node)?;
+        let mut statement = self.connection.prepare(
+            "SELECT pk, level, block, summary, created FROM memory_segments
+             WHERE level = ?1 AND block = ?2",
+        )?;
+        let mut rows = statement.query(params![level, block])?;
+        let Some(row) = rows.next()? else {
+            return Err(invalid_node(node, "summary not found"));
+        };
+        decode_segment(row)
+    }
+
     #[cfg(test)]
     pub(crate) fn pending(&self, limit: Option<i64>) -> Result<Vec<PendingJob>> {
         let mut jobs = Vec::new();

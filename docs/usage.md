@@ -121,6 +121,7 @@ They cannot be edited or removed.
 
 ```sh
 nt memory show "$SEQ"
+nt memory show L0:0
 nt memory list since:1 limit:100
 nt memory recall deployment
 nt memory recall deployment since:100
@@ -128,7 +129,8 @@ nt memory context deployment
 nt memory context
 ```
 
-`show` returns one exact raw body. `list` reads raw history in sequence order.
+`show` returns the exact raw body for a numeric sequence or the exact stored
+summary body for a summary node. `list` reads raw history in sequence order.
 `recall` searches exact raw history with literal terms and English-oriented
 Porter stemming, so forms such as `skill` and `skills` normally match the same
 memory. This is not fuzzy or semantic search. `context` uses the same lexical
@@ -146,12 +148,15 @@ nt memory pending
 nt memory pending L0:0
 printf '%s\n' 'Factual summary of the supplied children.' |
   nt memory summarize L0:0
+nt memory show L0:0
 nt memory expand L0:0
 ```
 
 `pending L0:0` prints the 16 children and a compression instruction. `summarize`
-stores the caller-produced result. `expand` reveals one child level; repeating
-it through lower nodes eventually reaches exact raw entries.
+stores the caller-produced result. `show` inspects that stored summary, while
+`expand` reveals exactly one child level beneath it without including the
+selected summary. Repeating expansion through lower nodes eventually reaches
+exact raw entries.
 
 If a summary is wrong, invalidate it and its dependent ancestors while keeping
 raw history:

@@ -158,6 +158,11 @@ fn summary_workflow_is_explicit_expandable_and_invalidatable() {
         ),
         b"summarized L0:0\n",
     );
+    assert_success(
+        nt(home.path(), &["memory", "show", "L0:0"], None),
+        b"events one through sixteen",
+    );
+    assert_success(nt(home.path(), &["memory", "show", "1"], None), b"event 1");
     let conflict = nt(
         home.path(),
         &["memory", "summarize", "L0:0", "--", "different"],
@@ -172,10 +177,10 @@ fn summary_workflow_is_explicit_expandable_and_invalidatable() {
 
     let expanded = nt(home.path(), &["memory", "expand", "L0:0"], None);
     assert!(expanded.status.success(), "{:?}", expanded.stderr);
-    assert_eq!(
-        String::from_utf8(expanded.stdout).unwrap().lines().count(),
-        16
-    );
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    assert_eq!(expanded.lines().count(), 16);
+    assert!(!expanded.contains("events one through sixteen"));
+    assert!(!expanded.contains("L0:0"));
     let context = nt(home.path(), &["memory", "context", "events"], None);
     assert!(context.status.success(), "{:?}", context.stderr);
     assert!(
@@ -193,6 +198,84 @@ fn summary_workflow_is_explicit_expandable_and_invalidatable() {
         nt(home.path(), &["memory", "pending"], None),
         b"L0:0\t1-16\t0\n",
     );
+}
+
+#[test]
+fn memory_show_rejects_missing_summaries_and_invalid_targets() {
+    let home = tempfile::tempdir().unwrap();
+    assert_success(nt(home.path(), &["init"], None), b"initialized\n");
+
+    let missing = nt(home.path(), &["memory", "show", "L0:99"], None);
+    assert_eq!(missing.status.code(), Some(2));
+    assert_eq!(
+        missing.stderr,
+        b"error: invalid memory node: L0:99 summary not found\n"
+    );
+
+    for target in ["0", "Lx:0", "L0:-1"] {
+        let invalid = nt(home.path(), &["memory", "show", target], None);
+        assert_eq!(invalid.status.code(), Some(2), "{target}");
+        assert!(invalid.stdout.is_empty(), "{target}");
+        assert!(!invalid.stderr.is_empty(), "{target}");
+    }
+}
+
+#[test]
+fn higher_level_expand_returns_only_direct_child_summaries() {
+    let home = tempfile::tempdir().unwrap();
+    assert_success(nt(home.path(), &["init"], None), b"initialized\n");
+    let mut connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let transaction = connection.transaction().unwrap();
+    for seq in 1..=256 {
+        transaction
+            .execute(
+                "INSERT INTO memories(seq, body, created) VALUES (?1, ?2, ?3)",
+                rusqlite::params![seq, format!("event {seq}"), "2026-08-22T12:34:56Z"],
+            )
+            .unwrap();
+    }
+    for block in 0..16 {
+        transaction
+            .execute(
+                "INSERT INTO memory_summary_jobs(level, block) VALUES (0, ?1)",
+                [block],
+            )
+            .unwrap();
+    }
+    transaction.commit().unwrap();
+    drop(connection);
+
+    for block in 0..16 {
+        let node = format!("L0:{block}");
+        let summary = format!("child summary {block}");
+        assert_success(
+            nt(
+                home.path(),
+                &["memory", "summarize", &node],
+                Some(summary.as_bytes()),
+            ),
+            format!("summarized {node}\n").as_bytes(),
+        );
+    }
+    assert_success(
+        nt(
+            home.path(),
+            &["memory", "summarize", "L1:0"],
+            Some(b"level one parent"),
+        ),
+        b"summarized L1:0\n",
+    );
+
+    let expanded = nt(home.path(), &["memory", "expand", "L1:0"], None);
+    assert!(expanded.status.success(), "{:?}", expanded.stderr);
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    let lines = expanded.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 16);
+    for (block, line) in lines.iter().enumerate() {
+        assert!(line.starts_with(&format!("L0:{block}\t")), "{line}");
+    }
+    assert!(!expanded.contains("L1:0"));
+    assert!(!expanded.contains("level one parent"));
 }
 
 #[test]
@@ -313,6 +396,7 @@ fn memory_retrieval_commands_use_read_only_connections() {
 
     for arguments in [
         vec!["memory", "show", "1"],
+        vec!["memory", "show", "L0:0"],
         vec!["memory", "list", "limit:1"],
         vec!["memory", "recall", "readonly", "limit:1"],
         vec!["memory", "context", "readonly"],

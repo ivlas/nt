@@ -111,6 +111,60 @@ fn summarize_is_idempotent_rejects_conflicts_and_keeps_fts_synchronized() {
 }
 
 #[test]
+fn direct_summary_lookup_returns_the_exact_validated_segment() {
+    let mut repository = repository();
+    append(&mut repository, 16, "source");
+    let target = node(0, 0);
+    repository
+        .summarize(
+            target,
+            NewSummary::new("stored summary\nwithout wrapper").unwrap(),
+        )
+        .unwrap();
+
+    let segment = repository.get_summary(target).unwrap();
+    assert_eq!(segment.node(), target);
+    assert_eq!(segment.summary(), "stored summary\nwithout wrapper");
+    assert!(matches!(
+        repository.get_summary(node(0, 99)),
+        Err(NtError::InvalidValue {
+            field: "memory node",
+            value,
+        }) if value == "L0:99 summary not found"
+    ));
+}
+
+#[test]
+fn direct_summary_lookup_rejects_invalid_stored_values() {
+    let mut repository = repository();
+    append(&mut repository, 16, "source");
+    let node = node(0, 0);
+    repository
+        .summarize(node, NewSummary::new("valid summary").unwrap())
+        .unwrap();
+    repository
+        .connection
+        .execute_batch(
+            "DROP TRIGGER memory_segments_immutable_update;
+             UPDATE memory_segments SET summary = 'not' || char(13) || 'normalized'
+             WHERE level = 0 AND block = 0;",
+        )
+        .unwrap();
+
+    let error = repository.get_summary(node).unwrap_err();
+    assert!(matches!(
+        &error,
+        NtError::InvalidStoredMemory {
+            identity,
+            field: "summary",
+            ..
+        } if identity == "segment row: 1"
+    ));
+    assert_eq!(error.exit_code(), 1);
+    assert!(!error.to_string().contains("not\rnormalized"));
+}
+
+#[test]
 fn failed_summarization_leaves_the_job_and_summary_state_unchanged() {
     let mut repository = repository();
     append(&mut repository, 16, "source");
@@ -179,6 +233,9 @@ fn expand_returns_exact_children_and_rejects_missing_nodes() {
     let expanded = repository.expand(node(0, 0)).unwrap();
     assert_eq!(expanded.len(), 16);
     assert!(matches!(&expanded[0], ExpansionItem::Raw(memory) if memory.seq() == 1));
+    assert!(expanded.iter().all(|item| {
+        !matches!(item, ExpansionItem::Summary(segment) if segment.node() == node(0, 0))
+    }));
     assert!(repository.expand(node(0, 1)).is_err());
 }
 
@@ -260,6 +317,9 @@ fn repeated_expansion_recovers_exact_raw_evidence() {
 
     let level_zero = repository.expand(node(1, 0)).unwrap();
     assert_eq!(level_zero.len(), 16);
+    assert!(level_zero.iter().all(|item| {
+        !matches!(item, ExpansionItem::Summary(segment) if segment.node() == node(1, 0))
+    }));
     assert!(
         matches!(&level_zero[0], ExpansionItem::Summary(segment) if segment.node() == node(0, 0))
     );

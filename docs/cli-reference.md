@@ -34,7 +34,7 @@ nt move <id> <collection>
 nt tag <id> <+tag|-tag>
 nt link <id> <+id|-id>
 nt memory add [-- body...]
-nt memory show <seq>
+nt memory show <seq|node>
 nt memory list [since:<seq>] [until:<seq>] [limit:<n>]
 nt memory recall <term-or-filter...>
 nt memory context [term...]
@@ -184,8 +184,9 @@ never opens an editor. Newlines are normalized to LF; NUL is rejected; the body
 may contain at most 1,024 Unicode characters. Note title rules do not apply.
 Success prints `saved <seq>`.
 
-`memory show <seq>` writes the exact raw body with no wrapper or added newline.
-Raw memories are immutable.
+`memory show <seq|node>` writes exact stored content with no wrapper or added
+newline. A numeric sequence writes the raw-memory body; a summary node writes
+the stored summary body. Raw memories are immutable.
 
 ## Memory Queries
 
@@ -288,13 +289,17 @@ misstate facts. Use raw recall and expansion when exact evidence matters.
 
 ## Expand, Invalidate, And Status
 
-`memory expand <node>` requires an existing summary and reveals exactly 16
-children from one level in ascending sequence or block order. Level-zero
-children use the raw-memory TSV format. Higher children use:
+`memory expand <node>` requires an existing summary and reveals exactly one
+level of 16 children beneath it in ascending sequence or block order. It does
+not include the selected summary itself. Level-zero children use the raw-memory
+TSV format. Higher children use:
 
 ```text
 <node>\t<raw-start>-<raw-end>\t"<created>"\t"<summary>"
 ```
+
+`show` inspects the item at the supplied address; `expand` inspects a summary's
+direct children.
 
 `memory invalidate <node>` removes the selected summary, every stored ancestor
 that depends on it, and stale jobs. It requeues the selected node when its

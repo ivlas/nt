@@ -7,7 +7,7 @@ use crate::memory::{
 use crate::schema;
 
 use super::{App, write_commit_output};
-use arguments::{PendingRequest, parse_pending, parse_positive};
+use arguments::{PendingRequest, ShowTarget, parse_pending, parse_show_target};
 use output::{
     render_context, write_expansion, write_memories, write_pending_jobs, write_status,
     write_summary_task,
@@ -19,7 +19,7 @@ mod output;
 pub(super) fn memory(app: &mut App<'_>, command: MemoryCommand) -> Result<()> {
     match command {
         MemoryCommand::Add { body } => add(app, &body),
-        MemoryCommand::Show { seq } => show(app, &seq),
+        MemoryCommand::Show { target } => show(app, &target),
         MemoryCommand::List { filters } => list(app, &filters),
         MemoryCommand::Recall { expressions } => recall(app, &expressions),
         MemoryCommand::Context { terms } => context(app, &terms),
@@ -40,11 +40,17 @@ fn add(app: &mut App<'_>, body_arguments: &[String]) -> Result<()> {
     write_commit_output(app.output, format_args!("saved {seq}\n"))
 }
 
-fn show(app: &mut App<'_>, seq: &str) -> Result<()> {
-    let seq = parse_positive(seq, "memory seq")?;
+fn show(app: &mut App<'_>, target: &str) -> Result<()> {
+    let target = parse_show_target(target)?;
     let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    let memory = repository.get_memory(seq)?;
-    app.output.write_all(memory.body().as_bytes())?;
+    match target {
+        ShowTarget::Raw(seq) => app
+            .output
+            .write_all(repository.get_memory(seq)?.body().as_bytes())?,
+        ShowTarget::Summary(node) => app
+            .output
+            .write_all(repository.get_summary(node)?.summary().as_bytes())?,
+    }
     app.output.flush()?;
     Ok(())
 }

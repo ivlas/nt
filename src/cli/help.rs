@@ -32,7 +32,9 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "memory add" => Ok(
             "nt memory add [-- body...]\n\nAppend one immutable memory from trailing text or stdin.\n",
         ),
-        "memory show" => Ok("nt memory show <seq>\n\nPrint one exact raw memory body.\n"),
+        "memory show" => Ok(
+            "nt memory show <seq|node>\n\nPrint one exact raw memory body or stored summary body.\n",
+        ),
         "memory list" => Ok(
             "nt memory list [since:<seq>] [until:<seq>] [limit:<n>]\n\nList raw memory history in ascending sequence order.\n",
         ),
@@ -48,9 +50,9 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "memory summarize" => Ok(
             "nt memory summarize <node> [-- summary...]\n\nStore a caller-produced factual summary.\n",
         ),
-        "memory expand" => {
-            Ok("nt memory expand <node>\n\nReveal exactly one level of summarized history.\n")
-        }
+        "memory expand" => Ok(
+            "nt memory expand <node>\n\nReveal exactly one level of children beneath an existing summary node.\n",
+        ),
         "memory invalidate" => Ok(
             "nt memory invalidate <node>\n\nDelete a derived summary and dependent ancestors while preserving raw history.\n",
         ),
