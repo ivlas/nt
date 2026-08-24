@@ -18,7 +18,7 @@ nt find sqlite
 nt show <id>
 printf '%s\n' 'Deployment switched to blue-green.' | nt memory add
 nt memory recall deployment
-nt memory context deployment
+nt memory wake
 ```
 
 `nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
@@ -32,10 +32,10 @@ nt link <id> +<target-id>
 nt rm <id>
 ```
 
-`nt memory add` prints a monotonically increasing sequence number. Raw memories
-are canonical and immutable. The calling agent can use `nt memory pending` and
-`nt memory summarize` to build the derived 16-way summary pyramid, then recover
-exact history progressively with `nt memory expand`.
+`nt memory add` prints a zero-based sequence number. Raw memories are canonical,
+immutable single lines of at most 512 Unicode characters. `nt memory nap` gives
+the calling agent the next binary summary to create; `wake` reads a bounded
+chronological view, and `zoom` reveals one summary's direct children.
 
 SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
 configuration files, daemons, background workers, embeddings, model calls in
@@ -45,13 +45,13 @@ retrieval, or hidden agent-only commands.
 
 Notes and memory are separate concrete models. Notes provide editable durable
 knowledge with collections, tags, and directional links. Memory keeps immutable
-raw experience in sequence order and uses a derived 16-way summary tree for
-bounded retrieval. `nt memory context` emits at most 32,768 Unicode characters,
-including formatting, without truncating selected items.
+raw experience in sequence order and uses derived summaries over aligned binary
+ranges. `nt memory wake` emits at most 128 chronological raw or summary entries,
+with coarser coverage for old history and precise coverage for recent history.
 
-Summarization is explicit work performed by the calling agent, not a daemon or
-automatic model call. Progressive expansion recovers exact raw history when a
-summary is insufficient.
+Summary text is explicit work performed by the calling agent, not a daemon or
+automatic model call. `recall` always scans exact raw history with a
+case-sensitive literal substring; `zoom` progressively reveals exact history.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,
@@ -71,9 +71,15 @@ Rust 1.95 is the intentional minimum supported Rust version (MSRV). CI verifies
 that version on Linux and current stable Rust on Linux, macOS, and Windows.
 
 Ignored scale and query-plan tests are manual release-mode audits. Run them with
-`cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`;
-the audit names cover million-memory operations, a complete memory pyramid,
-queryless context scaling, and note ID-prefix query plans.
+`cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`.
+The memory audit reports `wake`, `recall`, `nap-next`, and summary insertion at
+10,000, 100,000, and 1,000,000 raw memories.
+
+## Acknowledgements
+
+The `nt` memory system is inspired by the
+[OptMem - Permanent memory for AI agents](https://github.com/VictorTaelin/OptMem)
+project.
 
 ## License
 

@@ -80,7 +80,8 @@ The application schema is a flat compile-time manifest in a fixed order:
 - `src/schema.rs` owns the application ID, schema version, and version table.
 - `src/note/schema.rs` owns note tables, note FTS, triggers, and indexes.
 - `src/memory/schema.rs` owns the `memory(sequence, created_at, body)` and
-  `memory_summary(lo, hi, body)` tables plus raw-memory immutability triggers.
+  `memory_summary(lo, hi, body)` tables, the summary level index, and raw-memory
+  immutability triggers.
 - `src/storage/schema_engine.rs` initializes and validates the assembled
   manifest without knowing the note or memory models.
 
@@ -95,5 +96,5 @@ temporary sibling. On Unix it requests private directory and database modes.
 Ordinary commands never create storage or schema objects.
 
 Memory has no FTS, work table, background processing, or model integration.
-Its repository scans raw history directly for literal recall and calculates
-binary tree relationships and wake covers in memory.
+Its repository streams literal raw-history matches from an ordered SQLite
+cursor and calculates binary tree relationships and wake covers in memory.

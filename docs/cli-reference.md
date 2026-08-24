@@ -197,10 +197,12 @@ rank, or search summaries. Matching raw memories are emitted chronologically.
 
 `wake` emits a deterministic chronological cover of all history. Its only bound
 is the compile-time `WAKE_ENTRIES = 128` entry count. If history has at most 128
-entries, every item is raw. For larger history, an aligned dyadic cover is split
-from the recent end until the budget is filled, so old history is coarser and
-recent history is more precise. Every selected derived summary must exist;
-otherwise `wake` fails and directs the caller to `memory nap`.
+entries, every item is raw. For larger history, the aligned dyadic range with
+the greatest size relative to its age is refined until the budget is filled.
+This produces progressive age decay: old history is coarser and recent history
+is more precise without concentrating the budget in a long raw tail. Every
+selected derived summary must exist; otherwise `wake` fails and directs the
+caller to `memory nap`.
 
 Both commands stream one item per physical line:
 

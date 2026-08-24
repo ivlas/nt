@@ -110,11 +110,12 @@ no FTS, tokenization, stemming, ranking, fuzzy matching, or semantic search.
 
 `wake` constructs a deterministic chronological age-decaying dyadic cover. The
 compile-time `WAKE_ENTRIES = 128` entry count is its only bound. Histories at or
-below the bound are all raw. Larger histories start from their canonical aligned
-binary cover and repeatedly split the newest splittable range until the bound is
-filled, making older coverage coarser and recent coverage more precise. Every
-selected summary must already exist; missing derived state is an error rather
-than an implicit model call or fallback.
+below the bound are all raw. For larger histories, each refinement splits the
+range with the greatest size relative to its age. The resulting budget-induced
+threshold follows the `block size <= alpha * age` idea: coverage becomes
+progressively finer toward the present instead of concentrating precision in a
+long raw tail. Every selected summary must already exist; missing derived state
+is an error rather than an implicit model call or fallback.
 
 ## Storage And Consistency
 
