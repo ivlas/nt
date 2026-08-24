@@ -42,25 +42,12 @@ impl Repository {
     }
 
     pub(crate) fn raw_count(&self) -> Result<u64> {
-        let (count, maximum): (i64, Option<i64>) =
-            self.connection
-                .query_row("SELECT COUNT(*), MAX(sequence) FROM memory", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?))
-                })?;
-        let count = u64::try_from(count).map_err(|error| {
-            NtError::invalid_stored_memory_with_source("history", "count", error)
-        })?;
-        let expected_max = count
-            .checked_sub(1)
-            .and_then(|value| i64::try_from(value).ok());
-        if maximum != expected_max {
-            return Err(NtError::InvalidStoredMemory {
-                identity: "history".to_string(),
-                field: "sequence",
-                source: None,
-            });
-        }
-        Ok(count)
+        let maximum = self
+            .connection
+            .query_row("SELECT MAX(sequence) FROM memory", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })?;
+        raw_count_from_maximum(maximum)
     }
 
     pub(crate) fn get_raw(&self, sequence: u64) -> Result<Memory> {
@@ -272,11 +259,21 @@ impl Repository {
 }
 
 fn raw_count_in(transaction: &rusqlite::Transaction<'_>) -> Result<u64> {
-    let count = transaction.query_row("SELECT COUNT(*) FROM memory", [], |row| {
-        row.get::<_, i64>(0)
+    let maximum = transaction.query_row("SELECT MAX(sequence) FROM memory", [], |row| {
+        row.get::<_, Option<i64>>(0)
     })?;
-    u64::try_from(count)
-        .map_err(|error| NtError::invalid_stored_memory_with_source("history", "count", error))
+    raw_count_from_maximum(maximum)
+}
+
+fn raw_count_from_maximum(maximum: Option<i64>) -> Result<u64> {
+    let Some(maximum) = maximum else {
+        return Ok(0);
+    };
+    // Raw history is zero-based, contiguous, and immutable, so its maximum identifies its length.
+    let maximum = u64::try_from(maximum).map_err(|error| {
+        NtError::invalid_stored_memory_with_source("history", "sequence", error)
+    })?;
+    Ok(maximum + 1)
 }
 
 fn children_exist(transaction: &rusqlite::Transaction<'_>, range: MemoryRange) -> Result<bool> {
@@ -380,6 +377,7 @@ mod tests {
     #[test]
     fn raw_history_is_zero_based_ordered_and_recallable_without_summaries() {
         let mut repository = repository();
+        assert_eq!(repository.raw_count().unwrap(), 0);
         append(&mut repository, 4);
         assert_eq!(repository.raw_count().unwrap(), 4);
         let mut sequences = Vec::new();
