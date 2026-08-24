@@ -17,7 +17,6 @@ mod cli;
 mod commands;
 mod error;
 mod lexical;
-mod memory;
 mod note;
 mod schema;
 mod storage;

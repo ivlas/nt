@@ -26,39 +26,6 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "move" => Ok("nt move <id> <collection>\n\nMove a note to one collection.\n"),
         "tag" => Ok("nt tag <id> <+tag|-tag>\n\nAdd or remove one tag.\n"),
         "link" => Ok("nt link <id> <+id|-id>\n\nAdd or remove one directional note link.\n"),
-        "memory" => Ok(
-            "nt memory <command> [args...]\n\nAppend, recall, compress, and expand immutable experience. Run nt help memory <command> for details.\n",
-        ),
-        "memory add" => Ok(
-            "nt memory add [-- body...]\n\nAppend one immutable memory from trailing text or stdin.\n",
-        ),
-        "memory show" => Ok(
-            "nt memory show <seq|node>\n\nPrint one exact raw memory body or stored summary body.\n",
-        ),
-        "memory list" => Ok(
-            "nt memory list [since:<seq>] [until:<seq>] [limit:<n>]\n\nList raw memory history in ascending sequence order.\n",
-        ),
-        "memory recall" => Ok(
-            "nt memory recall <term-or-filter...>\n\nSearch exact raw history with literal lexical terms.\n",
-        ),
-        "memory context" => Ok(
-            "nt memory context [term...]\n\nCompile deterministic useful memory under the 32,768-character output limit.\n",
-        ),
-        "memory pending" => Ok(
-            "nt memory pending [L<level>:<block>|limit:<n>]\n\nList summary work or print one model-independent compression task.\n",
-        ),
-        "memory summarize" => Ok(
-            "nt memory summarize <node> [-- summary...]\n\nStore a caller-produced factual summary.\n",
-        ),
-        "memory expand" => Ok(
-            "nt memory expand <node>\n\nReveal exactly one level of children beneath an existing summary node.\n",
-        ),
-        "memory invalidate" => Ok(
-            "nt memory invalidate <node>\n\nDelete a derived summary and dependent ancestors while preserving raw history.\n",
-        ),
-        "memory status" => {
-            Ok("nt memory status\n\nShow inexpensive memory and derived-index status.\n")
-        }
         "help" => Ok("nt help [command...]\n\nShow command help.\n"),
         _ => Err(NtError::UnknownHelpTopic(key.to_string())),
     }
@@ -66,7 +33,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
 
 const ROOT: &str = r#"nt
 
-Local, agent-first notes and persistent memory.
+Local, agent-first CommonMark notes.
 
 Usage:
   nt <command> [args...]
@@ -82,7 +49,6 @@ Commands:
   move <id> <collection>               move one note
   tag <id> <+tag|-tag>                 change one tag
   link <id> <+id|-id>                  change one directional link
-  memory <command> [args...]           use immutable persistent memory
   help [command...]                    show command help
 "#;
 
@@ -94,12 +60,12 @@ mod tests {
     #[test]
     fn root_lists_only_clean_sheet_commands() {
         for command in [
-            "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link", "memory",
+            "init", "add", "show", "list", "find", "rm", "edit", "move", "tag", "link",
         ] {
             assert!(ROOT.contains(command));
             assert!(topic_text(command).is_ok());
         }
-        for removed in ["todo", "agenda", "vault", "export", "update"] {
+        for removed in ["memory", "todo", "agenda", "vault", "export", "update"] {
             assert!(!ROOT.contains(removed));
         }
     }

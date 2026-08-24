@@ -3,12 +3,8 @@
 This guide covers common workflows. See the [CLI reference](cli-reference.md)
 for the complete command and output contract.
 
-`nt` keeps two kinds of local data in one SQLite database:
-
-- **Notes** are editable CommonMark documents with a collection, optional tags,
-  and directional links.
-- **Memory** is an immutable sequence of short experiences. Derived summaries
-  keep retrieval bounded as history grows.
+`nt` keeps editable CommonMark notes in one SQLite database. Every note has one
+collection, optional tags, and directional links.
 
 ## Start
 
@@ -20,8 +16,6 @@ nt init
 `nt init` creates the database in the resolved home directory, normally at
 `$HOME/.nt/nt.sqlite3`. No other command creates storage. Running `init` again
 against a valid database prints `already initialized`.
-
-## Notes
 
 ### Capture
 
@@ -104,80 +98,16 @@ nt rm "$FIRST_ID" "$SECOND_ID"
 
 If any ID is invalid, missing, or repeated, no requested note is removed.
 
-## Memory
-
-### Capture And Recall
-
-Append one short immutable memory from stdin or text after `--`:
-
-```sh
-printf '%s\n' 'Deployment switched to blue-green.' | nt memory add
-nt memory add -- 'Customer prefers weekly summaries.'
-```
-
-The success line contains a monotonically increasing sequence number. Memory
-bodies do not need a Markdown title and are limited to 1,024 Unicode characters.
-They cannot be edited or removed.
-
-```sh
-nt memory show "$SEQ"
-nt memory show L0:0
-nt memory list since:1 limit:100
-nt memory recall deployment
-nt memory recall deployment since:100
-nt memory context deployment
-nt memory context
-```
-
-`show` returns the exact raw body for a numeric sequence or the exact stored
-summary body for a summary node. `list` reads raw history in sequence order.
-`recall` searches exact raw history with literal terms and English-oriented
-Porter stemming, so forms such as `skill` and `skills` normally match the same
-memory. This is not fuzzy or semantic search. `context` uses the same lexical
-matching for raw entries and derived summaries, producing deterministic output
-of at most 32,768 Unicode characters; it never calls a model.
-
-### Summarize And Expand
-
-Every complete group of 16 children can be summarized. The calling agent does
-this explicitly; `nt` has no background worker or built-in summarizer. This
-example assumes raw sequences 1 through 16 already exist:
-
-```sh
-nt memory pending
-nt memory pending L0:0
-printf '%s\n' 'Factual summary of the supplied children.' |
-  nt memory summarize L0:0
-nt memory show L0:0
-nt memory expand L0:0
-```
-
-`pending L0:0` prints the 16 children and a compression instruction. `summarize`
-stores the caller-produced result. `show` inspects that stored summary, while
-`expand` reveals exactly one child level beneath it without including the
-selected summary. Repeating expansion through lower nodes eventually reaches
-exact raw entries.
-
-If a summary is wrong, invalidate it and its dependent ancestors while keeping
-raw history:
-
-```sh
-nt memory invalidate L0:0
-nt memory status
-```
-
 ## Shell Use
 
 ```sh
 nt find rust | less
 nt find rust | head -n 100
-nt memory recall deployment | less
 ```
 
-Redirected note results and raw memory results stream one physical line per
-record. Closing a list or search pipeline early, as `head` does, is successful.
-Text fields are JSON encoded, so decode them before reusing them as command
-arguments.
+Redirected note results stream one physical line per record. Closing a list or
+search pipeline early, as `head` does, is successful. Text fields are JSON
+encoded, so decode them before reusing them as command arguments.
 
 ## Backups
 
