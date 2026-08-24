@@ -42,8 +42,8 @@ pub(crate) const MEMORY_IMMUTABLE_INSERT: SchemaObject = SchemaObject {
     object_type: "trigger",
     name: "memory_immutable_insert",
     sql: "CREATE TRIGGER memory_immutable_insert BEFORE INSERT ON memory
-     WHEN EXISTS (SELECT 1 FROM memory WHERE sequence = new.sequence) BEGIN
-         SELECT RAISE(ABORT, 'raw memory is immutable');
+     WHEN new.sequence != COALESCE((SELECT MAX(sequence) + 1 FROM memory), 0) BEGIN
+         SELECT RAISE(ABORT, 'raw memory must append contiguously');
      END",
 };
 
@@ -87,8 +87,17 @@ mod tests {
     }
 
     #[test]
-    fn raw_rows_are_single_line_and_immutable() {
+    fn raw_rows_are_contiguous_single_line_and_immutable() {
         let connection = schema();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO memory(sequence, created_at, body)
+                     VALUES (1, '2026-08-22T12:34:56Z', 'nonzero start')",
+                    [],
+                )
+                .is_err()
+        );
         connection
             .execute(
                 "INSERT INTO memory(sequence, created_at, body)
@@ -96,6 +105,15 @@ mod tests {
                 [],
             )
             .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO memory(sequence, created_at, body)
+                     VALUES (2, '2026-08-22T12:34:56Z', 'skipped sequence')",
+                    [],
+                )
+                .is_err()
+        );
         for sql in [
             "UPDATE memory SET body = 'changed' WHERE sequence = 0",
             "DELETE FROM memory WHERE sequence = 0",

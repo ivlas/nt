@@ -254,6 +254,15 @@ fn schema_keeps_raw_memory_immutable_without_memory_fts_or_jobs() {
     let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
     assert!(
         connection
+            .execute(
+                "INSERT INTO memory(sequence, created_at, body)
+                 VALUES (2, '2026-08-22T12:34:56Z', 'skipped sequence')",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
             .execute("UPDATE memory SET body = 'changed' WHERE sequence = 0", [])
             .is_err()
     );

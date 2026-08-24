@@ -94,8 +94,8 @@ CREATE TABLE memory_summary (
      ) WITHOUT ROWID;
 CREATE INDEX memory_summary_size ON memory_summary(hi - lo, lo);
 CREATE TRIGGER memory_immutable_insert BEFORE INSERT ON memory
-     WHEN EXISTS (SELECT 1 FROM memory WHERE sequence = new.sequence) BEGIN
-         SELECT RAISE(ABORT, 'raw memory is immutable');
+     WHEN new.sequence != COALESCE((SELECT MAX(sequence) + 1 FROM memory), 0) BEGIN
+         SELECT RAISE(ABORT, 'raw memory must append contiguously');
      END;
 CREATE TRIGGER memory_immutable_update BEFORE UPDATE ON memory BEGIN
          SELECT RAISE(ABORT, 'raw memory is immutable');
