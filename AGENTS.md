@@ -3,9 +3,8 @@
 ## Project
 
 `nt` is a local, agent-first application for editable CommonMark notes and
-immutable memory, with deterministic metadata and lexical retrieval. It
-prioritizes fast capture, bounded context construction, low LLM token use, and
-local ownership.
+immutable memory, with deterministic metadata and retrieval. It prioritizes
+fast capture, bounded chronological waking, low token use, and local ownership.
 
 Humans and agents use the same Unix-like interface. Commands read stdin, write
 stdout, use `$VISUAL`/`$EDITOR`, and compose with normal shell tools. User
@@ -19,10 +18,11 @@ approval is required before agent-driven mutations.
   schemas or repositories.
 - Canonical state lives in `$HOME/.nt/nt.sqlite3`.
 - Store CommonMark note bodies directly in SQLite.
-- Store raw memory bodies directly in SQLite as one monotonically ordered,
-  append-only sequence. Raw memories are canonical and immutable.
+- Store raw memory bodies directly in SQLite as one contiguous, zero-based,
+  append-only sequence. Raw memories are canonical, immutable single lines of
+  at most 512 Unicode characters.
 - Use canonical lowercase UUIDv7 IDs for notes.
-- Use SQLite-assigned integer sequence numbers as public memory identities.
+- Use non-negative integer sequence numbers as public memory identities.
 - Every note has exactly one normalized collection path; `inbox` is the default.
 - Tags are optional, and links are explicit and directional.
 - There are no vaults, collection entities, note kinds, todos, sources, generic
@@ -31,20 +31,19 @@ approval is required before agent-driven mutations.
   summaries as ordinary CommonMark notes with collections, tags, and links.
   Do not assign them reserved kinds or hidden semantics.
 - There is no canonical Markdown vault, JSON index, or rebuild workflow.
-- Memory summaries, memory FTS indexes, and pending-summary jobs are derived,
-  disposable state that must be reconstructable from raw memories.
+- Memory summaries are derived, disposable state over aligned binary half-open
+  ranges. Store only `(lo, hi, body)`; calculate tree relationships.
 - Use SQLite transactions and foreign keys for consistency.
 - Do not add wiki-link syntax or nt-specific note-body markup.
 - Do not add hidden agent-only behavior or built-in agent launchers.
 - Do not create storage from ordinary commands; only `nt init` may initialize it.
 - Use `clap`, `rusqlite`, `uuid`, `serde_json`, and `thiserror` for their
   established responsibilities.
-- Do not add embeddings, vector databases, automatic summarization calls,
-  background workers, daemons, or generic domain abstractions.
-- Memory v1 limits are fixed compile-time constants: entries and summaries are
-  at most 1,024 Unicode characters, context stdout contains at most 32,768
-  Unicode characters including metadata and formatting, and summary fanout is
-  16.
+- Do not add memory FTS, embeddings, vector databases, automatic model calls,
+  work queues, background workers, daemons, or generic domain abstractions.
+- Memory limits are fixed compile-time constants: raw entries and summaries are
+  at most 512 Unicode characters, and `WAKE_ENTRIES = 128` is the only wake
+  knob.
 
 ## Commands
 
@@ -60,16 +59,13 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt move <id> <collection>`
 - `nt tag <id> <+tag|-tag>`
 - `nt link <id> <+id|-id>`
-- `nt memory add [-- body...]`
-- `nt memory show <seq|node>`
-- `nt memory list [filter...]`
-- `nt memory recall <term-or-filter...>`
-- `nt memory context [term...]`
-- `nt memory pending [node|limit:N]`
-- `nt memory summarize <node> [-- summary...]`
-- `nt memory expand <node>`
-- `nt memory invalidate <node>`
-- `nt memory status`
+- `nt memory add [memory...]`
+- `nt memory wake`
+- `nt memory recall <pattern...>`
+- `nt memory nap`
+- `nt memory nap <range> [summary...]`
+- `nt memory zoom <range>`
+- `nt memory forget <range>`
 - `nt help [command...]`
 
 Avoid broader commands or hidden runtime management until concrete usage proves
@@ -80,21 +76,19 @@ the need.
 Primary relational state consists of notes, tags, directional note links, and
 raw memories. The note row stores its collection path, canonical body, derived
 title, timestamps, and body version. The raw memory row stores its sequence,
-canonical body, and creation timestamp. FTS5 and memory summaries are derived
-state maintained transactionally.
+canonical body, and creation timestamp. Note FTS and memory summaries are
+derived state maintained transactionally.
 
-Memory summaries form a fixed 16-way pyramid. Node `L0:B` covers 16 raw
-memories; each higher node covers 16 summaries from the preceding level. Nodes
-are identified by `(level, block)`, and parent, child, and range relationships
-are calculated with checked integer arithmetic rather than persisted pointers.
-Summarization is delegated to the calling agent through explicit pending and
-summarize commands; appending never waits for summarization.
+The memory schema contains exactly `memory(sequence, created_at, body)` and
+`memory_summary(lo, hi, body)`. Summary ranges are aligned, binary, and
+half-open internally; the CLI renders them inclusively, such as `0-1` and
+`0-7`. Each summary has two direct children. `nap` derives the smallest
+buildable missing range, and raw insertion never waits for summary creation.
 
-The clean-sheet schema follows the current alpha compatibility policy rather
-than a general migration system. The database uses application ID `0x4e544e54`
-(`NTNT`). Enable foreign keys on every operational connection and use WAL with a
-bounded busy timeout. The flat, compile-time manifest explicitly contains
-application, note, and memory schema objects.
+The clean-sheet schema has no migration system. The database uses application
+ID `0x4e544e54` (`NTNT`). Enable foreign keys on every operational connection
+and use WAL with a bounded busy timeout. The flat, compile-time manifest
+explicitly contains application, note, and memory schema objects.
 
 Markdown exists at the interface boundary: trailing arguments, stdin,
 `$VISUAL`/`$EDITOR`, exact display, and later explicitly approved exports.
@@ -110,13 +104,15 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 - Stream redirected note summaries and stop cleanly when a downstream pipe closes.
 - Unknown query fields are errors.
 - Avoid scoring, fuzzy matching, embeddings, vector search, and hidden retrieval.
-- Use `nt memory recall` for exact raw historical search through literal-token
-  FTS, `nt memory context` for deterministic bounded context compilation, and
-  `nt memory expand` for progressive recovery of exact raw history.
-- Every memory-context candidate query is SQL-bounded. Never truncate an item to
-  fit the 32 KiB output budget; skip candidates that do not fit.
-- Prefer exact raw evidence over overlapping summaries, avoid redundant summary
-  ranges, and render selected context items chronologically.
+- Use `nt memory recall` for a case-sensitive literal substring scan over raw
+  history. It returns matching raw entries chronologically.
+- Use `nt memory wake` for a deterministic chronological age-decaying dyadic
+  cover. It returns all raw entries when history fits `WAKE_ENTRIES` and requires
+  every derived summary selected for larger history.
+- Use `nt memory nap` to obtain the smallest buildable summary range, `zoom` to
+  reveal two direct children, and `forget` to remove a summary and its ancestors.
+- Memory retrieval has no FTS, scoring, tokenization, stemming, fuzzy matching,
+  embeddings, or hidden semantic behavior.
 
 ## Terminal UX
 
@@ -133,11 +129,9 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 - Run `cargo run --locked -- help` for a command smoke test.
 - Add focused tests for database identity, schema constraints, transactions,
   UUIDv7 IDs, command routing, query syntax, body conflicts, link cleanup,
-  immutable memory, tree arithmetic, summary jobs, FTS synchronization,
-  invalidation, expansion, concurrent append, and bounded deterministic context.
-- Maintain an ignored scale fixture that can populate one million raw memories
-  and measure append, show, range listing, recall, context, expansion, pending
-  work, and database size.
+  immutable zero-based memory, single-line limits, binary range arithmetic,
+  smallest-buildable summary selection, wake covers, literal recall, zoom,
+  forget, missing summaries, and concurrent append.
 
 ## Design
 

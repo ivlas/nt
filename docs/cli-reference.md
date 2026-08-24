@@ -11,8 +11,8 @@ boundaries live in [Design](design.md) and [Architecture](architecture.md).
 - Note IDs are canonical lowercase UUIDv7 values. Exact-note commands require a
   full ID; `id:<prefix>` accepts a non-empty prefix of the canonical ID,
   including its hyphens where reached.
-- Memory IDs are positive decimal sequence numbers assigned by SQLite.
-- Summary nodes use `L<level>:<block>`, with canonical non-negative decimals.
+- Memory IDs are zero-based decimal sequence numbers.
+- Memory ranges use canonical non-negative decimals, such as `0-1` and `0-7`.
 - Timestamps are UTC seconds such as `2026-08-22T14:30:12Z`.
 - Character limits count Unicode characters, not UTF-8 bytes.
 - Angle brackets in syntax blocks denote values; they are not literal shell
@@ -33,16 +33,13 @@ nt edit <id> [-- body...]
 nt move <id> <collection>
 nt tag <id> <+tag|-tag>
 nt link <id> <+id|-id>
-nt memory add [-- body...]
-nt memory show <seq|node>
-nt memory list [since:<seq>] [until:<seq>] [limit:<n>]
-nt memory recall <term-or-filter...>
-nt memory context [term...]
-nt memory pending [L<level>:<block>|limit:<n>]
-nt memory summarize <node> [-- summary...]
-nt memory expand <node>
-nt memory invalidate <node>
-nt memory status
+nt memory add [memory...]
+nt memory wake
+nt memory recall <pattern...>
+nt memory nap
+nt memory nap <range> [summary...]
+nt memory zoom <range>
+nt memory forget <range>
 nt help [command...]
 ```
 
@@ -51,9 +48,8 @@ Running `nt` is equivalent to `nt help`. The CLI is flagless: `-h`, `--help`,
 
 Reference sections: [storage](#storage), [note input](#note-input),
 [note queries](#note-queries), [note mutations](#note-mutations),
-[memory input](#memory-input), [memory queries](#memory-queries),
-[summary work](#summary-work), [memory context](#memory-context),
-[expansion and status](#expand-invalidate-and-status), and
+[memory input](#memory-input), [wake and recall](#wake-and-recall),
+[binary summaries](#binary-summaries), [zoom and forget](#zoom-and-forget), and
 [errors](#errors-and-operation).
 
 ## Storage
@@ -64,8 +60,8 @@ for a valid existing database. The resolved home path must be non-empty and
 absolute.
 
 Ordinary commands never create or repair storage. They require application ID
-`0x4e544e54`, schema version `3`, and the expected schema definitions. This
-alpha version does not migrate older databases in place.
+`0x4e544e54`, schema version `4`, and the expected schema definitions. There is
+no migration system; incompatible databases are rejected.
 
 ## Note Input
 
@@ -179,147 +175,84 @@ removed. Deleting a source does not update its targets.
 
 ## Memory Input
 
-`memory add` reads one non-empty body from arguments after `--` or stdin. It
-never opens an editor. Newlines are normalized to LF; NUL is rejected; the body
-may contain at most 1,024 Unicode characters. Note title rules do not apply.
-Success prints `saved <seq>`.
+`memory add` reads one non-empty body from trailing arguments or stdin and never
+opens an editor. Arguments are joined with one ASCII space. One final LF or CRLF
+from stdin is removed; any remaining CR or LF and every NUL are rejected. The
+body may contain at most 512 Unicode characters, and note title rules do not
+apply. Conflicting non-empty stdin and arguments are an error.
 
-`memory show <seq|node>` writes exact stored content with no wrapper or added
-newline. A numeric sequence writes the raw-memory body; a summary node writes
-the stored summary body. Raw memories are immutable.
+SQLite stores raw memories as one immutable, contiguous sequence beginning at
+zero. Success prints `saved #<sequence>`.
 
-## Memory Queries
-
-```text
-nt memory list [since:<seq>] [until:<seq>] [limit:<n>]
-nt memory recall <term-or-filter...>
-```
-
-`since:` and `until:` are inclusive. Each filter may occur once, and `since:`
-cannot exceed `until:`. `list` orders raw rows by `seq ASC`.
-
-`recall` requires at least one lexical token and accepts the same filters.
-Memory FTS uses SQLite FTS5 Porter stemming over Unicode61, so common English
-forms such as `skill` and `skills` can match the same raw memory. Porter is
-primarily English-oriented and does not promise morphological normalization for
-arbitrary languages. Queries remain literals: there is no raw FTS syntax,
-prefix expansion, ranking, fuzzy matching, or semantic search. Results are
-ordered by `seq ASC`; limits are positive and applied by SQLite.
-
-Both commands stream headerless TSV with one raw memory per physical line:
+## Wake And Recall
 
 ```text
-<seq>\t"<created>"\t"<body>"
+nt memory wake
+nt memory recall <pattern...>
 ```
 
-The sequence is an unquoted number; timestamp and body are JSON strings. This
-format is unchanged on a TTY. A downstream pipe closing early is successful.
+`recall` joins its arguments with one ASCII space and performs a case-sensitive
+literal substring scan over canonical raw history. It does not tokenize, stem,
+rank, or search summaries. Matching raw memories are emitted chronologically.
 
-## Summary Work
+`wake` emits a deterministic chronological cover of all history. Its only bound
+is the compile-time `WAKE_ENTRIES = 128` entry count. If history has at most 128
+entries, every item is raw. For larger history, an aligned dyadic cover is split
+from the recent end until the budget is filled, so old history is coarser and
+recent history is more precise. Every selected derived summary must exist;
+otherwise `wake` fails and directs the caller to `memory nap`.
 
-Memory summaries form a fixed 16-way tree. `L0:0` covers raw sequences `1-16`;
-each higher node covers 16 summaries from the level below.
-
-`memory pending` lists eligible jobs in `level ASC, block ASC` order. An
-optional `limit:<n>` must be positive:
+Both commands stream one item per physical line:
 
 ```text
-<node>\t<raw-start>-<raw-end>\t<level>
+#<sequence> <raw-body>
+#<inclusive-range> <summary-body>
 ```
 
-`memory pending <node>` requires that exact pending job and prints its node,
-range, level, 16 complete children, and a factual-compression instruction:
+`recall` emits only the first form. Bodies are already constrained to one line,
+so output needs no escaping. A downstream pipe closing early is successful.
+
+## Binary Summaries
+
+Summary rows use half-open ranges `[lo, hi)` internally. A valid range has a
+power-of-two size of at least two and `lo` is aligned to that size. The CLI
+renders the same range with an inclusive upper bound:
 
 ```text
-node\t<node>
-raw range\t<raw-start>-<raw-end>
-level\t<level>
-
-<16 children in expansion format>
-
-Compress these children into one factual summary.
-Keep durable information.
-Preserve decisions, outcomes, constraints and important changes.
-Invent nothing.
-Maximum: 1024 characters.
+internal [0, 2)   -> CLI 0-1
+internal [0, 8)   -> CLI 0-7
+internal [4, 8)   -> CLI 4-7
 ```
 
-It is read-only and does not claim the job.
+Each summary has exactly two direct children. A size-two range has two raw
+children; every larger range has two summary children of half its size.
 
-`memory summarize <node>` reads a caller-produced summary from arguments after
-`--` or stdin. The same newline, NUL, and 1,024-character rules as raw memory
-apply. A new summary requires a pending node and all 16 children. Success prints
-`summarized <node>`. Repeating the same summary is idempotent; different text for
-an existing node is a conflict.
+`memory nap` derives the smallest buildable missing summary, breaking equal-size
+ties by the lowest start. A size-two range is buildable when both raw memories
+exist. A larger range is buildable when both direct child summaries exist. With
+no work it prints `nothing to nap`.
 
-Summarization is explicit. Appending does not wait for it, and `nt` has no
-background worker or built-in model call.
+For work, `nap` prints the selected inclusive range, its two complete children,
+and a command template. It does not persist a claim or create a work record.
+The caller supplies the result with `memory nap <range> [summary...]`; input and
+validation match raw memory input, including the 512-character single-line
+limit. The success line identifies the stored range. Repeating identical text
+is idempotent; different text for an existing range is a conflict.
 
-## Memory Context
+Adding raw memory never waits for derived summaries. Memory has no FTS, work
+tables, background processing, built-in model calls, or semantic retrieval.
 
-`memory context [term...]` compiles deterministic context from complete raw
-entries and summaries. Terms use the memory lexical matching above; filter
-expressions are not accepted. Terms influence selection rather than filtering
-every output item: context also includes recent raw history and may fill unused
-space with broad summaries. With no terms, it combines recent raw history with
-broad summary coverage.
+## Zoom And Forget
 
-The complete stdout document is limited to 32,768 Unicode characters, including
-headers, timestamps, ranges, separators, and newlines. Items that do not fit are
-skipped, never truncated. Selected ranges do not overlap, exact raw evidence
-wins conflicts, and final output is chronological. Retrieval uses fixed,
-SQL-bounded candidate sets and is therefore not exhaustive over all history.
+`memory zoom <range>` requires an existing summary and emits exactly its two
+direct children in chronological order. It does not emit the selected summary.
+For a size-two summary the children are raw; for a larger summary they are the
+two stored child summaries.
 
-Raw items render as:
-
-```text
-# memory <seq> (<created>)
-<complete raw body>
-```
-
-Summary items render as:
-
-```text
-# summary <node> (<raw-start>-<raw-end>)
-<complete summary>
-```
-
-Literal matching can miss synonyms, and caller-produced summaries can omit or
-misstate facts. Use raw recall and expansion when exact evidence matters.
-
-## Expand, Invalidate, And Status
-
-`memory expand <node>` requires an existing summary and reveals exactly one
-level of 16 children beneath it in ascending sequence or block order. It does
-not include the selected summary itself. Level-zero children use the raw-memory
-TSV format. Higher children use:
-
-```text
-<node>\t<raw-start>-<raw-end>\t"<created>"\t"<summary>"
-```
-
-`show` inspects the item at the supplied address; `expand` inspects a summary's
-direct children.
-
-`memory invalidate <node>` removes the selected summary, every stored ancestor
-that depends on it, and stale jobs. It requeues the selected node when its
-children are complete and never removes raw memories. Success prints
-`invalidated <node>`.
-
-`memory status` writes fixed, unquoted two-column TSV:
-
-```text
-raw memory count\t<count>
-highest sequence\t<seq|none>
-summary count\t<count>
-pending summary count\t<count>
-highest completed level\t<level|none>
-```
-
-The count is the number of raw rows; highest sequence is the greatest assigned
-identity and can differ for a manually damaged or inspected database. Schema
-opening validates required FTS objects before status runs; status is not an
-integrity audit or repair command.
+`memory forget <range>` requires an existing summary and transactionally deletes
+that summary plus every stored ancestor that contains it. It never deletes raw
+memories, descendants, or unrelated summaries. Success prints `forgot
+#<range>`.
 
 ## Errors And Operation
 

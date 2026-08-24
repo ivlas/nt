@@ -108,62 +108,60 @@ If any ID is invalid, missing, or repeated, no requested note is removed.
 
 ### Capture And Recall
 
-Append one short immutable memory from stdin or text after `--`:
+Append one short immutable memory from stdin or trailing text:
 
 ```sh
 printf '%s\n' 'Deployment switched to blue-green.' | nt memory add
-nt memory add -- 'Customer prefers weekly summaries.'
+nt memory add 'Customer prefers weekly summaries.'
 ```
 
-The success line contains a monotonically increasing sequence number. Memory
-bodies do not need a Markdown title and are limited to 1,024 Unicode characters.
-They cannot be edited or removed.
+The success line contains a zero-based sequence number such as `saved #0`.
+Memory bodies do not need a Markdown title. They are non-empty single lines of
+at most 512 Unicode characters and cannot be edited or removed.
 
 ```sh
-nt memory show "$SEQ"
-nt memory show L0:0
-nt memory list since:1 limit:100
 nt memory recall deployment
-nt memory recall deployment since:100
-nt memory context deployment
-nt memory context
+nt memory recall 'blue-green'
+nt memory wake
 ```
 
-`show` returns the exact raw body for a numeric sequence or the exact stored
-summary body for a summary node. `list` reads raw history in sequence order.
-`recall` searches exact raw history with literal terms and English-oriented
-Porter stemming, so forms such as `skill` and `skills` normally match the same
-memory. This is not fuzzy or semantic search. `context` uses the same lexical
-matching for raw entries and derived summaries, producing deterministic output
-of at most 32,768 Unicode characters; it never calls a model.
+`recall` joins its arguments with spaces and scans exact raw history for that
+case-sensitive literal substring. It returns matching raw entries in sequence
+order and does not use FTS, stemming, fuzzy matching, or semantic search.
+`wake` prints a deterministic chronological view with at most 128 entries. It
+prints all raw memories when they fit; over longer history, old entries are
+represented by coarser binary summaries and recent entries are more precise.
+If a summary selected for that view is missing, `wake` fails until the caller
+creates the needed derived summaries with `nap`.
 
-### Summarize And Expand
+### Nap And Zoom
 
-Every complete group of 16 children can be summarized. The calling agent does
-this explicitly; `nt` has no background worker or built-in summarizer. This
-example assumes raw sequences 1 through 16 already exist:
+Every summary covers an aligned power-of-two range and has two direct children.
+The calling agent creates summary text explicitly; `nt` has no work queue,
+background worker, or built-in model call. This example assumes raw sequences
+0 through 7 already exist:
 
 ```sh
-nt memory pending
-nt memory pending L0:0
-printf '%s\n' 'Factual summary of the supplied children.' |
-  nt memory summarize L0:0
-nt memory show L0:0
-nt memory expand L0:0
+nt memory nap
+nt memory nap 0-1 'Events zero and one.'
+nt memory nap 2-3 'Events two and three.'
+nt memory nap 0-3 'Events zero through three.'
+nt memory zoom 0-3
 ```
 
-`pending L0:0` prints the 16 children and a compression instruction. `summarize`
-stores the caller-produced result. `show` inspects that stored summary, while
-`expand` reveals exactly one child level beneath it without including the
-selected summary. Repeating expansion through lower nodes eventually reaches
-exact raw entries.
+With no range, `nap` prints the smallest buildable missing range, its two
+children, and a command template. With a range and text, it stores the
+caller-produced summary. Ranges are half-open internally but inclusive at the
+CLI: `0-1` covers raw memories 0 and 1, while `0-7` covers 0 through 7. `zoom`
+reveals exactly two direct children without printing the selected summary.
+Repeated zooming eventually reaches exact raw entries.
 
-If a summary is wrong, invalidate it and its dependent ancestors while keeping
-raw history:
+If a summary is wrong, forget it and its dependent ancestors while keeping raw
+history and lower descendants:
 
 ```sh
-nt memory invalidate L0:0
-nt memory status
+nt memory forget 0-1
+nt memory nap
 ```
 
 ## Shell Use
@@ -174,10 +172,10 @@ nt find rust | head -n 100
 nt memory recall deployment | less
 ```
 
-Redirected note results and raw memory results stream one physical line per
+Redirected note results and memory line output stream one physical line per
 record. Closing a list or search pipeline early, as `head` does, is successful.
-Text fields are JSON encoded, so decode them before reusing them as command
-arguments.
+Note result text fields are JSON encoded, so decode them before reusing them as
+command arguments.
 
 ## Backups
 

@@ -37,7 +37,7 @@ commands construct the repository needed for one operation
 | `src/cli/` | Command grammar, body input, note editor execution, rendering, terminal behavior, help, and home resolution |
 | `src/commands/` | Command orchestration; parses values, opens storage, invokes one repository operation, and renders results |
 | `src/note/` | Note values, validation, queries, persistence, edit conflicts, and note schema SQL |
-| `src/memory/` | Raw and summary values, tree arithmetic, queries, context selection, persistence, jobs, and memory schema SQL |
+| `src/memory/` | Raw and summary values, binary range arithmetic, wake covers, direct retrieval, persistence, and memory schema SQL |
 | `src/storage/` | SQLite connections, foreign keys, WAL, busy handling, filesystem setup, atomic initialization, and schema validation mechanics |
 | `src/schema.rs` | Application identity, complete schema manifest, initialization, and validated read-only or read-write opening |
 | `src/app.rs` | Concrete process dependencies used to test command handlers without mutating global process state |
@@ -54,10 +54,9 @@ coupling or a generic entity model.
 ## Command Lifecycle
 
 Read commands open a validated read-only connection, execute repository
-operations, and render the result. Exact `show` commands write and flush the
-canonical body. Redirected note results and raw-memory list or recall results
-stream rows; an intentionally closed downstream pipe ends those commands
-successfully.
+operations, and render the result. Exact note `show` writes and flushes the
+canonical body. Redirected note results and memory line output stream rows; an
+intentionally closed downstream pipe ends those commands successfully.
 
 Multi-query reads may use a read transaction when they need one consistent
 snapshot. Input-taking mutations collect and validate their body outside a
@@ -72,7 +71,7 @@ the mutation. This boundary is surfaced explicitly by the CLI error contract.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables and memory
-list, recall, or pending rows do not require alignment and stream directly.
+rows do not require alignment and stream directly.
 
 ## Schema Ownership
 
@@ -80,8 +79,8 @@ The application schema is a flat compile-time manifest in a fixed order:
 
 - `src/schema.rs` owns the application ID, schema version, and version table.
 - `src/note/schema.rs` owns note tables, note FTS, triggers, and indexes.
-- `src/memory/schema.rs` owns raw memories, summaries, jobs, both memory FTS
-  indexes, immutability triggers, FTS triggers, and memory indexes.
+- `src/memory/schema.rs` owns the `memory(sequence, created_at, body)` and
+  `memory_summary(lo, hi, body)` tables plus raw-memory immutability triggers.
 - `src/storage/schema_engine.rs` initializes and validates the assembled
   manifest without knowing the note or memory models.
 
@@ -95,7 +94,6 @@ Initialization can adopt an empty SQLite database or atomically publish a new
 temporary sibling. On Unix it requests private directory and database modes.
 Ordinary commands never create storage or schema objects.
 
-Memory FTS indexes are derived and rebuildable. They use SQLite FTS5 Porter
-stemming over Unicode61 for primarily English technical memory; tokenizer
-changes are explicit schema changes. Retrieval remains deterministic and
-non-scored.
+Memory has no FTS, work table, background processing, or model integration.
+Its repository scans raw history directly for literal recall and calculates
+binary tree relationships and wake covers in memory.

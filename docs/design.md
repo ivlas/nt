@@ -28,10 +28,10 @@ ordinary notes. Persistent experience belongs to memory, not a special note.
 | Model | Canonical state | Derived state |
 | --- | --- | --- |
 | Notes | body, collection, tags, links, timestamps, body version | title, note FTS |
-| Memory | raw body, sequence, creation timestamp | summaries, pending jobs, raw and summary FTS |
+| Memory | raw body, sequence, creation timestamp | binary range summaries |
 
-Raw memory is never changed by summary creation, expansion, or invalidation.
-Derived memory state can be regenerated from canonical raw history through new
+Raw memory is never changed by summary creation, zooming, or forgetting.
+Derived memory state can be recreated from canonical raw history through new
 caller-produced summaries, but the text is not guaranteed to match an earlier
 summary. The CLI does not provide a whole-database rebuild command.
 
@@ -58,96 +58,70 @@ source does not update its targets.
 
 ## Memory
 
-SQLite assigns every raw memory a positive, monotonically increasing sequence
-number. The sequence is its public identity and deterministic history order.
-Database triggers reject raw updates and deletes.
+Every raw memory receives the next contiguous sequence number beginning at zero.
+The sequence is its public identity and deterministic history order. Database
+triggers reject raw updates and deletes.
 
-Raw bodies normalize newlines, are non-empty, contain no NUL, and are limited to
-1,024 Unicode characters. They have no Markdown title requirement, collection,
-tag, link, kind, source, or generic metadata. Summaries have the same character
-limit. Each summary node has exactly 16 children, and context output is limited
-to 32,768 Unicode characters.
+Raw bodies are non-empty single lines, contain no NUL, and are limited to 512
+Unicode characters. They have no Markdown title requirement, collection, tag,
+link, kind, source, or generic metadata. Summaries follow the same body rules.
 
-Summarization is delegated to the caller. Appending creates eligible work but
-does not wait for it. `nt` does not launch a model, worker, or daemon. Summary
-quality depends on the caller; exact raw history remains authoritative.
+Summary creation is delegated to the caller. Raw insertion does not wait for it.
+`nt` does not launch a model, worker, or daemon. Summary quality depends on the
+caller; exact raw history remains authoritative.
 
 ## Summary Tree
 
-A node is identified by `(level, block)` and written `L<level>:<block>`. For
-fanout 16, its inclusive raw range is:
+A summary is identified internally by an aligned binary half-open range
+`[lo, hi)`. Its size is a power of two of at least two, and `lo` is a multiple
+of that size. The CLI renders the upper bound inclusively, so `[0, 2)` is `0-1`
+and `[0, 8)` is `0-7`.
 
 ```text
-span(level) = 16^(level + 1)
-start        = block * span(level) + 1
-end          = (block + 1) * span(level)
+size = hi - lo
+mid  = lo + size / 2
+children = [lo, mid), [mid, hi)
 ```
 
-Level zero has 16 raw children. A higher node has 16 summaries from the previous
-level. Parent, child, and range relationships are calculated with checked
+A size-two summary has two raw children. A larger summary has two direct summary
+children. Parent, child, and range relationships are calculated with checked
 integer arithmetic rather than stored pointers.
 
-A level-zero job becomes eligible when all 16 raw children exist. A higher job
-becomes eligible when all 16 child summaries exist. Children may complete out
-of order; the final child creates or repairs the parent job.
+`nap` scans by increasing range size and then increasing start, returning the
+smallest buildable missing summary. A pair is buildable from two raw memories; a
+larger range is buildable from its two stored child summaries. There is no
+persisted work queue.
 
-Summary creation requires a pending node and all expected children. Resubmitting
-identical text is idempotent; different text conflicts. Expansion reveals one
-child level. Invalidation removes a summary and all stored ancestors that depend
-on it, clears stale jobs, and requeues the selected node when possible. None of
-these operations removes raw history.
+Summary creation requires both direct children. Resubmitting identical text is
+idempotent; different text conflicts. `zoom` reveals one child level. `forget`
+removes the selected summary and all stored ancestors that depend on it, but no
+descendants or raw history.
 
 ## Retrieval
 
-Retrieval is deterministic and lexical. User text is tokenized into literal
-full-text search (FTS) terms; there is no scoring, fuzzy matching, raw FTS
-syntax, embedding search, or automatic model call. SQL applies explicit limits
-and stable ordering.
+Note retrieval is deterministic and lexical. Note text is tokenized into literal
+FTS terms; there is no scoring, fuzzy matching, raw FTS syntax, embedding search,
+or automatic model call. Note `list` and `find` return metadata rows without
+bodies, are complete by default, and stream redirected output.
 
-Memory FTS uses SQLite FTS5 Porter stemming over Unicode61 so common English
-word forms, such as singular/plural nouns and verb inflections, can retrieve the
-same memory. Porter is primarily English-oriented and does not promise
-morphological normalization for arbitrary languages. It is not semantic or
-fuzzy search. Raw memory remains canonical; both memory FTS indexes are derived,
-rebuildable retrieval infrastructure whose tokenizer may change through a
-future schema change.
+Memory retrieval is direct and separate. `recall` scans canonical raw bodies for
+one case-sensitive literal substring and emits matches chronologically. It has
+no FTS, tokenization, stemming, ranking, fuzzy matching, or semantic search.
 
-Note `list` and `find` return metadata rows without bodies. They are complete by
-default and stream redirected output. Memory `list` and `recall` return exact
-raw entries in sequence order.
-
-Memory context uses bounded candidate pools and a complete-output budget:
-
-- Without terms, 60% is offered to recent raw entries and 40% to a canonical
-  summary frontier over older history.
-- With terms, 40% is offered to lexical raw entries, 30% to recent raw entries,
-  and 30% to lexical summaries.
-- Recent and lexical SQL candidate queries are limited to 256 rows. Frontier
-  construction uses indexed summary availability and fetches at most 256 nodes.
-- Unused capacity is offered to bounded recent and broad-history candidates.
-  Candidates that do not fit are skipped rather than truncated.
-
-The summary frontier is a non-overlapping set of available nodes representing
-older history. It chooses the largest completed summary for each range and
-falls back to completed children when possible; ranges without a usable summary
-are omitted. The frontier is calculated from sequence bounds and summary
-availability, not stored as a table.
-
-Selected raw entries are deduplicated. Selected raw and summary ranges never
-overlap, and exact raw evidence wins any overlap conflict regardless of
-selection order. Final output is chronological. The 32,768-character limit
-includes complete bodies, headers, timestamps, ranges, separators, and newlines.
-
-Fixed candidate bounds keep context predictable but make it non-exhaustive.
-Literal search can miss alternate wording, and summaries can omit or misstate
-facts. Progressive expansion and raw recall provide exact evidence.
+`wake` constructs a deterministic chronological age-decaying dyadic cover. The
+compile-time `WAKE_ENTRIES = 128` entry count is its only bound. Histories at or
+below the bound are all raw. Larger histories start from their canonical aligned
+binary cover and repeatedly split the newest splittable range until the bound is
+filled, making older coverage coarser and recent coverage more precise. Every
+selected summary must already exist; missing derived state is an error rather
+than an implicit model call or fallback.
 
 ## Storage And Consistency
 
 Only `nt init` creates storage. The database uses application ID `0x4e544e54`
-(`NTNT`) and clean-sheet schema version `3`. This alpha policy rejects
-incompatible databases instead of migrating them in place. Every mutation is
-transactional, including its relationship and full-text index changes.
+(`NTNT`) and clean-sheet schema version `4`. There is no migration system;
+incompatible databases are rejected. Every mutation is transactional, including
+its relationship and note full-text index changes.
 
 Schema ownership, connection lifecycles, and transaction boundaries are
 described in [Architecture](architecture.md). Documentation intentionally does
