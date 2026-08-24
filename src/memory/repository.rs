@@ -1,11 +1,9 @@
-use std::collections::BTreeSet;
-
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::error::{NtError, Result};
 use crate::note::timestamp_now;
 
-use super::{Memory, MemoryRange, NewMemory, NewSummary, Summary, WakeNode, next_summary};
+use super::{Memory, MemoryRange, NewMemory, NewSummary, Summary, WakeNode};
 
 #[derive(Debug)]
 pub(crate) enum TreeItem {
@@ -77,23 +75,20 @@ impl Repository {
         decode_memory(row)
     }
 
-    pub(crate) fn scan_raw(&self) -> Result<Vec<Memory>> {
-        self.raw_range(0, self.raw_count()?)
-    }
-
-    pub(crate) fn raw_range(&self, lo: u64, hi: u64) -> Result<Vec<Memory>> {
-        let lo = sqlite_integer(lo, "memory range")?;
-        let hi = sqlite_integer(hi, "memory range")?;
+    pub(crate) fn recall(
+        &self,
+        pattern: &str,
+        mut visit: impl FnMut(&Memory) -> Result<()>,
+    ) -> Result<()> {
         let mut statement = self.connection.prepare(
             "SELECT sequence, created_at, body FROM memory
-             WHERE sequence >= ?1 AND sequence < ?2 ORDER BY sequence",
+             WHERE instr(body, ?1) > 0 ORDER BY sequence",
         )?;
-        let mut rows = statement.query([lo, hi])?;
-        let mut memories = Vec::new();
+        let mut rows = statement.query([pattern])?;
         while let Some(row) = rows.next()? {
-            memories.push(decode_memory(row)?);
+            visit(&decode_memory(row)?)?;
         }
-        Ok(memories)
+        Ok(())
     }
 
     pub(crate) fn get_summary(&self, range: MemoryRange) -> Result<Option<Summary>> {
@@ -105,20 +100,47 @@ impl Repository {
         rows.next()?.map(decode_summary).transpose()
     }
 
-    pub(crate) fn summary_ranges(&self) -> Result<BTreeSet<MemoryRange>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT lo, hi, body FROM memory_summary ORDER BY hi - lo, lo")?;
-        let mut rows = statement.query([])?;
-        let mut ranges = BTreeSet::new();
-        while let Some(row) = rows.next()? {
-            ranges.insert(decode_summary(row)?.range());
-        }
-        Ok(ranges)
-    }
-
     pub(crate) fn next_summary(&self) -> Result<Option<MemoryRange>> {
-        Ok(next_summary(self.raw_count()?, &self.summary_ranges()?))
+        let raw_count = self.raw_count()?;
+        let mut size = 2_u64;
+        while size <= raw_count {
+            let limit = raw_count - raw_count % size;
+            let sqlite_size = sqlite_integer(size, "memory range")?;
+            let maximum = self
+                .connection
+                .query_row(
+                    "SELECT MAX(lo) FROM memory_summary WHERE hi - lo = ?1",
+                    [sqlite_size],
+                    |row| row.get::<_, Option<i64>>(0),
+                )?
+                .map(|lo| {
+                    u64::try_from(lo).map_err(|error| {
+                        NtError::invalid_stored_memory_with_source(
+                            format!("summary {lo}"),
+                            "lo",
+                            error,
+                        )
+                    })
+                })
+                .transpose()?;
+
+            match maximum {
+                None => return Ok(Some(MemoryRange::from_parts(0, size))),
+                Some(lo) if lo + size < limit => {
+                    return Ok(Some(MemoryRange::from_parts(lo + size, lo + size * 2)));
+                }
+                Some(_) => {
+                    if let Some(lo) = self.first_summary_gap(size, limit)? {
+                        return Ok(Some(MemoryRange::from_parts(lo, lo + size)));
+                    }
+                }
+            }
+            let Some(next) = size.checked_mul(2) else {
+                break;
+            };
+            size = next;
+        }
+        Ok(None)
     }
 
     pub(crate) fn summary_inputs(&self, range: MemoryRange) -> Result<Vec<TreeItem>> {
@@ -150,8 +172,7 @@ impl Repository {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let count = raw_count_in(&transaction)?;
-        let ranges = summary_ranges_in(&transaction)?;
-        if range.hi() > count || !children_exist(range, &ranges) {
+        if range.hi() > count || !children_exist(&transaction, range)? {
             return Err(invalid_range(range, "is not buildable"));
         }
         let (lo, hi) = sqlite_range(range)?;
@@ -211,6 +232,28 @@ impl Repository {
             })
             .collect()
     }
+
+    fn first_summary_gap(&self, size: u64, limit: u64) -> Result<Option<u64>> {
+        let sqlite_size = sqlite_integer(size, "memory range")?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT lo FROM memory_summary WHERE hi - lo = ?1 ORDER BY lo")?;
+        let mut rows = statement.query([sqlite_size])?;
+        let mut expected = 0_u64;
+        while let Some(row) = rows.next()? {
+            let lo = row.get::<_, i64>(0).map_err(|error| {
+                NtError::invalid_stored_memory_with_source("summary: unknown", "lo", error)
+            })?;
+            let lo = u64::try_from(lo).map_err(|error| {
+                NtError::invalid_stored_memory_with_source(format!("summary {lo}"), "lo", error)
+            })?;
+            if lo != expected {
+                return Ok(Some(expected));
+            }
+            expected += size;
+        }
+        Ok((expected < limit).then_some(expected))
+    }
 }
 
 fn raw_count_in(transaction: &rusqlite::Transaction<'_>) -> Result<u64> {
@@ -221,24 +264,27 @@ fn raw_count_in(transaction: &rusqlite::Transaction<'_>) -> Result<u64> {
         .map_err(|error| NtError::invalid_stored_memory_with_source("history", "count", error))
 }
 
-fn summary_ranges_in(transaction: &rusqlite::Transaction<'_>) -> Result<BTreeSet<MemoryRange>> {
-    let mut statement = transaction.prepare("SELECT lo, hi, body FROM memory_summary")?;
-    let mut rows = statement.query([])?;
-    let mut ranges = BTreeSet::new();
-    while let Some(row) = rows.next()? {
-        ranges.insert(decode_summary(row)?.range());
-    }
-    Ok(ranges)
-}
-
-fn children_exist(range: MemoryRange, summaries: &BTreeSet<MemoryRange>) -> bool {
+fn children_exist(transaction: &rusqlite::Transaction<'_>, range: MemoryRange) -> Result<bool> {
     match range.children() {
-        (WakeNode::Raw(_), WakeNode::Raw(_)) => true,
+        (WakeNode::Raw(_), WakeNode::Raw(_)) => Ok(true),
         (WakeNode::Summary(left), WakeNode::Summary(right)) => {
-            summaries.contains(&left) && summaries.contains(&right)
+            Ok(summary_exists(transaction, left)? && summary_exists(transaction, right)?)
         }
         _ => unreachable!(),
     }
+}
+
+fn summary_exists(transaction: &rusqlite::Transaction<'_>, range: MemoryRange) -> Result<bool> {
+    let (lo, hi) = sqlite_range(range)?;
+    transaction
+        .query_row(
+            "SELECT 1 FROM memory_summary WHERE lo = ?1 AND hi = ?2",
+            [lo, hi],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|value| value.is_some())
+        .map_err(Into::into)
 }
 
 fn decode_memory(row: &rusqlite::Row<'_>) -> Result<Memory> {
@@ -293,7 +339,7 @@ fn invalid_range(range: MemoryRange, detail: &'static str) -> NtError {
 mod tests {
     use rusqlite::Connection;
 
-    use super::{Repository, TreeItem};
+    use super::{Repository, TreeItem, decode_summary};
     use crate::memory::schema::OBJECTS;
     use crate::memory::{NewMemory, NewSummary};
 
@@ -321,15 +367,14 @@ mod tests {
         let mut repository = repository();
         append(&mut repository, 4);
         assert_eq!(repository.raw_count().unwrap(), 4);
-        assert_eq!(
-            repository
-                .scan_raw()
-                .unwrap()
-                .iter()
-                .map(|memory| memory.seq())
-                .collect::<Vec<_>>(),
-            [0, 1, 2, 3]
-        );
+        let mut sequences = Vec::new();
+        repository
+            .recall("event", |memory| {
+                sequences.push(memory.seq());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sequences, [0, 1, 2, 3]);
         assert_eq!(repository.get_raw(2).unwrap().body(), "event 2");
     }
 
@@ -348,7 +393,12 @@ mod tests {
             .unwrap();
 
         assert!(repository.get_raw(0).is_err());
-        assert!(repository.summary_ranges().is_err());
+        let mut statement = repository
+            .connection
+            .prepare("SELECT lo, hi, body FROM memory_summary")
+            .unwrap();
+        let mut rows = statement.query([]).unwrap();
+        assert!(decode_summary(rows.next().unwrap().unwrap()).is_err());
     }
 
     #[test]

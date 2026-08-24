@@ -43,15 +43,11 @@ fn recall(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
         });
     }
     let repository = read_repository(app)?;
-    let memories = repository.scan_raw()?;
     write_stream(app.output, |output| {
-        for memory in memories
-            .iter()
-            .filter(|memory| memory.body().contains(&pattern))
-        {
+        repository.recall(&pattern, |memory| {
             writeln!(output, "#{} {}", memory.seq(), memory.body())?;
-        }
-        Ok(())
+            Ok(())
+        })
     })
 }
 

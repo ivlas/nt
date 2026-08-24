@@ -92,6 +92,7 @@ CREATE TABLE memory_summary (
          CHECK(instr(body, char(0)) = 0),
          CHECK(instr(body, char(10)) = 0 AND instr(body, char(13)) = 0)
      ) WITHOUT ROWID;
+CREATE INDEX memory_summary_size ON memory_summary(hi - lo, lo);
 CREATE TRIGGER memory_immutable_insert BEFORE INSERT ON memory
      WHEN EXISTS (SELECT 1 FROM memory WHERE sequence = new.sequence) BEGIN
          SELECT RAISE(ABORT, 'raw memory is immutable');

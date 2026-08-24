@@ -32,6 +32,12 @@ pub(crate) const MEMORY_SUMMARY: SchemaObject = SchemaObject {
      ) WITHOUT ROWID",
 };
 
+pub(crate) const MEMORY_SUMMARY_SIZE: SchemaObject = SchemaObject {
+    object_type: "index",
+    name: "memory_summary_size",
+    sql: "CREATE INDEX memory_summary_size ON memory_summary(hi - lo, lo)",
+};
+
 pub(crate) const MEMORY_IMMUTABLE_INSERT: SchemaObject = SchemaObject {
     object_type: "trigger",
     name: "memory_immutable_insert",
@@ -60,6 +66,7 @@ pub(crate) const MEMORY_IMMUTABLE_DELETE: SchemaObject = SchemaObject {
 pub(crate) const OBJECTS: &[SchemaObject] = &[
     MEMORY,
     MEMORY_SUMMARY,
+    MEMORY_SUMMARY_SIZE,
     MEMORY_IMMUTABLE_INSERT,
     MEMORY_IMMUTABLE_UPDATE,
     MEMORY_IMMUTABLE_DELETE,

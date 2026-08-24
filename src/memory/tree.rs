@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -21,7 +20,7 @@ impl MemoryRange {
         Ok(Self { lo, hi })
     }
 
-    fn from_parts(lo: u64, hi: u64) -> Self {
+    pub(crate) fn from_parts(lo: u64, hi: u64) -> Self {
         debug_assert!(Self::new(lo, hi).is_ok());
         Self { lo, hi }
     }
@@ -119,35 +118,6 @@ impl WakeNode {
     }
 }
 
-pub(crate) fn next_summary(
-    raw_count: u64,
-    summaries: &BTreeSet<MemoryRange>,
-) -> Option<MemoryRange> {
-    let mut size = 2_u64;
-    while size <= raw_count {
-        let mut lo = 0_u64;
-        while let Some(hi) = lo.checked_add(size).filter(|hi| *hi <= raw_count) {
-            let range = MemoryRange::from_parts(lo, hi);
-            if !summaries.contains(&range) && children_available(range, summaries) {
-                return Some(range);
-            }
-            lo = hi;
-        }
-        size = size.checked_mul(2)?;
-    }
-    None
-}
-
-fn children_available(range: MemoryRange, summaries: &BTreeSet<MemoryRange>) -> bool {
-    match range.children() {
-        (WakeNode::Raw(_), WakeNode::Raw(_)) => true,
-        (WakeNode::Summary(left), WakeNode::Summary(right)) => {
-            summaries.contains(&left) && summaries.contains(&right)
-        }
-        _ => unreachable!(),
-    }
-}
-
 pub(crate) fn wake_cover(raw_count: u64, budget: usize) -> Result<Vec<WakeNode>> {
     if raw_count == 0 {
         return Ok(Vec::new());
@@ -164,7 +134,13 @@ pub(crate) fn wake_cover(raw_count: u64, budget: usize) -> Result<Vec<WakeNode>>
         });
     }
     while cover.len() < budget {
-        let Some(index) = cover.iter().rposition(|node| node.size() > 1) else {
+        let Some(index) = cover
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.size() > 1)
+            .max_by(|(_, left), (_, right)| relative_coarseness(**left, **right, raw_count))
+            .map(|(index, _)| index)
+        else {
             break;
         };
         let WakeNode::Summary(range) = cover[index] else {
@@ -174,6 +150,19 @@ pub(crate) fn wake_cover(raw_count: u64, budget: usize) -> Result<Vec<WakeNode>>
         cover.splice(index..=index, [left, right]);
     }
     Ok(cover)
+}
+
+fn relative_coarseness(left: WakeNode, right: WakeNode, raw_count: u64) -> std::cmp::Ordering {
+    let left_age = raw_count - left.hi();
+    let right_age = raw_count - right.hi();
+    match (left_age, right_age) {
+        (0, 0) => left.lo().cmp(&right.lo()),
+        (0, _) => std::cmp::Ordering::Greater,
+        (_, 0) => std::cmp::Ordering::Less,
+        _ => (u128::from(left.size()) * u128::from(right_age))
+            .cmp(&(u128::from(right.size()) * u128::from(left_age)))
+            .then_with(|| left.lo().cmp(&right.lo())),
+    }
 }
 
 fn canonical_cover(raw_count: u64) -> Vec<WakeNode> {
@@ -209,9 +198,7 @@ fn invalid_range(value: String) -> NtError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
-    use super::{MemoryRange, WakeNode, next_summary, wake_cover};
+    use super::{MemoryRange, WakeNode, wake_cover};
 
     fn range(value: &str) -> MemoryRange {
         value.parse().unwrap()
@@ -246,21 +233,6 @@ mod tests {
             panic!("expected raw memories");
         };
         assert!(MemoryRange::new(u64::MAX - 1, u64::MAX).is_err());
-    }
-
-    #[test]
-    fn next_work_is_the_smallest_buildable_node() {
-        let mut summaries = BTreeSet::new();
-        assert_eq!(next_summary(1, &summaries), None);
-        assert_eq!(next_summary(7, &summaries), Some(range("0-1")));
-        summaries.insert(range("0-1"));
-        assert_eq!(next_summary(7, &summaries), Some(range("2-3")));
-        summaries.insert(range("2-3"));
-        assert_eq!(next_summary(7, &summaries), Some(range("4-5")));
-        summaries.insert(range("4-5"));
-        assert_eq!(next_summary(7, &summaries), Some(range("0-3")));
-        summaries.insert(range("0-3"));
-        assert_eq!(next_summary(7, &summaries), None);
     }
 
     #[test]
@@ -319,5 +291,23 @@ mod tests {
     #[test]
     fn wake_rejects_a_budget_below_the_minimum_cover() {
         assert!(wake_cover(7, 2).is_err());
+    }
+
+    #[test]
+    fn wake_uses_age_relative_sizes_instead_of_a_precise_right_tail() {
+        let cover = wake_cover(1_000_000, 128).unwrap();
+        let raw = cover
+            .iter()
+            .filter(|node| matches!(node, WakeNode::Raw(_)))
+            .count();
+        let largest = cover.iter().map(|node| node.size()).max().unwrap();
+        assert!(raw < 32, "unexpectedly precise raw tail: {raw}");
+        assert!(largest <= 131_072, "oldest block is too coarse: {largest}");
+        assert!(
+            cover
+                .windows(2)
+                .all(|pair| pair[0].size() / pair[1].size() <= 2),
+            "adjacent ages decay by more than one binary level: {cover:?}"
+        );
     }
 }
