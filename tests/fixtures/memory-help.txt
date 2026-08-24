@@ -1,3 +1,3 @@
 nt memory <command> [args...]
 
-Append, recall, compress, and expand immutable experience. Run nt help memory <command> for details.
+Append immutable experience, compress it into a binary tree, and read it by age or exact pattern. Run nt help memory <command> for details.
