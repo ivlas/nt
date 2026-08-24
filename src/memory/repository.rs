@@ -131,10 +131,10 @@ impl Repository {
                 }
                 Some(_) => {
                     let expected = limit / size;
-                    if self.summary_count(size)? != expected {
-                        if let Some(lo) = self.first_summary_gap(size, limit)? {
-                            return Ok(Some(MemoryRange::from_parts(lo, lo + size)));
-                        }
+                    if self.summary_count(size)? != expected
+                        && let Some(lo) = self.first_summary_gap(size, limit)?
+                    {
+                        return Ok(Some(MemoryRange::from_parts(lo, lo + size)));
                     }
                 }
             }
