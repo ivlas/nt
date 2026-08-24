@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::time::Instant;
 
 use rusqlite::{Connection, params};
 
@@ -270,6 +271,83 @@ fn schema_keeps_raw_memory_immutable_without_memory_fts_or_jobs() {
         )
         .unwrap();
     assert_eq!(memory_tables, 2);
+}
+
+#[test]
+#[ignore = "manual 10k/100k/1m memory operation audit"]
+fn audit_memory_operations_at_scale() {
+    for count in [10_000_i64, 100_000, 1_000_000] {
+        let home = initialized_home();
+        let database = home.path().join(".nt/nt.sqlite3");
+        let mut connection = Connection::open(&database).unwrap();
+        let setup_started = Instant::now();
+        let transaction = connection.transaction().unwrap();
+        {
+            let mut insert = transaction
+                .prepare(
+                    "INSERT INTO memory(sequence, created_at, body)
+                     VALUES (?1, '2026-08-22T12:34:56Z', ?2)",
+                )
+                .unwrap();
+            for sequence in 0..count {
+                insert
+                    .execute(params![sequence, format!("event {sequence}")])
+                    .unwrap();
+            }
+        }
+        {
+            let mut insert = transaction
+                .prepare("INSERT INTO memory_summary(lo, hi, body) VALUES (?1, ?2, 'summary')")
+                .unwrap();
+            let mut size = 2_i64;
+            while size <= count {
+                let mut lo = 0_i64;
+                while lo + size <= count {
+                    insert.execute([lo, lo + size]).unwrap();
+                    lo += size;
+                }
+                size *= 2;
+            }
+        }
+        transaction.commit().unwrap();
+        let setup_elapsed = setup_started.elapsed();
+
+        let started = Instant::now();
+        let wake = nt(home.path(), &["memory", "wake"], None);
+        let wake_elapsed = started.elapsed();
+        assert!(wake.status.success(), "{:?}", wake.stderr);
+
+        let started = Instant::now();
+        let recall = nt(
+            home.path(),
+            &["memory", "recall", "definitely-not-present"],
+            None,
+        );
+        let recall_elapsed = started.elapsed();
+        assert_success(recall, b"");
+
+        let started = Instant::now();
+        let nap = nt(home.path(), &["memory", "nap"], None);
+        let nap_elapsed = started.elapsed();
+        assert_success(nap, b"nothing to nap\n");
+
+        connection
+            .execute("DELETE FROM memory_summary WHERE lo = 0 AND hi = 2", [])
+            .unwrap();
+        let started = Instant::now();
+        let insertion = nt(
+            home.path(),
+            &["memory", "nap", "0-1", "replacement summary"],
+            None,
+        );
+        let insertion_elapsed = started.elapsed();
+        assert_success(insertion, b"summarized #0-1\n");
+
+        eprintln!(
+            "{count:>7}: setup={:?} wake={wake_elapsed:?} recall={recall_elapsed:?} nap-next={nap_elapsed:?} insert={insertion_elapsed:?}",
+            setup_elapsed
+        );
+    }
 }
 
 fn rendered_size(line: &str) -> u64 {
