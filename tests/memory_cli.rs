@@ -343,8 +343,25 @@ fn audit_memory_operations_at_scale() {
         let insertion_elapsed = started.elapsed();
         assert_success(insertion, b"summarized #0-1\n");
 
+        let late_lo = count - 4;
+        let late_range = format!("{late_lo}-{}", late_lo + 1);
+        let started = Instant::now();
+        let forgotten = nt(home.path(), &["memory", "forget", &late_range], None);
+        let forget_late_elapsed = started.elapsed();
+        assert_success(forgotten, format!("forgot #{late_range}\n").as_bytes());
+
+        let started = Instant::now();
+        let late_nap = nt(home.path(), &["memory", "nap"], None);
+        let nap_late_elapsed = started.elapsed();
+        assert!(late_nap.status.success(), "{:?}", late_nap.stderr);
+        assert!(
+            String::from_utf8(late_nap.stdout)
+                .unwrap()
+                .starts_with(&format!("Compress memories #{late_range}"))
+        );
+
         eprintln!(
-            "{count:>7}: setup={:?} wake={wake_elapsed:?} recall={recall_elapsed:?} nap-next={nap_elapsed:?} insert={insertion_elapsed:?}",
+            "{count:>7}: setup={:?} wake={wake_elapsed:?} recall={recall_elapsed:?} nap-next={nap_elapsed:?} insert={insertion_elapsed:?} forget-late={forget_late_elapsed:?} nap-late={nap_late_elapsed:?}",
             setup_elapsed
         );
     }
