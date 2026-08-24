@@ -130,8 +130,11 @@ impl Repository {
                     return Ok(Some(MemoryRange::from_parts(lo + size, lo + size * 2)));
                 }
                 Some(_) => {
-                    if let Some(lo) = self.first_summary_gap(size, limit)? {
-                        return Ok(Some(MemoryRange::from_parts(lo, lo + size)));
+                    let expected = limit / size;
+                    if self.summary_count(size)? != expected {
+                        if let Some(lo) = self.first_summary_gap(size, limit)? {
+                            return Ok(Some(MemoryRange::from_parts(lo, lo + size)));
+                        }
                     }
                 }
             }
@@ -141,6 +144,18 @@ impl Repository {
             size = next;
         }
         Ok(None)
+    }
+
+    fn summary_count(&self, size: u64) -> Result<u64> {
+        let sqlite_size = sqlite_integer(size, "memory range")?;
+        let count = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_summary WHERE hi - lo = ?1",
+            [sqlite_size],
+            |row| row.get::<_, i64>(0),
+        )?;
+        u64::try_from(count).map_err(|error| {
+            NtError::invalid_stored_memory_with_source("summary level", "count", error)
+        })
     }
 
     pub(crate) fn summary_inputs(&self, range: MemoryRange) -> Result<Vec<TreeItem>> {

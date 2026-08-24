@@ -274,9 +274,9 @@ fn schema_keeps_raw_memory_immutable_without_memory_fts_or_jobs() {
 }
 
 #[test]
-#[ignore = "manual 10k/100k/1m memory operation audit"]
+#[ignore = "manual 10k/100k/1m/10m memory operation audit"]
 fn audit_memory_operations_at_scale() {
-    for count in [10_000_i64, 100_000, 1_000_000] {
+    for count in [10_000_i64, 100_000, 1_000_000, 10_000_000] {
         let home = initialized_home();
         let database = home.path().join(".nt/nt.sqlite3");
         let mut connection = Connection::open(&database).unwrap();

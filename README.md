@@ -73,7 +73,7 @@ that version on Linux and current stable Rust on Linux, macOS, and Windows.
 Ignored scale and query-plan tests are manual release-mode audits. Run them with
 `cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`.
 The memory audit reports `wake`, `recall`, `nap-next`, and summary insertion at
-10,000, 100,000, and 1,000,000 raw memories.
+10,000, 100,000, 1,000,000, and 10,000,000 raw memories.
 
 ## Acknowledgements
 
