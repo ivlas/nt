@@ -2,11 +2,9 @@
 
 > **Status: alpha** `nt` is functional but experimental; expect breaking changes.
 
-`nt` is a local, agent-first application for editable CommonMark notes and
-immutable persistent memory. Canonical notes and raw experience live in one
-SQLite database as separate first-class models. Humans and agents use the same
-shell-friendly commands, stdin, and stdout; note capture can also use
-`$VISUAL`/`$EDITOR`.
+`nt` is a local, agent-first application for editable CommonMark notes. Notes
+live in SQLite and are available through shell-friendly commands, stdin, and
+stdout; capture can also use `$VISUAL`/`$EDITOR`.
 
 ## Quick Start
 
@@ -16,9 +14,6 @@ printf '%s\n' '# First note' '' 'SQLite is canonical.' | nt add tag:example
 nt list tag:example
 nt find sqlite
 nt show <id>
-printf '%s\n' 'Deployment switched to blue-green.' | nt memory add
-nt memory recall deployment
-nt memory context deployment
 ```
 
 `nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
@@ -32,26 +27,15 @@ nt link <id> +<target-id>
 nt rm <id>
 ```
 
-`nt memory add` prints a monotonically increasing sequence number. Raw memories
-are canonical and immutable. The calling agent can use `nt memory pending` and
-`nt memory summarize` to build the derived 16-way summary pyramid, then recover
-exact history progressively with `nt memory expand`.
-
 SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
 configuration files, daemons, background workers, embeddings, model calls in
 retrieval, or hidden agent-only commands.
 
 ## Architecture
 
-Notes and memory are separate concrete models. Notes provide editable durable
-knowledge with collections, tags, and directional links. Memory keeps immutable
-raw experience in sequence order and uses a derived 16-way summary tree for
-bounded retrieval. `nt memory context` emits at most 32,768 Unicode characters,
-including formatting, without truncating selected items.
-
-Summarization is explicit work performed by the calling agent, not a daemon or
-automatic model call. Progressive expansion recovers exact raw history when a
-summary is insufficient.
+Notes provide editable durable knowledge with collections, tags, and
+directional links. Retrieval is deterministic and lexical, with complete
+results unless the caller supplies an explicit SQL-backed limit.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,
@@ -70,10 +54,9 @@ metadata, or hidden semantics.
 Rust 1.95 is the intentional minimum supported Rust version (MSRV). CI verifies
 that version on Linux and current stable Rust on Linux, macOS, and Windows.
 
-Ignored scale and query-plan tests are manual release-mode audits. Run them with
+Ignored query-plan tests are manual release-mode audits. Run them with
 `cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`;
-the audit names cover million-memory operations, a complete memory pyramid,
-queryless context scaling, and note ID-prefix query plans.
+the audit names cover note ID-prefix query plans at representative scale.
 
 ## License
 

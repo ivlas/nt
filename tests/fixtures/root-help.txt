@@ -1,6 +1,6 @@
 nt
 
-Local, agent-first notes and persistent memory.
+Local, agent-first CommonMark notes.
 
 Usage:
   nt <command> [args...]
@@ -16,5 +16,4 @@ Commands:
   move <id> <collection>               move one note
   tag <id> <+tag|-tag>                 change one tag
   link <id> <+id|-id>                  change one directional link
-  memory <command> [args...]           use immutable persistent memory
   help [command...]                    show command help

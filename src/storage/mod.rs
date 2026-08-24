@@ -488,13 +488,13 @@ mod tests {
         let connection = Connection::open(&path).unwrap();
         connection
             .execute_batch(
-                "PRAGMA ignore_check_constraints = ON; UPDATE schema_version SET version = 4",
+                "PRAGMA ignore_check_constraints = ON; UPDATE schema_version SET version = 5",
             )
             .unwrap();
         drop(connection);
         assert!(matches!(
             open_at(&path, OpenMode::ReadWrite),
-            Err(NtError::UnsupportedSchema(4))
+            Err(NtError::UnsupportedSchema(5))
         ));
     }
 

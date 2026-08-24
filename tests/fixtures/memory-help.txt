@@ -1,3 +1,0 @@
-nt memory <command> [args...]
-
-Append, recall, compress, and expand immutable experience. Run nt help memory <command> for details.

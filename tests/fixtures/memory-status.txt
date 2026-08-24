@@ -1,5 +1,0 @@
-raw memory count	16
-highest sequence	16
-summary count	1
-pending summary count	1
-highest completed level	0
