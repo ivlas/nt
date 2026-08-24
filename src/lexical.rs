@@ -35,31 +35,28 @@ pub(crate) fn fts_and_expression(terms: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{fts_and_expression, literal_tokens, normalized_terms};
-    use crate::memory::MemoryContextQuery;
     use crate::note::NoteQuery;
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
-    fn assert_domain_terms(values: &[&str], expected: &[&str]) {
+    fn assert_note_terms(values: &[&str], expected: &[&str]) {
         let values = strings(values);
         let note = NoteQuery::parse_find(&values).unwrap();
-        let memory = MemoryContextQuery::parse(&values).unwrap();
         assert_eq!(note.lexical_terms(), expected);
-        assert_eq!(memory.terms(), expected);
     }
 
     #[test]
-    fn note_and_memory_share_literal_term_contracts() {
-        assert_domain_terms(&["beta alpha"], &["alpha", "beta"]);
-        assert_domain_terms(&["zebra café"], &["café", "zebra"]);
-        assert_domain_terms(&["beta alpha", "beta"], &["alpha", "beta"]);
-        assert_domain_terms(
+    fn note_queries_use_normalized_literal_terms() {
+        assert_note_terms(&["beta alpha"], &["alpha", "beta"]);
+        assert_note_terms(&["zebra café"], &["café", "zebra"]);
+        assert_note_terms(&["beta alpha", "beta"], &["alpha", "beta"]);
+        assert_note_terms(
             &["ownership-borrow.alpha"],
             &["alpha", "borrow", "ownership"],
         );
-        assert_domain_terms(&["*** alpha", "---"], &["alpha"]);
+        assert_note_terms(&["*** alpha", "---"], &["alpha"]);
         assert!(normalized_terms(&strings(&["***", "---"])).is_empty());
     }
 

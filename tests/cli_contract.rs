@@ -151,11 +151,11 @@ fn unusual_home_paths_support_complete_storage_workflows() {
     assert_eq!(success(&home, &["show", &id], None), "# Unusual path\nBody");
     assert_eq!(
         success(&home, &["memory", "add"], Some("path memory")),
-        "saved 1\n"
+        "saved #0\n"
     );
     assert_eq!(
-        success(&home, &["memory", "show", "1"], None),
-        "path memory"
+        success(&home, &["memory", "wake"], None),
+        "#0 path memory\n"
     );
 }
 
