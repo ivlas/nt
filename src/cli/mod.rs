@@ -76,40 +76,25 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum MemoryCommand {
     Add {
-        #[arg(last = true, allow_hyphen_values = true)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         body: Vec<String>,
     },
-    Show {
-        target: String,
-    },
-    List {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        filters: Vec<String>,
-    },
+    Wake,
     Recall {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        expressions: Vec<String>,
+        pattern: Vec<String>,
     },
-    Context {
+    Nap {
+        range: Option<String>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        terms: Vec<String>,
-    },
-    Pending {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        arguments: Vec<String>,
-    },
-    Summarize {
-        node: String,
-        #[arg(last = true, allow_hyphen_values = true)]
         summary: Vec<String>,
     },
-    Expand {
-        node: String,
+    Zoom {
+        range: String,
     },
-    Invalidate {
-        node: String,
+    Forget {
+        range: String,
     },
-    Status,
 }
 
 #[cfg(test)]
@@ -142,17 +127,13 @@ mod tests {
             &["nt", "move", ID, "work/nt"],
             &["nt", "tag", ID, "+rust"],
             &["nt", "link", ID, "+018fbe0a-6c00-7000-8000-000000000002"],
-            &["nt", "memory", "add", "--", "immutable history"],
-            &["nt", "memory", "show", "42"],
-            &["nt", "memory", "show", "L0:0"],
-            &["nt", "memory", "list", "since:10", "limit:5"],
-            &["nt", "memory", "recall", "deployment", "limit:5"],
-            &["nt", "memory", "context", "deployment"],
-            &["nt", "memory", "pending", "L0:0"],
-            &["nt", "memory", "summarize", "L0:0", "--", "summary"],
-            &["nt", "memory", "expand", "L1:0"],
-            &["nt", "memory", "invalidate", "L0:0"],
-            &["nt", "memory", "status"],
+            &["nt", "memory", "add", "immutable history"],
+            &["nt", "memory", "wake"],
+            &["nt", "memory", "recall", "deployment failed"],
+            &["nt", "memory", "nap"],
+            &["nt", "memory", "nap", "0-1", "summary"],
+            &["nt", "memory", "zoom", "0-7"],
+            &["nt", "memory", "forget", "0-7"],
             &["nt", "help", "find"],
         ];
         for case in cases {
@@ -179,14 +160,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_removed_and_flag_forms() {
-        for removed in ["note", "todo", "update", "agenda", "export", "config"] {
-            assert!(Cli::try_parse_from(["nt", removed]).is_err());
-        }
+    fn enforces_flagless_command_grammar() {
         assert!(Cli::try_parse_from(["nt", "init", "personal"]).is_err());
         assert!(Cli::try_parse_from(["nt", "rm"]).is_err());
-        assert!(Cli::try_parse_from(["nt", "--help"]).is_err());
-        assert!(Cli::parse_from(["nt"]).command.is_none());
+        for flag in ["-h", "--help", "-V", "--version"] {
+            assert!(Cli::try_parse_from(["nt", flag]).is_err());
+        }
     }
 
     #[test]

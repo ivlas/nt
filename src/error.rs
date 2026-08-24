@@ -100,8 +100,6 @@ pub enum NtError {
     NoteNotFound(String),
     #[error("memory not found: {0}")]
     MemoryNotFound(i64),
-    #[error("compiled memory context exceeds the fixed output limit")]
-    MemoryContextOverflow,
     #[error("duplicate note id: {0}")]
     DuplicateNoteId(String),
     #[error("cannot combine body arguments with stdin")]
@@ -200,7 +198,6 @@ impl NtError {
             | Self::ClockOutOfRange
             | Self::InvalidStoredNote { .. }
             | Self::InvalidStoredMemory { .. }
-            | Self::MemoryContextOverflow
             | Self::HomeNotFound
             | Self::NotNtDatabase
             | Self::UnsupportedSchema(_)

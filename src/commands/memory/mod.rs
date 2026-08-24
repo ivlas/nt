@@ -1,125 +1,121 @@
+use std::io::Write;
+
 use crate::cli::MemoryCommand;
-use crate::error::Result;
+use crate::cli::output::write_stream;
+use crate::error::{NtError, Result};
 use crate::memory::{
-    MemoryContextQuery, MemoryListQuery, MemoryRecallQuery, NewMemory, NewSummary, Repository,
-    SummaryNodeId,
+    MemoryRange, NewMemory, NewSummary, Repository, TreeItem, WAKE_ENTRIES, wake_cover,
 };
 use crate::schema;
 
 use super::{App, write_commit_output};
-use arguments::{PendingRequest, ShowTarget, parse_pending, parse_show_target};
-use output::{
-    render_context, write_expansion, write_memories, write_pending_jobs, write_status,
-    write_summary_task,
-};
-
-mod arguments;
-mod output;
 
 pub(super) fn memory(app: &mut App<'_>, command: MemoryCommand) -> Result<()> {
     match command {
         MemoryCommand::Add { body } => add(app, &body),
-        MemoryCommand::Show { target } => show(app, &target),
-        MemoryCommand::List { filters } => list(app, &filters),
-        MemoryCommand::Recall { expressions } => recall(app, &expressions),
-        MemoryCommand::Context { terms } => context(app, &terms),
-        MemoryCommand::Pending { arguments } => pending(app, &arguments),
-        MemoryCommand::Summarize { node, summary } => summarize(app, &node, &summary),
-        MemoryCommand::Expand { node } => expand(app, &node),
-        MemoryCommand::Invalidate { node } => invalidate(app, &node),
-        MemoryCommand::Status => status(app),
+        MemoryCommand::Wake => wake(app),
+        MemoryCommand::Recall { pattern } => recall(app, &pattern),
+        MemoryCommand::Nap { range, summary } => nap(app, range.as_deref(), &summary),
+        MemoryCommand::Zoom { range } => zoom(app, &range),
+        MemoryCommand::Forget { range } => forget(app, &range),
     }
 }
 
-fn add(app: &mut App<'_>, body_arguments: &[String]) -> Result<()> {
-    let body = app.input.read_memory_body(body_arguments)?;
-    let memory = NewMemory::new(body)?;
-    let mut repository =
-        Repository::from_connection(schema::open_read_write(app.database_path()?)?);
-    let seq = repository.append(memory)?;
-    write_commit_output(app.output, format_args!("saved {seq}\n"))
+fn add(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
+    let memory = NewMemory::new(app.input.read_memory_body(arguments)?)?;
+    let mut repository = write_repository(app)?;
+    let sequence = repository.append_memory(memory)?;
+    write_commit_output(app.output, format_args!("saved #{sequence}\n"))
 }
 
-fn show(app: &mut App<'_>, target: &str) -> Result<()> {
-    let target = parse_show_target(target)?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    match target {
-        ShowTarget::Raw(seq) => app
-            .output
-            .write_all(repository.get_memory(seq)?.body().as_bytes())?,
-        ShowTarget::Summary(node) => app
-            .output
-            .write_all(repository.get_summary(node)?.summary().as_bytes())?,
+fn wake(app: &mut App<'_>) -> Result<()> {
+    let repository = read_repository(app)?;
+    let cover = wake_cover(repository.raw_count()?, WAKE_ENTRIES)?;
+    write_items(app.output, &repository.wake_items(&cover)?)
+}
+
+fn recall(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
+    let pattern = arguments.join(" ");
+    if pattern.is_empty() {
+        return Err(NtError::InvalidValue {
+            field: "recall pattern",
+            value: "empty".to_string(),
+        });
     }
-    app.output.flush()?;
-    Ok(())
-}
-
-fn list(app: &mut App<'_>, expressions: &[String]) -> Result<()> {
-    let query = MemoryListQuery::parse(expressions)?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    write_memories(app.output, |write| {
-        repository.visit_memories(&query, |memory| write(&memory))
-    })
-}
-
-fn recall(app: &mut App<'_>, expressions: &[String]) -> Result<()> {
-    let query = MemoryRecallQuery::parse(expressions)?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    write_memories(app.output, |write| {
-        repository.visit_recalled(&query, |memory| write(&memory))
-    })
-}
-
-fn context(app: &mut App<'_>, expressions: &[String]) -> Result<()> {
-    let query = MemoryContextQuery::parse(expressions)?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    let items = repository.context(&query)?;
-    let document = render_context(&items)?;
-    app.output.write_all(document.as_bytes())?;
-    Ok(())
-}
-
-fn pending(app: &mut App<'_>, arguments: &[String]) -> Result<()> {
-    let request = parse_pending(arguments)?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    match request {
-        PendingRequest::List(limit) => write_pending_jobs(app.output, |write| {
-            repository.visit_pending(limit, |job| write(&job))
-        }),
-        PendingRequest::Inspect(node) => {
-            let children = repository.inspect_pending(node)?;
-            write_summary_task(app.output, node, &children)
+    let repository = read_repository(app)?;
+    let memories = repository.scan_raw()?;
+    write_stream(app.output, |output| {
+        for memory in memories
+            .iter()
+            .filter(|memory| memory.body().contains(&pattern))
+        {
+            writeln!(output, "#{} {}", memory.seq(), memory.body())?;
         }
-    }
+        Ok(())
+    })
 }
 
-fn summarize(app: &mut App<'_>, node: &str, summary_arguments: &[String]) -> Result<()> {
-    let node: SummaryNodeId = node.parse()?;
-    let summary = app.input.read_memory_body(summary_arguments)?;
-    let summary = NewSummary::new(summary)?;
-    let mut repository =
-        Repository::from_connection(schema::open_read_write(app.database_path()?)?);
-    repository.summarize(node, summary)?;
-    write_commit_output(app.output, format_args!("summarized {node}\n"))
+fn nap(app: &mut App<'_>, range: Option<&str>, arguments: &[String]) -> Result<()> {
+    let Some(range) = range else {
+        if !arguments.is_empty() {
+            return Err(NtError::InvalidValue {
+                field: "memory nap",
+                value: "summary requires a range".to_string(),
+            });
+        }
+        let repository = read_repository(app)?;
+        let Some(range) = repository.next_summary()? else {
+            app.output.write_all(b"nothing to nap\n")?;
+            return Ok(());
+        };
+        let inputs = repository.summary_inputs(range)?;
+        writeln!(
+            app.output,
+            "Compress memories #{range} into one short memory:\n"
+        )?;
+        write_items(app.output, &inputs)?;
+        writeln!(app.output, "\nRun:\nnt memory nap {range} \"<summary>\"")?;
+        return Ok(());
+    };
+
+    let range: MemoryRange = range.parse()?;
+    let summary = NewSummary::new(app.input.read_memory_body(arguments)?)?;
+    let mut repository = write_repository(app)?;
+    repository.put_summary(range, summary)?;
+    write_commit_output(app.output, format_args!("summarized #{range}\n"))
 }
 
-fn expand(app: &mut App<'_>, node: &str) -> Result<()> {
-    let node: SummaryNodeId = node.parse()?;
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    let children = repository.expand(node)?;
-    write_expansion(app.output, &children)
+fn zoom(app: &mut App<'_>, range: &str) -> Result<()> {
+    let range: MemoryRange = range.parse()?;
+    let repository = read_repository(app)?;
+    write_items(app.output, &repository.zoom(range)?)
 }
 
-fn invalidate(app: &mut App<'_>, node: &str) -> Result<()> {
-    let node: SummaryNodeId = node.parse()?;
-    let mut repository =
-        Repository::from_connection(schema::open_read_write(app.database_path()?)?);
-    repository.invalidate(node)?;
-    write_commit_output(app.output, format_args!("invalidated {node}\n"))
+fn forget(app: &mut App<'_>, range: &str) -> Result<()> {
+    let range: MemoryRange = range.parse()?;
+    let mut repository = write_repository(app)?;
+    repository.forget(range)?;
+    write_commit_output(app.output, format_args!("forgot #{range}\n"))
 }
 
-fn status(app: &mut App<'_>) -> Result<()> {
-    let repository = Repository::from_connection(schema::open_read_only(app.database_path()?)?);
-    write_status(app.output, &repository.status()?)
+fn write_items(output: &mut dyn Write, items: &[TreeItem]) -> Result<()> {
+    write_stream(output, |output| {
+        for item in items {
+            match item {
+                TreeItem::Raw(memory) => writeln!(output, "#{} {}", memory.seq(), memory.body())?,
+                TreeItem::Summary(summary) => {
+                    writeln!(output, "#{} {}", summary.range(), summary.body())?
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+fn read_repository(app: &App<'_>) -> Result<Repository> {
+    schema::open_read_only(app.database_path()?).map(Repository::from_connection)
+}
+
+fn write_repository(app: &App<'_>) -> Result<Repository> {
+    schema::open_read_write(app.database_path()?).map(Repository::from_connection)
 }

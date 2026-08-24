@@ -27,38 +27,26 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "tag" => Ok("nt tag <id> <+tag|-tag>\n\nAdd or remove one tag.\n"),
         "link" => Ok("nt link <id> <+id|-id>\n\nAdd or remove one directional note link.\n"),
         "memory" => Ok(
-            "nt memory <command> [args...]\n\nAppend, recall, compress, and expand immutable experience. Run nt help memory <command> for details.\n",
+            "nt memory <command> [args...]\n\nAppend immutable experience, compress it into a binary tree, and read it by age or exact pattern. Run nt help memory <command> for details.\n",
         ),
         "memory add" => Ok(
-            "nt memory add [-- body...]\n\nAppend one immutable memory from trailing text or stdin.\n",
+            "nt memory add [memory...]\n\nAppend one immutable single-line memory from arguments or stdin.\n",
         ),
-        "memory show" => Ok(
-            "nt memory show <seq|node>\n\nPrint one exact raw memory body or stored summary body.\n",
-        ),
-        "memory list" => Ok(
-            "nt memory list [since:<seq>] [until:<seq>] [limit:<n>]\n\nList raw memory history in ascending sequence order.\n",
+        "memory wake" => Ok(
+            "nt memory wake\n\nPrint a bounded chronological view: old history is summarized and recent history is precise.\n",
         ),
         "memory recall" => Ok(
-            "nt memory recall <term-or-filter...>\n\nSearch exact raw history with literal lexical terms.\n",
+            "nt memory recall <pattern...>\n\nScan immutable raw history for a case-sensitive literal substring.\n",
         ),
-        "memory context" => Ok(
-            "nt memory context [term...]\n\nCompile deterministic useful memory under the 32,768-character output limit.\n",
+        "memory nap" => Ok(
+            "nt memory nap\nnt memory nap <range> [summary...]\n\nPrint the next derived compression task, or store a caller-produced summary.\n",
         ),
-        "memory pending" => Ok(
-            "nt memory pending [L<level>:<block>|limit:<n>]\n\nList summary work or print one model-independent compression task.\n",
-        ),
-        "memory summarize" => Ok(
-            "nt memory summarize <node> [-- summary...]\n\nStore a caller-produced factual summary.\n",
-        ),
-        "memory expand" => Ok(
-            "nt memory expand <node>\n\nReveal exactly one level of children beneath an existing summary node.\n",
-        ),
-        "memory invalidate" => Ok(
-            "nt memory invalidate <node>\n\nDelete a derived summary and dependent ancestors while preserving raw history.\n",
-        ),
-        "memory status" => {
-            Ok("nt memory status\n\nShow inexpensive memory and derived-index status.\n")
+        "memory zoom" => {
+            Ok("nt memory zoom <range>\n\nReveal the two direct children of a summary range.\n")
         }
+        "memory forget" => Ok(
+            "nt memory forget <range>\n\nDelete one derived summary and its ancestors without changing raw history.\n",
+        ),
         "help" => Ok("nt help [command...]\n\nShow command help.\n"),
         _ => Err(NtError::UnknownHelpTopic(key.to_string())),
     }
