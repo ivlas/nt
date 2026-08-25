@@ -107,6 +107,13 @@ one structured filter. `limit:` cannot repeat or be negated; without it, every
 match is returned. Unknown lowercase field expressions and malformed values are
 errors.
 
+For `read`, repeated `id:<id>` expressions containing full canonical IDs form
+one arbitrary-ID batch and are combined with OR before any other filters are
+applied. ID prefixes retain the normal AND behavior. Requested IDs are
+deduplicated, missing IDs are omitted without error, and output follows the
+canonical result order rather than caller ID order. `limit:` applies after that
+ordering.
+
 `links-to:<target>` returns notes that point to the target.
 `linked-from:<source>` returns notes pointed to by the source. Both require full
 note IDs and inspect only direct edges.
@@ -164,7 +171,9 @@ followed by the canonical body. `show` remains the exact-body primitive: unlike
 
 Complete note records are selected and hydrated set-wise and stream as they are
 read. A downstream pipe closing early is successful; other output failures are
-errors.
+errors. Arbitrary-ID batches use one set-oriented statement and do not consume
+one SQLite host parameter per ID, so batches can contain hundreds or thousands
+of IDs without exposing a database-specific limit.
 
 ### Change Output
 
