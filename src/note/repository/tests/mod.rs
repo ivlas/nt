@@ -5,6 +5,7 @@ use crate::schema;
 mod lifecycle;
 mod mutations;
 mod queries;
+mod reads;
 mod stored_values;
 mod summaries;
 

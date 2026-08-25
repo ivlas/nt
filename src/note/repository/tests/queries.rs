@@ -6,7 +6,7 @@ use super::super::super::{CollectionPath, NewNote, NoteId, NoteQuery};
 use super::{repository, summaries};
 
 #[test]
-fn list_and_find_are_complete_by_default() {
+fn list_read_and_find_are_complete_by_default() {
     let mut repository = repository();
     for index in 0..1101 {
         repository
@@ -22,11 +22,27 @@ fn list_and_find_are_complete_by_default() {
 
     let list = NoteQuery::parse_list(&[]).unwrap();
     assert_eq!(summaries(&repository, &list).len(), 1101);
+    let mut read_count = 0;
+    repository
+        .visit_notes(&list, |_| {
+            read_count += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(read_count, 1101);
     let find = NoteQuery::parse_find(&["shared".to_string()]).unwrap();
     assert_eq!(summaries(&repository, &find).len(), 1101);
 
     let list = NoteQuery::parse_list(&["limit:7".to_string()]).unwrap();
     assert_eq!(summaries(&repository, &list).len(), 7);
+    let mut read_count = 0;
+    repository
+        .visit_notes(&list, |_| {
+            read_count += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(read_count, 7);
     let find = NoteQuery::parse_find(&["shared".to_string(), "limit:5".to_string()]).unwrap();
     assert_eq!(summaries(&repository, &find).len(), 5);
 }

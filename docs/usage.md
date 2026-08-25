@@ -58,6 +58,7 @@ nt list tags
 nt list collections
 nt find 'ownership borrow' tag:rust
 nt show "$NOTE_ID"
+nt read collection:work/nt tag:rust
 ```
 
 `list` accepts structured filters. `find` adds literal lexical terms. All
@@ -70,8 +71,10 @@ Search is deterministic and token-based. SQLite's supported Latin-diacritic
 removal makes `cafe` match `café`, but `owner` does not match `ownership`. There
 is no fuzzy search, relevance ranking, or hidden semantic search.
 
-`show` writes only the canonical body. On redirected stdout, `list` and `find`
-write headerless JSON-encoded TSV; see [Note Output](cli-reference.md#note-output).
+`show` writes only one canonical body. `read` streams complete filtered records
+as JSONL, including canonical bodies. On redirected stdout, `list` and `find`
+write headerless JSON-encoded TSV; see [Note Output](cli-reference.md#note-output)
+and [Full Note Output](cli-reference.md#full-note-output).
 
 ### Edit And Organize
 
@@ -103,11 +106,12 @@ If any ID is invalid, missing, or repeated, no requested note is removed.
 ```sh
 nt find rust | less
 nt find rust | head -n 100
+nt read tag:rust | jq -r '.body'
 ```
 
-Redirected note results stream one physical line per record. Closing a list or
-search pipeline early, as `head` does, is successful. Text fields are JSON
-encoded, so decode them before reusing them as command arguments.
+Redirected note results stream one physical line per record. Closing a list,
+search, or read pipeline early, as `head` does, is successful. Text fields are
+JSON encoded, so decode them before reusing them as command arguments.
 
 ## Backups
 

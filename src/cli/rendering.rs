@@ -4,7 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::output::write_stream;
 use crate::error::{NtError, Result, StoredNoteContext};
-use crate::note::{NoteQuery, NoteSummary, Repository};
+use crate::note::{Note, NoteQuery, NoteSummary, Repository};
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
 
@@ -24,6 +24,94 @@ pub(crate) fn print_notes(
         write_stream(output, |output| {
             repository.visit_note_summaries(query, |note| print_redirected(output, &note))
         })?;
+    }
+    Ok(())
+}
+
+pub(crate) fn print_full_notes(
+    repository: &Repository,
+    query: &NoteQuery,
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+) -> Result<()> {
+    if output_is_terminal {
+        let mut output = BufWriter::new(output);
+        let mut first = true;
+        repository.visit_notes(query, |note| {
+            if !first {
+                output.write_all(b"\n")?;
+            }
+            first = false;
+            print_full_note_tty(&mut output, &note)
+        })?;
+        output.flush()?;
+    } else {
+        write_stream(output, |output| {
+            repository.visit_notes(query, |note| print_full_note_json(output, &note))
+        })?;
+    }
+    Ok(())
+}
+
+fn print_full_note_json(output: &mut (impl Write + ?Sized), note: &Note) -> Result<()> {
+    output.write_all(b"{\"id\":")?;
+    serde_json::to_writer(&mut *output, &note.id().to_string())?;
+    output.write_all(b",\"created\":")?;
+    serde_json::to_writer(&mut *output, note.created().as_str())?;
+    output.write_all(b",\"updated\":")?;
+    serde_json::to_writer(&mut *output, note.updated().as_str())?;
+    output.write_all(b",\"collection\":")?;
+    serde_json::to_writer(&mut *output, note.collection().as_str())?;
+    output.write_all(b",\"title\":")?;
+    serde_json::to_writer(&mut *output, note.title())?;
+    output.write_all(b",\"tags\":[")?;
+    for (index, tag) in note.tags().iter().enumerate() {
+        if index != 0 {
+            output.write_all(b",")?;
+        }
+        serde_json::to_writer(&mut *output, tag.as_str())?;
+    }
+    output.write_all(b"],\"links\":[")?;
+    for (index, link) in note.links().iter().enumerate() {
+        if index != 0 {
+            output.write_all(b",")?;
+        }
+        serde_json::to_writer(&mut *output, &link.to_string())?;
+    }
+    output.write_all(b"],\"body\":")?;
+    serde_json::to_writer(&mut *output, note.body())?;
+    output.write_all(b"}\n")?;
+    Ok(())
+}
+
+fn print_full_note_tty(output: &mut impl Write, note: &Note) -> Result<()> {
+    writeln!(output, "id: {}", note.id())?;
+    writeln!(output, "created: {}", note.created())?;
+    writeln!(output, "updated: {}", note.updated())?;
+    writeln!(output, "collection: {}", note.collection())?;
+    writeln!(output, "title: {}", escape_terminal_controls(note.title()))?;
+    writeln!(
+        output,
+        "tags: {}",
+        note.tags()
+            .iter()
+            .map(|tag| tag.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    )?;
+    writeln!(
+        output,
+        "links: {}",
+        note.links()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    )?;
+    output.write_all(b"body:\n")?;
+    output.write_all(note.body().as_bytes())?;
+    if !note.body().ends_with('\n') {
+        output.write_all(b"\n")?;
     }
     Ok(())
 }
@@ -344,6 +432,34 @@ mod tests {
         let mut tty = Vec::new();
         super::print_notes(&repository, &NoteQuery::default(), &mut tty, true).unwrap();
         assert_eq!(tty, include_bytes!("../../tests/fixtures/note-tty.txt"));
+
+        let mut full_redirected = Vec::new();
+        super::print_full_notes(
+            &repository,
+            &NoteQuery::default(),
+            &mut full_redirected,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            full_redirected,
+            include_bytes!("../../tests/fixtures/read-redirected.txt")
+        );
+
+        let mut full_tty = Vec::new();
+        super::print_full_notes(&repository, &NoteQuery::default(), &mut full_tty, true).unwrap();
+        assert_eq!(
+            String::from_utf8(full_tty).unwrap(),
+            "id: 018fbe0a-6c00-7000-8000-000000000001\n\
+             created: 2026-08-22T12:34:56Z\n\
+             updated: 2026-08-22T12:34:56Z\n\
+             collection: work/nt\n\
+             title: Golden note\n\
+             tags: rust,sqlite\n\
+             links: \n\
+             body:\n\
+             # Golden note\n"
+        );
     }
 
     #[derive(Default)]

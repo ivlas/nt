@@ -3,6 +3,7 @@ use std::fmt;
 use rusqlite::Connection;
 
 mod query_sql;
+mod reads;
 mod relationships;
 mod store;
 mod stored;

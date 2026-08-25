@@ -51,9 +51,11 @@ full-text search (FTS) terms; there is no scoring, fuzzy matching, raw FTS
 syntax, embedding search, or automatic model call. SQL applies explicit limits
 and stable ordering.
 
-Note `list` and `find` return metadata rows without bodies. They are complete by
-default and stream redirected output. Literal search can miss alternate wording,
-so callers should inspect exact note bodies when evidence matters.
+Note `list` and `find` return metadata rows without bodies. `read` applies the
+same structured filters as `list` and streams complete note records, including
+canonical bodies, without per-note retrieval. These commands are complete by
+default. Literal search can miss alternate wording, so callers should inspect
+exact note bodies when evidence matters.
 
 ## Storage And Consistency
 

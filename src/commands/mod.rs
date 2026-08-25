@@ -14,6 +14,7 @@ mod init;
 mod link;
 mod list;
 mod move_note;
+mod read;
 mod rm;
 mod show;
 mod tag;
@@ -48,6 +49,7 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Add { metadata, body }) => add::add(app, &metadata, &body),
         Some(Command::Show { id }) => show::show(app, &id),
         Some(Command::List { filters }) => list::list(app, &filters),
+        Some(Command::Read { filters }) => read::read(app, &filters),
         Some(Command::Find { expressions }) => find::find(app, &expressions),
         Some(Command::Rm { ids }) => rm::rm(app, &ids),
         Some(Command::Edit { id, body }) => edit::edit(app, &id, &body),

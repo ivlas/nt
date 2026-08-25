@@ -10,6 +10,7 @@ Commands:
   add [metadata...] [-- body...]       add a CommonMark note
   show <id>                            print one exact body
   list [filter...]|tags|collections    list note summaries or metadata values
+  read [filter...]                     stream complete notes
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
   edit <id> [-- body...]               replace one body

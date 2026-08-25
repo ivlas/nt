@@ -9,6 +9,9 @@ pub(crate) fn write_stream(
     let mut output = BufWriter::new(output);
     match produce(&mut output) {
         Err(NtError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe => return Ok(()),
+        Err(NtError::Json(error)) if error.io_error_kind() == Some(io::ErrorKind::BrokenPipe) => {
+            return Ok(());
+        }
         result => result?,
     }
     match output.flush() {
