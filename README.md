@@ -14,6 +14,7 @@ printf '%s\n' '# First note' '' 'SQLite is canonical.' | nt add tag:example
 nt list tag:example
 nt find sqlite
 nt show <id>
+nt read tag:example
 ```
 
 `nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
@@ -35,7 +36,8 @@ retrieval, or hidden agent-only commands.
 
 Notes provide editable durable knowledge with collections, tags, and
 directional links. Retrieval is deterministic and lexical, with complete
-results unless the caller supplies an explicit SQL-backed limit.
+results unless the caller supplies an explicit SQL-backed limit. `nt read`
+streams complete filtered notes as JSONL when stdout is redirected.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,

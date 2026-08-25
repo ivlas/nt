@@ -48,8 +48,10 @@ open, or validate the application database.
 
 Read commands open a validated read-only connection, execute repository
 operations, and render the result. Exact `show` commands write and flush the
-canonical body. Redirected note results stream rows; an intentionally closed
-downstream pipe ends those commands successfully.
+canonical body. `read` uses one ordered repository statement to hydrate complete
+notes, including sorted relationship aggregates, without per-note queries.
+Redirected note results stream rows; an intentionally closed downstream pipe
+ends those commands successfully.
 
 Multi-query reads may use a read transaction when they need one consistent
 snapshot. Input-taking mutations collect and validate their body outside a
@@ -64,7 +66,8 @@ the mutation. This boundary is surfaced explicitly by the CLI error contract.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables do not
-require alignment and stream directly.
+require alignment and stream directly. Full-note JSONL also streams directly,
+holding only the current note and its relationships in memory.
 
 ## Schema Ownership
 

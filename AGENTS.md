@@ -43,6 +43,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt add [metadata...] [-- body...]`
 - `nt show <id>`
 - `nt list [filter...]|tags|collections`
+- `nt read [filter...]`
 - `nt find <term-or-filter...>`
 - `nt rm <id...>`
 - `nt edit <id> [-- body...]`
@@ -74,11 +75,12 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 
 - Use `nt list` and structured filters for cheap candidate construction.
 - Use `nt find` for deterministic metadata and literal FTS filtering.
-- Use `nt show <id>` only for exact body retrieval.
+- Use `nt show <id>` for one exact body and `nt read` for complete filtered notes.
 - Keep output stable and one record per line.
 - Redirected list and find output is JSON-encoded, headerless TSV.
-- List and find are complete by default; `limit:` is explicit and SQL-backed.
-- Stream redirected note summaries and stop cleanly when a downstream pipe closes.
+- Redirected read output is JSONL with complete note records.
+- List, read, and find are complete by default; `limit:` is explicit and SQL-backed.
+- Stream redirected results and stop cleanly when a downstream pipe closes.
 - Unknown query fields are errors.
 - Avoid scoring, fuzzy matching, embeddings, vector search, and hidden retrieval.
 

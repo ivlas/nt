@@ -24,6 +24,7 @@ nt show <id>
 nt list [filter...]
 nt list tags
 nt list collections
+nt read [filter...]
 nt find <term-or-filter...>
 nt rm <id...>
 nt edit <id> [-- body...]
@@ -85,8 +86,8 @@ An editor update is rejected if another body edit commits first. Success prints
 
 `show <id>` writes the exact canonical body with no wrapper or added newline.
 
-`list` accepts these structured expressions; `find` accepts the same expressions
-plus one or more lexical terms:
+`list` and `read` accept these structured expressions; `find` accepts the same
+expressions plus one or more lexical terms:
 
 ```text
 id:<prefix>
@@ -141,6 +142,27 @@ or one JSON string per redirected line.
 
 Redirected note results stream as rows are read. A downstream pipe closing early
 is successful; other output failures are errors.
+
+### Full Note Output
+
+`read` selects notes with the same filters, ordering, completeness, and
+SQL-backed `limit:` behavior as `list`, but returns complete records. Redirected
+stdout is UTF-8 JSONL with one object per physical line and fields in this stable
+order:
+
+```json
+{"id":"<id>","created":"<created>","updated":"<updated>","collection":"<collection>","title":"<title>","tags":["<tag>"],"links":["<target-id>"],"body":"<canonical CommonMark>"}
+```
+
+`tags` and outgoing `links` are sorted lexically. JSON escaping preserves
+arbitrary body newlines and Unicode without splitting a record across physical
+lines. Empty results produce no bytes. TTY output presents labeled metadata
+followed by the canonical body. `show` remains the exact-body primitive: unlike
+`read`, it adds no record framing or metadata.
+
+Complete note records are selected and hydrated set-wise and stream as they are
+read. A downstream pipe closing early is successful; other output failures are
+errors.
 
 ## Note Mutations
 
