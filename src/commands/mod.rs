@@ -8,6 +8,7 @@ use crate::error::{NtError, Result};
 use crate::note::AddOrRemove;
 
 mod add;
+mod changes;
 mod edit;
 mod find;
 mod init;
@@ -50,6 +51,7 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Show { id }) => show::show(app, &id),
         Some(Command::List { filters }) => list::list(app, &filters),
         Some(Command::Read { filters }) => read::read(app, &filters),
+        Some(Command::Changes { cursor }) => changes::changes(app, &cursor),
         Some(Command::Find { expressions }) => find::find(app, &expressions),
         Some(Command::Rm { ids }) => rm::rm(app, &ids),
         Some(Command::Edit { id, body }) => edit::edit(app, &id, &body),

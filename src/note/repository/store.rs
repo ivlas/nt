@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -6,6 +6,7 @@ use super::super::{CollectionPath, NewNote, Note, NoteId, NoteRecord, Tag, times
 use crate::error::{NtError, Result, StoredNoteContext};
 
 use super::Repository;
+use super::changes::{ChangeOperation, record_change};
 use super::stored::{
     decode_body_version, decode_collection, decode_id, decode_revision, decode_tag,
     decode_timestamp, stored_value,
@@ -46,6 +47,7 @@ impl Repository {
                 params![source_pk, target_pk],
             )?;
         }
+        record_change(&transaction, revision, &id, ChangeOperation::Add)?;
         transaction.commit()?;
         Ok(id)
     }
@@ -77,14 +79,36 @@ impl Repository {
         }
         let revision = next_revision(&transaction)?;
         let updated = timestamp_now()?;
+        let deleted_pks = pks.iter().copied().collect::<BTreeSet<_>>();
+        let mut affected_sources = BTreeMap::new();
         for pk in &pks {
-            transaction.execute(
-                "UPDATE notes SET updated = ?1, note_revision = ?2
-                  WHERE pk IN (
-                      SELECT note_pk FROM note_links WHERE target_note_pk = ?3
-                  )",
-                params![updated.as_str(), revision, pk],
+            let mut statement = transaction.prepare(
+                "SELECT source.pk, source.id
+                 FROM note_links links
+                 JOIN notes source ON source.pk = links.note_pk
+                 WHERE links.target_note_pk = ?1
+                 ORDER BY source.id",
             )?;
+            let sources = statement
+                .query_map([pk], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (source_pk, source_id) in sources {
+                if !deleted_pks.contains(&source_pk) {
+                    affected_sources.insert(source_pk, source_id.parse()?);
+                }
+            }
+        }
+        for (source_pk, source_id) in &affected_sources {
+            transaction.execute(
+                "UPDATE notes SET updated = ?1, note_revision = ?2 WHERE pk = ?3",
+                params![updated.as_str(), revision, source_pk],
+            )?;
+            record_change(&transaction, revision, source_id, ChangeOperation::Metadata)?;
+        }
+        for id in ids {
+            record_change(&transaction, revision, id, ChangeOperation::Remove)?;
         }
         for pk in pks {
             transaction.execute("DELETE FROM notes WHERE pk = ?1", [pk])?;
@@ -122,6 +146,7 @@ impl Repository {
             }
             return Err(NtError::ConcurrentEdit(note.id().to_string()));
         }
+        record_change(&transaction, revision, note.id(), ChangeOperation::Edit)?;
         transaction.commit()?;
         Ok(())
     }
@@ -155,6 +180,7 @@ impl Repository {
                 "UPDATE notes SET note_revision = ?1 WHERE id = ?2",
                 params![revision, id.to_string()],
             )?;
+            record_change(&transaction, revision, id, ChangeOperation::Metadata)?;
         }
         transaction.commit()?;
         Ok(changed)

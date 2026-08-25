@@ -21,6 +21,9 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "read" => Ok(
             "nt read [filter...]\n\nStream complete notes selected by the same structured filters as nt list. Redirected output is JSONL. Use limit:<n> for an explicit result bound.\n",
         ),
+        "changes" => Ok(
+            "nt changes since:<revision>\n\nStream canonical note changes committed strictly after a global revision. Redirected output is JSONL.\n",
+        ),
         "find" => Ok(
             "nt find <term-or-filter...>\n\nFind complete note summaries using literal lexical terms and structured filters. links-to:<target> selects notes pointing to a target; linked-from:<source> selects notes pointed to by a source. Use limit:<n> for an explicit result bound.\n",
         ),
@@ -47,6 +50,7 @@ Commands:
   show <id>                            print one exact body
   list [filter...]|tags|collections    list note summaries or metadata values
   read [filter...]                     stream complete notes
+  changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
   edit <id> [-- body...]               replace one body
@@ -64,7 +68,8 @@ mod tests {
     #[test]
     fn root_lists_only_clean_sheet_commands() {
         for command in [
-            "init", "add", "show", "list", "read", "find", "rm", "edit", "move", "tag", "link",
+            "init", "add", "show", "list", "read", "changes", "find", "rm", "edit", "move", "tag",
+            "link",
         ] {
             assert!(ROOT.contains(command));
             assert!(topic_text(command).is_ok());

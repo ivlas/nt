@@ -12,14 +12,14 @@ use crate::storage::schema_engine::{self, Identity};
 use crate::storage::{self, OpenMode};
 
 pub(crate) const APPLICATION_ID: i64 = 0x4e54_4e54;
-pub(crate) const SCHEMA_VERSION: i64 = 5;
+pub(crate) const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA_VERSION_OBJECT: SchemaObject = SchemaObject {
     object_type: "table",
     name: "schema_version",
     sql: "CREATE TABLE schema_version (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-         version INTEGER NOT NULL CHECK (version = 5)
+         version INTEGER NOT NULL CHECK (version = 6)
      ) WITHOUT ROWID",
 };
 
@@ -54,7 +54,7 @@ pub(crate) static MANIFEST: SchemaManifest = SchemaManifest {
     objects: &OBJECTS,
     required_shadow_tables: REQUIRED_SHADOW_TABLES,
     allowed_triggers: ALLOWED_TRIGGERS,
-    version_insert_sql: "INSERT INTO schema_version(singleton, version) VALUES (1, 5);
+    version_insert_sql: "INSERT INTO schema_version(singleton, version) VALUES (1, 6);
                          INSERT INTO global_revision(singleton, revision) VALUES (1, 0)",
 };
 

@@ -13,4 +13,4 @@ pub use id::NoteId;
 pub(crate) use model::NoteRecord;
 pub use model::{NewNote, Note, Tag};
 pub use query::{Filter, NoteQuery};
-pub use repository::{AddOrRemove, NoteSummary, Repository};
+pub use repository::{AddOrRemove, Change, NoteSummary, Repository};

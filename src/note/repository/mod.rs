@@ -2,6 +2,7 @@ use std::fmt;
 
 use rusqlite::Connection;
 
+mod changes;
 mod query_sql;
 mod reads;
 mod relationships;
@@ -11,6 +12,9 @@ mod summaries;
 #[cfg(test)]
 mod tests;
 
+pub use changes::Change;
+#[cfg(test)]
+pub use changes::ChangeOperation;
 pub use summaries::NoteSummary;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

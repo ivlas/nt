@@ -11,6 +11,7 @@ Commands:
   show <id>                            print one exact body
   list [filter...]|tags|collections    list note summaries or metadata values
   read [filter...]                     stream complete notes
+  changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
   edit <id> [-- body...]               replace one body

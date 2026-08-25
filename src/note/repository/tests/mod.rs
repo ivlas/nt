@@ -2,6 +2,7 @@ use super::super::NoteQuery;
 use super::{NoteSummary, Repository};
 use crate::schema;
 
+mod changes;
 mod lifecycle;
 mod mutations;
 mod queries;
