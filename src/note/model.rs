@@ -182,12 +182,28 @@ impl Note {
         &self.body
     }
 
+    pub fn collection(&self) -> &CollectionPath {
+        &self.collection
+    }
+
     pub fn title(&self) -> &str {
         &self.title
     }
 
     pub fn updated(&self) -> &Timestamp {
         &self.updated
+    }
+
+    pub fn created(&self) -> &Timestamp {
+        &self.created
+    }
+
+    pub fn tags(&self) -> &BTreeSet<Tag> {
+        &self.tags
+    }
+
+    pub fn links(&self) -> &BTreeSet<NoteId> {
+        &self.links
     }
 
     pub fn body_version(&self) -> u64 {

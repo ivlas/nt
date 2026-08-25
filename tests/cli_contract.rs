@@ -186,6 +186,9 @@ fn read_only_commands_work_on_non_writable_databases() {
     assert_eq!(success(home.path(), &["show", &id], None), "# Read only");
     let listed = success(home.path(), &["list", "tag:rust"], None);
     assert_summary_row(&listed, &id, "inbox", "Read only", &["rust"], 0);
+    let read: serde_json::Value =
+        serde_json::from_str(success(home.path(), &["read", "tag:rust"], None).trim()).unwrap();
+    assert_eq!(read["body"], "# Read only");
     let found = success(home.path(), &["find", "read"], None);
     assert_summary_row(&found, &id, "inbox", "Read only", &["rust"], 0);
     assert_eq!(success(home.path(), &["list", "tags"], None), "\"rust\"\n");
@@ -327,6 +330,8 @@ fn process_exit_codes_distinguish_input_and_operational_errors() {
     success(home.path(), &["init"], None);
     let invalid_query = run(home.path(), &["list", "unknown:value"], None);
     assert_eq!(invalid_query.status.code(), Some(2));
+    let invalid_read = run(home.path(), &["read", "unknown:value"], None);
+    assert_eq!(invalid_read.status.code(), Some(2));
 
     let missing = run(
         home.path(),
@@ -382,6 +387,73 @@ fn multi_megabyte_bodies_round_trip_through_capture_edit_and_find() {
     );
     success(home.path(), &["edit", &id], Some(&edited));
     assert_eq!(success(home.path(), &["show", &id], None), edited);
+}
+
+#[test]
+fn read_streams_complete_filtered_notes_as_jsonl() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let target = add(home.path(), "# Target", &[]);
+    let body = "# Café storage\n\nFirst line.\nSecond line 界.";
+    let source = add(
+        home.path(),
+        body,
+        &[
+            "collection:work/nt",
+            "tag:rust,sqlite",
+            &format!("link:{target}"),
+        ],
+    );
+    add(home.path(), "# Unrelated", &["tag:other"]);
+
+    let output = success(
+        home.path(),
+        &["read", "collection:work/nt", "tag:rust"],
+        None,
+    );
+    assert_eq!(output.lines().count(), 1);
+    assert!(output.starts_with("{\"id\":"));
+    assert!(output.contains(",\"created\":"));
+    assert!(output.contains(",\"updated\":"));
+    assert!(output.contains(",\"collection\":"));
+    assert!(output.contains(",\"title\":"));
+    assert!(output.contains(",\"tags\":"));
+    assert!(output.contains(",\"links\":"));
+    assert!(output.contains(",\"body\":"));
+
+    let note: serde_json::Value = serde_json::from_str(output.trim_end()).unwrap();
+    assert_eq!(note["id"], source);
+    assert_timestamp(&note["created"]);
+    assert_timestamp(&note["updated"]);
+    assert_eq!(note["collection"], "work/nt");
+    assert_eq!(note["title"], "Café storage");
+    assert_eq!(note["tags"], serde_json::json!(["rust", "sqlite"]));
+    assert_eq!(note["links"], serde_json::json!([target]));
+    assert_eq!(note["body"], body);
+
+    assert_eq!(success(home.path(), &["read", "tag:missing"], None), "");
+}
+
+#[test]
+fn read_order_and_explicit_limits_are_deterministic() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    seed_matching_notes(home.path(), 3);
+
+    let all = success(home.path(), &["read"], None)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0]["id"], "018fbe0a-6c00-7000-8000-000000000002");
+    assert_eq!(all[1]["id"], "018fbe0a-6c00-7000-8000-000000000001");
+    assert_eq!(all[2]["id"], "018fbe0a-6c00-7000-8000-000000000000");
+
+    let limited = success(home.path(), &["read", "limit:2"], None)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(limited, all[..2]);
 }
 
 #[test]
@@ -457,6 +529,43 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
 }
 
 #[test]
+fn read_exits_cleanly_when_a_pipe_consumer_closes_early() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    seed_matching_notes(home.path(), 5000);
+    Connection::open(home.path().join(".nt/nt.sqlite3"))
+        .unwrap()
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             INSERT INTO notes(id, collection, body, title, created, updated)
+             VALUES ('malformed', 'inbox', '# Invalid', 'Invalid',
+                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+             PRAGMA ignore_check_constraints = OFF;",
+        )
+        .unwrap();
+
+    let mut nt = Command::new(env!("CARGO_BIN_EXE_nt"))
+        .env("HOME", home.path())
+        .arg("read")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut output = BufReader::new(nt.stdout.take().unwrap());
+    for _ in 0..100 {
+        let mut line = String::new();
+        assert_ne!(output.read_line(&mut line).unwrap(), 0);
+        serde_json::from_str::<serde_json::Value>(&line).unwrap();
+    }
+    drop(output);
+    let output = nt.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn redirected_summaries_escape_titles_without_creating_extra_lines() {
     let home = tempfile::tempdir().unwrap();
     success(home.path(), &["init"], None);
@@ -501,4 +610,8 @@ fn assert_summary_row(
         serde_json::from_str::<u64>(cells[5]).unwrap(),
         expected_outgoing
     );
+}
+
+fn assert_timestamp(value: &serde_json::Value) {
+    assert_eq!(value.as_str().unwrap().len(), 20);
 }

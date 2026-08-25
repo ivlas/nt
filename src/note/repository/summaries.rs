@@ -1,13 +1,12 @@
 use std::collections::BTreeSet;
 
 use rusqlite::params_from_iter;
-use rusqlite::types::Value;
 
 use super::super::{CollectionPath, NoteId, NoteQuery, Tag, Timestamp};
 use crate::error::{NtError, Result, StoredNoteContext};
 
 use super::Repository;
-use super::query_sql::compile_query;
+use super::query_sql::compile_ordered_query;
 use super::stored::{decode_collection, decode_id, decode_tag, decode_timestamp, stored_value};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,13 +82,7 @@ impl Repository {
         query: &NoteQuery,
         mut visit: impl FnMut(NoteSummary) -> Result<()>,
     ) -> Result<()> {
-        let (where_sql, mut parameters) = compile_query(query);
-        let limit_sql = if let Some(limit) = query.limit() {
-            parameters.push(Value::Integer(limit));
-            format!("LIMIT ?{}", parameters.len())
-        } else {
-            String::new()
-        };
+        let (query_sql, parameters) = compile_ordered_query(query);
         let sql = format!(
             "SELECT n.pk, n.id, n.updated, n.collection, n.title,
                     COALESCE(
@@ -101,9 +94,7 @@ impl Repository {
                         '[]'
                     ),
                     (SELECT COUNT(*) FROM note_links links WHERE links.note_pk = n.pk)
-             FROM notes n {where_sql}
-             ORDER BY n.updated DESC, n.id DESC
-             {limit_sql}"
+             FROM notes n {query_sql}"
         );
         let mut statement = self.connection.prepare(&sql)?;
         let mut rows = statement.query(params_from_iter(parameters))?;

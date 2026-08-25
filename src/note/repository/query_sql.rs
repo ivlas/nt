@@ -3,10 +3,7 @@ use rusqlite::types::Value;
 use super::super::{Filter, NoteQuery};
 use crate::lexical::fts_and_expression;
 
-pub(super) fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
-    if query.filters().is_empty() && query.lexical_terms().is_empty() {
-        return (String::new(), Vec::new());
-    }
+pub(super) fn compile_ordered_query(query: &NoteQuery) -> (String, Vec<Value>) {
     let mut parameters = Vec::new();
     let mut expressions = query
         .filters()
@@ -20,7 +17,21 @@ pub(super) fn compile_query(query: &NoteQuery) -> (String, Vec<Value>) {
             "n.pk IN (SELECT rowid FROM note_fts WHERE note_fts MATCH ?{parameter})"
         ));
     }
-    (format!("WHERE {}", expressions.join(" AND ")), parameters)
+    let where_sql = if expressions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", expressions.join(" AND "))
+    };
+    let limit_sql = if let Some(limit) = query.limit() {
+        parameters.push(Value::Integer(limit));
+        format!("LIMIT ?{}", parameters.len())
+    } else {
+        String::new()
+    };
+    (
+        format!("{where_sql} ORDER BY n.updated DESC, n.id DESC {limit_sql}"),
+        parameters,
+    )
 }
 
 fn compile_filter(filter: &Filter, parameters: &mut Vec<Value>) -> String {

@@ -36,6 +36,10 @@ fn initialized_schema_matches_the_independent_v4_fixture() {
     assert!(validated.status.success());
     assert!(validated.stdout.is_empty());
     assert!(validated.stderr.is_empty());
+    let read = nt(&fixture_home, &["read"]);
+    assert!(read.status.success());
+    assert!(read.stdout.is_empty());
+    assert!(read.stderr.is_empty());
 }
 
 fn nt(home: &Path, arguments: &[&str]) -> std::process::Output {
