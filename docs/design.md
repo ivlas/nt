@@ -76,6 +76,12 @@ canonical bodies, without per-note retrieval. These commands are complete by
 default. Literal search can miss alternate wording, so callers should inspect
 exact note bodies when evidence matters.
 
+Repeated full `id:` expressions on `read` select an arbitrary deduplicated ID
+set. Missing IDs are omitted and canonical query ordering is preserved. Batch
+size does not alter these semantics or cause per-note database operations.
+`id:-` accepts the same exact-ID set as newline-delimited stdin when the set is
+too large for platform command-line limits.
+
 `changes` streams canonical invalidations strictly after a supplied global
 revision in ascending revision and ID order. Multiple rows may share one
 revision, so consumers advance a durable cursor only after processing the whole

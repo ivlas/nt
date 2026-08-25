@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::{CollectionPath, NoteId, Tag, Timestamp};
 use crate::error::{NtError, Result};
 use crate::lexical::normalized_terms;
@@ -17,6 +19,7 @@ pub enum Filter {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct NoteQuery {
     filters: Vec<Filter>,
+    exact_ids: BTreeSet<NoteId>,
     lexical_terms: Vec<String>,
     limit: Option<i64>,
 }
@@ -32,6 +35,31 @@ impl NoteQuery {
         }
         Ok(Self {
             filters,
+            exact_ids: BTreeSet::new(),
+            lexical_terms: Vec::new(),
+            limit,
+        })
+    }
+
+    pub fn parse_read(expressions: &[String]) -> Result<Self> {
+        let mut filters = Vec::new();
+        let mut exact_ids = BTreeSet::new();
+        let mut limit = None;
+        for expression in expressions {
+            if parse_limit(expression, &mut limit)? {
+                continue;
+            }
+            if let Some(value) = expression.strip_prefix("id:")
+                && value.len() == 36
+            {
+                exact_ids.insert(value.parse()?);
+            } else {
+                filters.push(parse_filter(expression)?);
+            }
+        }
+        Ok(Self {
+            filters,
+            exact_ids,
             lexical_terms: Vec::new(),
             limit,
         })
@@ -59,6 +87,7 @@ impl NoteQuery {
         }
         Ok(Self {
             filters,
+            exact_ids: BTreeSet::new(),
             lexical_terms,
             limit,
         })
@@ -70,6 +99,10 @@ impl NoteQuery {
 
     pub fn lexical_terms(&self) -> &[String] {
         &self.lexical_terms
+    }
+
+    pub fn exact_ids(&self) -> &BTreeSet<NoteId> {
+        &self.exact_ids
     }
 
     pub fn limit(&self) -> Option<i64> {
@@ -203,6 +236,41 @@ mod tests {
         assert!(NoteQuery::parse_list(&[format!("link:{id}")]).is_err());
         assert!(NoteQuery::parse_list(&[format!("incoming:{id}")]).is_err());
         assert!(NoteQuery::parse_list(&[format!("outgoing:{id}")]).is_err());
+    }
+
+    #[test]
+    fn read_groups_exact_ids_and_deduplicates_them() {
+        let first = "018fbe0a-6c00-7000-8000-000000000001";
+        let second = "018fbe0a-6c00-7000-8000-000000000002";
+        let query = NoteQuery::parse_read(&[
+            format!("id:{second}"),
+            format!("id:{first}"),
+            format!("id:{second}"),
+            "tag:rust".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            query
+                .exact_ids()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [first, second]
+        );
+        assert_eq!(query.filters(), [Filter::Tag("rust".parse().unwrap())]);
+    }
+
+    #[test]
+    fn read_keeps_id_prefixes_as_filters_and_validates_full_ids() {
+        let query = NoteQuery::parse_read(&["id:018fbe0a".to_string()]).unwrap();
+        assert!(query.exact_ids().is_empty());
+        assert_eq!(query.filters(), [Filter::IdPrefix("018fbe0a".to_string())]);
+
+        assert!(
+            NoteQuery::parse_read(&["id:550e8400-e29b-41d4-a716-446655440000".to_string()])
+                .is_err()
+        );
     }
 
     #[test]

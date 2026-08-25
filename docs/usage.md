@@ -59,6 +59,8 @@ nt list collections
 nt find 'ownership borrow' tag:rust
 nt show "$NOTE_ID"
 nt read collection:work/nt tag:rust
+nt read "id:$FIRST_ID" "id:$SECOND_ID" "id:$THIRD_ID"
+printf '%s\n' "$FIRST_ID" "$SECOND_ID" "$THIRD_ID" | nt read id:-
 ```
 
 `list` accepts structured filters. `find` adds literal lexical terms. All
@@ -75,6 +77,13 @@ is no fuzzy search, relevance ranking, or hidden semantic search.
 as JSONL, including canonical bodies. On redirected stdout, `list` and `find`
 write headerless JSON-encoded TSV; see [Note Output](cli-reference.md#note-output)
 and [Full Note Output](cli-reference.md#full-note-output).
+
+Repeating full `id:` expressions lets one `read` process fetch an arbitrary
+batch set-wise. Duplicate requests collapse, missing notes produce no record,
+and results retain normal `updated DESC, id DESC` ordering rather than argument
+order. Other filters can narrow the requested set. For hundreds or thousands of
+IDs, use `id:-` with one full ID per stdin line so the operating system's
+command-line length is not a batch limit.
 
 Resume an external consumer from a completed global revision:
 

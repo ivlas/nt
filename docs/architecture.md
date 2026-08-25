@@ -50,6 +50,10 @@ Read commands open a validated read-only connection, execute repository
 operations, and render the result. Exact `show` commands write and flush the
 canonical body. `read` uses one ordered repository statement to hydrate complete
 notes, including sorted relationship aggregates, without per-note queries.
+Arbitrary-ID reads pass the deduplicated set as one JSON value and join it
+inside that statement, avoiding both per-ID SQL and host-parameter limits.
+The `id:-` CLI form reads newline-delimited IDs from stdin before opening
+storage, allowing large batches to bypass platform command-line limits.
 `changes` traverses the compact change table by its revision-and-ID primary key.
 Redirected note results stream rows; an intentionally closed downstream pipe
 ends those commands successfully.

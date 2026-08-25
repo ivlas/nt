@@ -10,6 +10,18 @@ pub(super) fn compile_ordered_query(query: &NoteQuery) -> (String, Vec<Value>) {
         .iter()
         .map(|filter| compile_filter(filter, &mut parameters))
         .collect::<Vec<_>>();
+    if !query.exact_ids().is_empty() {
+        let ids = query
+            .exact_ids()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let encoded = serde_json::to_string(&ids).expect("note IDs serialize as JSON");
+        let parameter = push_parameter(&mut parameters, &encoded);
+        expressions.push(format!(
+            "n.id IN (SELECT value FROM json_each(?{parameter}))"
+        ));
+    }
     if !query.lexical_terms().is_empty() {
         let fts_query = fts_and_expression(query.lexical_terms());
         let parameter = push_parameter(&mut parameters, &fts_query);
