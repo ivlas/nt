@@ -16,6 +16,7 @@ nt find sqlite
 nt show <id>
 nt read tag:example
 nt read id:<first-id> id:<second-id>
+printf '%s\n' <first-id> <second-id> | nt read id:-
 nt changes since:0
 ```
 
@@ -40,7 +41,9 @@ Notes provide editable durable knowledge with collections, tags, and
 directional links. Retrieval is deterministic and lexical, with complete
 results unless the caller supplies an explicit SQL-backed limit. `nt read`
 streams complete filtered notes as JSONL when stdout is redirected and accepts
-repeated full `id:` expressions for set-oriented arbitrary-ID batches.
+repeated full `id:` expressions for set-oriented arbitrary-ID batches. Large
+batches can supply one full ID per stdin line with `id:-`, avoiding operating
+system command-line limits.
 Committed canonical mutations also receive durable, globally monotonic SQLite
 revisions; full-note records expose each live note's latest revision, and
 `nt changes` streams compact incremental invalidations including deletions.

@@ -114,6 +114,17 @@ deduplicated, missing IDs are omitted without error, and output follows the
 canonical result order rather than caller ID order. `limit:` applies after that
 ordering.
 
+Command-line length is platform-dependent, so large arbitrary-ID batches can
+use `id:-` and provide one full canonical ID per stdin line:
+
+```sh
+nt list tag:rust | cut -f1 | jq -r . | nt read id:-
+```
+
+`id:-` can appear once and composes with explicit IDs and other filters. Empty
+stdin, blank lines, and malformed IDs are errors. The stdin form has the same
+deduplication, missing-ID, ordering, and limit semantics as argument IDs.
+
 `links-to:<target>` returns notes that point to the target.
 `linked-from:<source>` returns notes pointed to by the source. Both require full
 note IDs and inspect only direct edges.
@@ -172,8 +183,8 @@ followed by the canonical body. `show` remains the exact-body primitive: unlike
 Complete note records are selected and hydrated set-wise and stream as they are
 read. A downstream pipe closing early is successful; other output failures are
 errors. Arbitrary-ID batches use one set-oriented statement and do not consume
-one SQLite host parameter per ID, so batches can contain hundreds or thousands
-of IDs without exposing a database-specific limit.
+one SQLite host parameter per ID. Use `id:-` when a large batch could exceed the
+operating system's command-line length.
 
 ### Change Output
 
