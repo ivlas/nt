@@ -50,9 +50,9 @@ fn summary_visiting_stops_before_later_rows_are_decoded() {
         .connection
         .execute_batch(
             "PRAGMA ignore_check_constraints = ON;
-             INSERT INTO notes(id, collection, body, title, created, updated)
+             INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
              VALUES ('malformed', 'inbox', '# Invalid', 'Invalid',
-                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+                      '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 1);
              PRAGMA ignore_check_constraints = OFF;",
         )
         .unwrap();

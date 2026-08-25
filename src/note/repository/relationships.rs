@@ -3,7 +3,7 @@ use rusqlite::{Transaction, TransactionBehavior, params};
 use super::super::{NoteId, Tag, timestamp_now};
 use crate::error::{NtError, Result};
 
-use super::store::note_pk;
+use super::store::{next_revision, note_pk};
 use super::{AddOrRemove, Repository};
 
 impl Repository {
@@ -62,9 +62,10 @@ impl Repository {
 fn touch_if_changed(transaction: &Transaction<'_>, id: &NoteId, changed: bool) -> Result<()> {
     if changed {
         let updated = timestamp_now()?;
+        let revision = next_revision(transaction)?;
         transaction.execute(
-            "UPDATE notes SET updated = ?1 WHERE id = ?2",
-            params![updated.as_str(), id.to_string()],
+            "UPDATE notes SET updated = ?1, note_revision = ?2 WHERE id = ?3",
+            params![updated.as_str(), revision, id.to_string()],
         )?;
     }
     Ok(())

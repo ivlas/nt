@@ -1,6 +1,10 @@
 CREATE TABLE schema_version (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-         version INTEGER NOT NULL CHECK (version = 4)
+         version INTEGER NOT NULL CHECK (version = 5)
+     ) WITHOUT ROWID;
+CREATE TABLE global_revision (
+         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+         revision INTEGER NOT NULL CHECK (typeof(revision) = 'integer' AND revision >= 0)
      ) WITHOUT ROWID;
 CREATE TABLE notes (
          pk INTEGER PRIMARY KEY,
@@ -11,6 +15,7 @@ CREATE TABLE notes (
          created TEXT NOT NULL,
          updated TEXT NOT NULL,
          body_version INTEGER NOT NULL DEFAULT 1,
+         note_revision INTEGER NOT NULL,
          CHECK(length(id) = 36
                AND substr(id, 9, 1) = '-'
                AND substr(id, 14, 1) = '-'
@@ -31,7 +36,8 @@ CREATE TABLE notes (
                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
          CHECK(updated GLOB
                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
-         CHECK(body_version > 0)
+         CHECK(body_version > 0),
+         CHECK(typeof(note_revision) = 'integer' AND note_revision > 0)
      );
 CREATE TABLE note_tags (
          note_pk INTEGER NOT NULL REFERENCES notes(pk) ON DELETE CASCADE,
@@ -68,7 +74,9 @@ CREATE INDEX notes_created_idx ON notes(created DESC, id DESC);
 CREATE INDEX notes_updated_idx ON notes(updated DESC, id DESC);
 CREATE INDEX notes_collection_updated_idx
          ON notes(collection, updated DESC, id DESC);
+CREATE INDEX notes_revision_idx ON notes(note_revision, id);
 CREATE INDEX note_tags_tag_note_idx ON note_tags(tag, note_pk);
 CREATE INDEX note_links_target_idx ON note_links(target_note_pk);
-INSERT INTO schema_version(singleton, version) VALUES (1, 4);
+INSERT INTO schema_version(singleton, version) VALUES (1, 5);
+INSERT INTO global_revision(singleton, revision) VALUES (1, 0);
 PRAGMA application_id = 1314147924;

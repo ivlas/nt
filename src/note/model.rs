@@ -111,6 +111,7 @@ pub struct Note {
     created: Timestamp,
     updated: Timestamp,
     body_version: u64,
+    revision: u64,
     tags: BTreeSet<Tag>,
     links: BTreeSet<NoteId>,
 }
@@ -123,6 +124,7 @@ pub(crate) struct NoteRecord {
     pub created: Timestamp,
     pub updated: Timestamp,
     pub body_version: u64,
+    pub revision: u64,
 }
 
 impl Note {
@@ -143,6 +145,9 @@ impl Note {
         if record.body_version == 0 {
             return Err(NtError::invalid_stored(context, "body_version"));
         }
+        if record.revision == 0 {
+            return Err(NtError::invalid_stored(context, "note_revision"));
+        }
         if links.contains(&record.id) {
             return Err(NtError::invalid_stored(context, "links"));
         }
@@ -154,6 +159,7 @@ impl Note {
             created: record.created,
             updated: record.updated,
             body_version: record.body_version,
+            revision: record.revision,
             tags,
             links,
         })
@@ -209,6 +215,10 @@ impl Note {
     pub fn body_version(&self) -> u64 {
         self.body_version
     }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
 }
 
 #[cfg(test)]
@@ -236,6 +246,7 @@ mod tests {
             created: timestamp("2026-05-28T14:30:12Z"),
             updated: timestamp("2026-05-28T14:30:12Z"),
             body_version: 1,
+            revision: 1,
         }
     }
 

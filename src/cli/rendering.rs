@@ -60,6 +60,8 @@ fn print_full_note_json(output: &mut (impl Write + ?Sized), note: &Note) -> Resu
     serde_json::to_writer(&mut *output, note.created().as_str())?;
     output.write_all(b",\"updated\":")?;
     serde_json::to_writer(&mut *output, note.updated().as_str())?;
+    output.write_all(b",\"revision\":")?;
+    serde_json::to_writer(&mut *output, &note.revision())?;
     output.write_all(b",\"collection\":")?;
     serde_json::to_writer(&mut *output, note.collection().as_str())?;
     output.write_all(b",\"title\":")?;
@@ -88,6 +90,7 @@ fn print_full_note_tty(output: &mut impl Write, note: &Note) -> Result<()> {
     writeln!(output, "id: {}", note.id())?;
     writeln!(output, "created: {}", note.created())?;
     writeln!(output, "updated: {}", note.updated())?;
+    writeln!(output, "revision: {}", note.revision())?;
     writeln!(output, "collection: {}", note.collection())?;
     writeln!(output, "title: {}", escape_terminal_controls(note.title()))?;
     writeln!(
@@ -411,11 +414,11 @@ mod tests {
         connection
             .execute_batch(
                 "INSERT INTO notes(
-                     id, collection, body, title, created, updated
+                     id, collection, body, title, created, updated, note_revision
                  ) VALUES (
                      '018fbe0a-6c00-7000-8000-000000000001',
                      'work/nt', '# Golden note', 'Golden note',
-                     '2026-08-22T12:34:56Z', '2026-08-22T12:34:56Z'
+                     '2026-08-22T12:34:56Z', '2026-08-22T12:34:56Z', 1
                  );
                  INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust'), (1, 'sqlite');",
             )
@@ -453,6 +456,7 @@ mod tests {
             "id: 018fbe0a-6c00-7000-8000-000000000001\n\
              created: 2026-08-22T12:34:56Z\n\
              updated: 2026-08-22T12:34:56Z\n\
+             revision: 1\n\
              collection: work/nt\n\
              title: Golden note\n\
              tags: rust,sqlite\n\

@@ -79,16 +79,16 @@ fn id_prefix_filters_preserve_matching_composition_and_ordering() {
     repository
         .connection
         .execute_batch(
-            "INSERT INTO notes(id, collection, body, title, created, updated) VALUES
+            "INSERT INTO notes(id, collection, body, title, created, updated, note_revision) VALUES
                  ('0198abcd-0000-7000-8000-000000000001', 'work/nt',
                   '# First\nSQLite prefix audit', 'First',
-                  '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z'),
+                   '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z', 1),
                  ('0198abcd-0000-7000-8000-000000000002', 'inbox',
                   '# Second\nOther prefix audit', 'Second',
-                  '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'),
+                   '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 2),
                  ('0198abcd-1000-7000-8000-000000000003', 'work/nt',
                   '# Third\nSQLite prefix audit', 'Third',
-                  '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z');
+                   '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z', 3);
              INSERT INTO note_tags(note_pk, tag)
              SELECT pk, 'rust' FROM notes
              WHERE id IN (

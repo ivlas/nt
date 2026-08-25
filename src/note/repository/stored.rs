@@ -55,3 +55,12 @@ pub(super) fn decode_timestamp(
 pub(super) fn decode_body_version(value: i64, context: &StoredNoteContext) -> Result<u64> {
     u64::try_from(value).map_err(|_| NtError::invalid_stored(context.clone(), "body_version"))
 }
+
+pub(super) fn decode_revision(value: i64, context: &StoredNoteContext) -> Result<u64> {
+    let revision = u64::try_from(value)
+        .map_err(|_| NtError::invalid_stored(context.clone(), "note_revision"))?;
+    if revision == 0 {
+        return Err(NtError::invalid_stored(context.clone(), "note_revision"));
+    }
+    Ok(revision)
+}

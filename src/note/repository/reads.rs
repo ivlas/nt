@@ -8,7 +8,8 @@ use crate::error::{NtError, Result, StoredNoteContext};
 use super::Repository;
 use super::query_sql::compile_ordered_query;
 use super::stored::{
-    decode_body_version, decode_collection, decode_id, decode_tag, decode_timestamp, stored_value,
+    decode_body_version, decode_collection, decode_id, decode_revision, decode_tag,
+    decode_timestamp, stored_value,
 };
 
 impl Repository {
@@ -20,7 +21,7 @@ impl Repository {
         let (query_sql, parameters) = compile_ordered_query(query);
         let sql = format!(
             "SELECT n.pk, n.id, n.collection, n.body, n.title, n.created, n.updated,
-                    n.body_version,
+                    n.body_version, n.note_revision,
                     COALESCE(
                         (SELECT json_group_array(tag ORDER BY tag)
                          FROM note_tags read_tags WHERE read_tags.note_pk = n.pk),
@@ -43,9 +44,9 @@ impl Repository {
             let stored_id = stored_value::<String>(row, 1, &row_context, "id")?;
             let id = decode_id(&stored_id, &row_context)?;
             let context = StoredNoteContext::new(Some(id.to_string()), Some(row_id));
-            let tags = decode_tags(&stored_value::<String>(row, 8, &context, "tag")?, &context)?;
+            let tags = decode_tags(&stored_value::<String>(row, 9, &context, "tag")?, &context)?;
             let links = decode_links(
-                &stored_value::<String>(row, 9, &context, "links")?,
+                &stored_value::<String>(row, 10, &context, "links")?,
                 &context,
             )?;
             visit(Note::rehydrate(
@@ -69,6 +70,10 @@ impl Repository {
                     )?,
                     body_version: decode_body_version(
                         stored_value(row, 7, &context, "body_version")?,
+                        &context,
+                    )?,
+                    revision: decode_revision(
+                        stored_value(row, 8, &context, "note_revision")?,
                         &context,
                     )?,
                 },

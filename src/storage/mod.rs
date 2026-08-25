@@ -295,9 +295,9 @@ mod tests {
         storage
             .connection
             .execute(
-                "INSERT INTO notes(id, collection, body, title, created, updated)
+                "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  VALUES ('018fbe0a-6c00-7000-8000-000000000001', 'inbox', '# Private',
-                         'Private', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                          'Private', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1)",
                 [],
             )
             .unwrap();
@@ -488,13 +488,13 @@ mod tests {
         let connection = Connection::open(&path).unwrap();
         connection
             .execute_batch(
-                "PRAGMA ignore_check_constraints = ON; UPDATE schema_version SET version = 5",
+                "PRAGMA ignore_check_constraints = ON; UPDATE schema_version SET version = 6",
             )
             .unwrap();
         drop(connection);
         assert!(matches!(
             open_at(&path, OpenMode::ReadWrite),
-            Err(NtError::UnsupportedSchema(5))
+            Err(NtError::UnsupportedSchema(6))
         ));
     }
 

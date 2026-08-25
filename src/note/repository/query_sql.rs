@@ -137,7 +137,7 @@ mod tests {
                      UNION ALL
                      SELECT x + 1 FROM generated WHERE x < 19999
                  )
-                 INSERT INTO notes(id, collection, body, title, created, updated)
+                 INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  SELECT printf(
                             '0198abcd-%04x-7%03x-8%03x-%012x',
                             x, x % 4096, x / 4096, x
@@ -154,7 +154,8 @@ mod tests {
                             '%Y-%m-%dT%H:%M:%SZ',
                             1767225600 + ((x * 7919) % 20000),
                             'unixepoch'
-                        )
+                        ),
+                        x + 1
                  FROM generated",
             )
             .unwrap();
