@@ -40,6 +40,9 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         filters: Vec<String>,
     },
+    Changes {
+        cursor: String,
+    },
     Find {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         expressions: Vec<String>,
@@ -98,6 +101,7 @@ mod tests {
             &["nt", "list", "tags"],
             &["nt", "list", "collections"],
             &["nt", "read", "tag:rust"],
+            &["nt", "changes", "since:0"],
             &["nt", "find", "sqlite", "tag:rust"],
             &["nt", "rm", ID],
             &["nt", "edit", ID, "--", "# Updated"],
@@ -152,8 +156,8 @@ mod tests {
         assert_eq!(
             commands,
             [
-                "init", "add", "show", "list", "read", "find", "rm", "edit", "move", "tag", "link",
-                "help",
+                "init", "add", "show", "list", "read", "changes", "find", "rm", "edit", "move",
+                "tag", "link", "help",
             ]
         );
     }

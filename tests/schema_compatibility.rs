@@ -4,10 +4,10 @@ use std::process::Command;
 
 use rusqlite::Connection;
 
-const V5_SCHEMA: &str = include_str!("fixtures/v5_schema.sql");
+const V6_SCHEMA: &str = include_str!("fixtures/v6_schema.sql");
 
 #[test]
-fn initialized_schema_matches_the_independent_v5_fixture() {
+fn initialized_schema_matches_the_independent_v6_fixture() {
     let directory = tempfile::tempdir().unwrap();
     let fixture_home = directory.path().join("fixture-home");
     let initialized_home = directory.path().join("initialized-home");
@@ -17,7 +17,7 @@ fn initialized_schema_matches_the_independent_v5_fixture() {
     let initialized_path = initialized_home.join(".nt/nt.sqlite3");
 
     let fixture = Connection::open(&fixture_path).unwrap();
-    let fixture_schema = V5_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
+    let fixture_schema = V6_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
     fixture.execute_batch(&fixture_schema).unwrap();
     drop(fixture);
 
@@ -40,6 +40,10 @@ fn initialized_schema_matches_the_independent_v5_fixture() {
     assert!(read.status.success());
     assert!(read.stdout.is_empty());
     assert!(read.stderr.is_empty());
+    let changes = nt(&fixture_home, &["changes", "since:0"]);
+    assert!(changes.status.success());
+    assert!(changes.stdout.is_empty());
+    assert!(changes.stderr.is_empty());
 }
 
 fn nt(home: &Path, arguments: &[&str]) -> std::process::Output {
@@ -60,7 +64,7 @@ fn assert_database_identity(path: &Path) {
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(application_id, 0x4e54_4e54);
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 }
 
 fn schema_entries(path: &Path) -> Vec<(String, String, Option<String>)> {

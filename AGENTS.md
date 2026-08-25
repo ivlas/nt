@@ -44,6 +44,7 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt show <id>`
 - `nt list [filter...]|tags|collections`
 - `nt read [filter...]`
+- `nt changes since:<revision>`
 - `nt find <term-or-filter...>`
 - `nt rm <id...>`
 - `nt edit <id> [-- body...]`
@@ -57,12 +58,14 @@ the need.
 
 ## Storage
 
-Primary relational state consists of notes, tags, and directional note links.
+Primary relational state consists of notes, tags, directional note links, and a
+compact incremental change feed.
 The note row stores its collection path, canonical body, derived title,
 timestamps, body version, and latest mutation revision. A singleton SQLite
 counter assigns one commit-ordered global revision per real canonical mutation;
-no-ops and rolled-back mutations do not advance it. Note FTS5 is derived state
-maintained transactionally.
+no-ops and rolled-back mutations do not advance it. Change rows store only the
+revision, operation, and affected note ID, including deleted IDs. Note FTS5 is
+derived state maintained transactionally.
 
 The clean-sheet schema follows the current alpha compatibility policy rather
 than a general migration system. The database uses application ID `0x4e544e54`

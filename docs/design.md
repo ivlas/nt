@@ -22,7 +22,7 @@ ordinary notes.
 | Model | Canonical state | Derived state |
 | --- | --- | --- |
 | Notes | body, collection, tags, links, timestamps, body version, note revision | title, note FTS |
-| Database | global revision | none |
+| Database | global revision, compact note change feed | none |
 
 ## Notes
 
@@ -52,12 +52,12 @@ revision order is committed mutation order across threads and processes.
 Every live note stores the revision of the latest mutation that changed its
 canonical state. All surviving notes changed by one mutation receive the same
 revision. Deletion increments the global revision even when no note survives;
-surviving sources whose links are removed receive the deletion revision. There
-is an index for incremental live-note selection, but no deletion log or
-tombstone: a consumer using note revisions must perform a complete
-reconciliation when the global revision advances without a corresponding live
-note revision. Revisions are not derived from timestamps, UUIDs, or
-process-local state.
+surviving sources whose links are removed receive the deletion revision. A
+compact change feed records each affected note ID and whether the mutation was
+an add, body edit, metadata change, or removal. It retains deleted IDs but no
+historical bodies or complete note versions. Its revision-and-ID primary key
+supports ordered incremental traversal. Revisions are not derived from
+timestamps, UUIDs, or process-local state.
 
 Multi-note deletion is atomic. Deleting a target removes incoming edges and
 updates surviving sources because their outgoing-link sets changed. Deleting a
@@ -76,10 +76,17 @@ canonical bodies, without per-note retrieval. These commands are complete by
 default. Literal search can miss alternate wording, so callers should inspect
 exact note bodies when evidence matters.
 
+`changes` streams canonical invalidations strictly after a supplied global
+revision in ascending revision and ID order. Multiple rows may share one
+revision, so consumers advance a durable cursor only after processing the whole
+revision. Retrying from the previous completed revision is deterministic.
+Compaction would require an explicit retained-history boundary in this contract;
+no automatic compaction is currently performed.
+
 ## Storage And Consistency
 
 Only `nt init` creates storage. The database uses application ID `0x4e544e54`
-(`NTNT`) and clean-sheet schema version `5`. This alpha policy rejects
+(`NTNT`) and clean-sheet schema version `6`. This alpha policy rejects
 incompatible databases instead of migrating them in place. Every mutation is
 transactional, including its relationship and full-text index changes.
 

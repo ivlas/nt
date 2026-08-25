@@ -170,7 +170,16 @@ fn concurrent_writers_assign_unique_commit_ordered_revisions_that_survive_reopen
         .unwrap();
     assert_eq!(current, WRITERS as i64);
     assert_eq!(revisions, (1..=WRITERS as i64).collect::<Vec<_>>());
-    drop(connection);
+    let repository = Repository::from_connection(connection);
+    let mut change_revisions = Vec::new();
+    repository
+        .visit_changes_since(0, |change| {
+            change_revisions.push(change.revision());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(change_revisions, (1..=WRITERS as u64).collect::<Vec<_>>());
+    drop(repository);
 
     let reopened = schema::open_read_only(&path).unwrap();
     assert_eq!(

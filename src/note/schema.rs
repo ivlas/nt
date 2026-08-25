@@ -44,7 +44,27 @@ pub(crate) const OBJECTS: &[SchemaObject] = &[
                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
          CHECK(body_version > 0),
          CHECK(typeof(note_revision) = 'integer' AND note_revision > 0)
-     )",
+      )",
+    },
+    SchemaObject {
+        object_type: "table",
+        name: "note_changes",
+        sql: "CREATE TABLE note_changes (
+         revision INTEGER NOT NULL,
+         note_id TEXT NOT NULL,
+         operation TEXT NOT NULL CHECK (operation IN ('add', 'edit', 'metadata', 'remove')),
+         PRIMARY KEY(revision, note_id),
+         CHECK(typeof(revision) = 'integer' AND revision > 0),
+         CHECK(length(note_id) = 36
+               AND substr(note_id, 9, 1) = '-'
+               AND substr(note_id, 14, 1) = '-'
+               AND substr(note_id, 15, 1) = '7'
+               AND substr(note_id, 19, 1) = '-'
+               AND substr(note_id, 20, 1) IN ('8', '9', 'a', 'b')
+               AND substr(note_id, 24, 1) = '-'
+               AND length(replace(note_id, '-', '')) = 32
+               AND replace(note_id, '-', '') NOT GLOB '*[^0-9a-f]*')
+     ) WITHOUT ROWID",
     },
     SchemaObject {
         object_type: "table",

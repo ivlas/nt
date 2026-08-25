@@ -76,6 +76,17 @@ as JSONL, including canonical bodies. On redirected stdout, `list` and `find`
 write headerless JSON-encoded TSV; see [Note Output](cli-reference.md#note-output)
 and [Full Note Output](cli-reference.md#full-note-output).
 
+Resume an external consumer from a completed global revision:
+
+```sh
+nt changes since:42
+```
+
+Redirected output is JSONL ordered by ascending revision. It reports `add`,
+`edit`, `metadata`, and `remove` operations without historical bodies. Process
+all rows sharing a revision before checkpointing it; after interruption, rerun
+from the last fully processed revision.
+
 ### Edit And Organize
 
 ```sh
@@ -107,10 +118,11 @@ If any ID is invalid, missing, or repeated, no requested note is removed.
 nt find rust | less
 nt find rust | head -n 100
 nt read tag:rust | jq -r '.body'
+nt changes since:0 | jq -c .
 ```
 
-Redirected note results stream one physical line per record. Closing a list,
-search, or read pipeline early, as `head` does, is successful. Text fields are
+Redirected results stream one physical line per record. Closing a list, search,
+read, or change pipeline early, as `head` does, is successful. Text fields are
 JSON encoded, so decode them before reusing them as command arguments.
 
 ## Backups

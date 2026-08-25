@@ -78,6 +78,32 @@ fn revisions_persist_across_cli_processes() {
     assert_eq!(revisions[1].1, 2);
 }
 
+#[test]
+fn changes_stream_stable_jsonl_strictly_after_the_cursor() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let first = add(home.path(), "# First", &[]);
+    let second = add(home.path(), "# Second", &[]);
+    success(home.path(), &["tag", &first, "+rust"], None);
+    success(home.path(), &["rm", &second], None);
+
+    let output = success(home.path(), &["changes", "since:1"], None);
+    assert_eq!(
+        output,
+        format!(
+            "{{\"revision\":2,\"operation\":\"add\",\"id\":\"{second}\"}}\n\
+             {{\"revision\":3,\"operation\":\"metadata\",\"id\":\"{first}\"}}\n\
+             {{\"revision\":4,\"operation\":\"remove\",\"id\":\"{second}\"}}\n"
+        )
+    );
+    assert_eq!(success(home.path(), &["changes", "since:4"], None), "");
+
+    let invalid = run(home.path(), &["changes", "since:-1"], None);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(invalid.stdout, b"");
+    assert_eq!(invalid.stderr, b"error: invalid changes cursor: since:-1\n");
+}
+
 fn seed_matching_notes(home: &Path, count: usize) {
     let mut connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
     let transaction = connection.transaction().unwrap();

@@ -25,6 +25,7 @@ nt list [filter...]
 nt list tags
 nt list collections
 nt read [filter...]
+nt changes since:<revision>
 nt find <term-or-filter...>
 nt rm <id...>
 nt edit <id> [-- body...]
@@ -49,7 +50,7 @@ for a valid existing database. The resolved home path must be non-empty and
 absolute.
 
 Ordinary commands never create or repair storage. They require application ID
-`0x4e544e54`, schema version `5`, and the expected schema definitions. This
+`0x4e544e54`, schema version `6`, and the expected schema definitions. This
 alpha version does not migrate older databases in place.
 
 ## Note Input
@@ -165,6 +166,32 @@ Complete note records are selected and hydrated set-wise and stream as they are
 read. A downstream pipe closing early is successful; other output failures are
 errors.
 
+### Change Output
+
+`changes since:<revision>` returns every canonical note change committed
+strictly after the supplied nonnegative global revision. Revision zero reads the
+complete retained feed. Results are ordered by `revision ASC, id ASC` and are
+complete; timestamps are never cursors.
+
+Redirected stdout is UTF-8 JSONL with one change per physical line and fields in
+this stable order:
+
+```json
+{"revision":<revision>,"operation":"<operation>","id":"<note-id>"}
+```
+
+Operations are `add`, `edit`, `metadata`, and `remove`. `metadata` covers
+collection, tag, and directional-link changes, including outgoing links removed
+because a target was deleted. Deleted IDs remain in the feed. The feed stores no
+historical body or complete note snapshot; use `read` or `show` for current live
+content. Empty results produce no bytes. TTY output is an aligned table.
+
+Rows stream directly from an index ordered by revision and ID. A downstream
+pipe closing early is successful. A revision can contain several rows, so a
+synchronizer must finish all rows for a revision before durably advancing its
+cursor; after interruption it can safely replay from its last completed
+revision.
+
 ## Note Mutations
 
 ```text
@@ -190,9 +217,9 @@ surviving note with that revision. Multi-note deletion receives one revision.
 No-op, failed, and rolled-back mutations do not produce an observable revision.
 Revisions are allocated in the same immediate SQLite transaction as the change,
 so they are unique, strictly increasing, persistent across process restarts, and
-ordered by committed writer mutations rather than timestamps or UUIDs. A
-deletion always advances the global revision, but deleted IDs are not retained
-as tombstones.
+ordered by committed writer mutations rather than timestamps or UUIDs. The
+compact change feed transactionally records affected IDs and operation classes,
+including removals, without retaining note versions or historical bodies.
 
 ## Errors And Operation
 

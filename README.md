@@ -15,6 +15,7 @@ nt list tag:example
 nt find sqlite
 nt show <id>
 nt read tag:example
+nt changes since:0
 ```
 
 `nt add` prints a canonical lowercase UUIDv7 ID. Capture defaults to collection
@@ -39,7 +40,8 @@ directional links. Retrieval is deterministic and lexical, with complete
 results unless the caller supplies an explicit SQL-backed limit. `nt read`
 streams complete filtered notes as JSONL when stdout is redirected.
 Committed canonical mutations also receive durable, globally monotonic SQLite
-revisions; full-note records expose each live note's latest revision.
+revisions; full-note records expose each live note's latest revision, and
+`nt changes` streams compact incremental invalidations including deletions.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,

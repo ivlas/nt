@@ -4,7 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::output::write_stream;
 use crate::error::{NtError, Result, StoredNoteContext};
-use crate::note::{Note, NoteQuery, NoteSummary, Repository};
+use crate::note::{Change, Note, NoteQuery, NoteSummary, Repository};
 
 const NOTE_HEADERS: [&str; 6] = ["id", "updated", "collection", "title", "tags", "outgoing"];
 
@@ -50,6 +50,45 @@ pub(crate) fn print_full_notes(
             repository.visit_notes(query, |note| print_full_note_json(output, &note))
         })?;
     }
+    Ok(())
+}
+
+pub(crate) fn print_changes(
+    repository: &Repository,
+    revision: u64,
+    output: &mut dyn Write,
+    output_is_terminal: bool,
+) -> Result<()> {
+    if output_is_terminal {
+        let mut output = BufWriter::new(output);
+        write_spooled_table(&mut output, ["revision", "operation", "id"], |write_row| {
+            repository.visit_changes_since(revision, |change| write_row(change_row(&change)))
+        })?;
+        output.flush()?;
+    } else {
+        write_stream(output, |output| {
+            repository.visit_changes_since(revision, |change| print_change_json(output, &change))
+        })?;
+    }
+    Ok(())
+}
+
+fn change_row(change: &Change) -> [String; 3] {
+    [
+        change.revision().to_string(),
+        change.operation().to_string(),
+        change.note_id().to_string(),
+    ]
+}
+
+fn print_change_json(output: &mut (impl Write + ?Sized), change: &Change) -> Result<()> {
+    output.write_all(b"{\"revision\":")?;
+    serde_json::to_writer(&mut *output, &change.revision())?;
+    output.write_all(b",\"operation\":")?;
+    serde_json::to_writer(&mut *output, change.operation().as_str())?;
+    output.write_all(b",\"id\":")?;
+    serde_json::to_writer(&mut *output, &change.note_id().to_string())?;
+    output.write_all(b"}\n")?;
     Ok(())
 }
 

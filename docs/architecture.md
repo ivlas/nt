@@ -50,6 +50,7 @@ Read commands open a validated read-only connection, execute repository
 operations, and render the result. Exact `show` commands write and flush the
 canonical body. `read` uses one ordered repository statement to hydrate complete
 notes, including sorted relationship aggregates, without per-note queries.
+`changes` traverses the compact change table by its revision-and-ID primary key.
 Redirected note results stream rows; an intentionally closed downstream pipe
 ends those commands successfully.
 
@@ -65,20 +66,20 @@ before its success line is written, so a later output failure cannot roll back
 the mutation. This boundary is surfaced explicitly by the CLI error contract.
 Writable transactions acquire SQLite's writer lock with `BEGIN IMMEDIATE`
 before incrementing the singleton global revision. The increment, canonical
-changes, affected live-note revision stamps, and derived FTS changes commit or
-roll back together.
+changes, affected live-note revision stamps, change-feed rows, and derived FTS
+changes commit or roll back together.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables do not
-require alignment and stream directly. Full-note JSONL also streams directly,
-holding only the current note and its relationships in memory.
+require alignment and stream directly. Full-note and change JSONL also stream
+directly, holding only the current record in memory.
 
 ## Schema Ownership
 
 The application schema is a flat compile-time manifest in a fixed order:
 
 - `src/schema.rs` owns the application ID, schema version, and version table.
-- `src/note/schema.rs` owns revision state, note tables, note FTS, triggers, and indexes.
+- `src/note/schema.rs` owns revision state, note and change tables, note FTS, triggers, and indexes.
 - `src/storage/schema_engine.rs` initializes and validates the assembled
   manifest without knowing the note model.
 

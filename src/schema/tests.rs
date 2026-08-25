@@ -326,7 +326,7 @@ fn validation_rejects_changed_fts_definition() {
              )",
         )
         .unwrap();
-    for sql in &MANIFEST.steps()[6..9] {
+    for sql in &MANIFEST.steps()[7..10] {
         connection.execute_batch(sql).unwrap();
     }
 
