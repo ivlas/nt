@@ -306,6 +306,49 @@ fn read_batches_exact_ids_with_canonical_order_and_complete_bodies() {
 }
 
 #[test]
+fn read_accepts_thousands_of_exact_ids_through_stdin() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    seed_matching_notes(home.path(), 2_000);
+    let mut requested = (0..2_000)
+        .rev()
+        .map(|index| format!("018fbe0a-6c00-7000-8000-{index:012x}"))
+        .collect::<Vec<_>>();
+    requested.push(requested[0].clone());
+    requested.push("018fbe0a-6c00-7000-8000-ffffffffffff".to_string());
+    let input = requested.join("\n");
+
+    let output = success(home.path(), &["read", "id:-"], Some(&input));
+    let notes = output
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(notes.len(), 2_000);
+    assert_eq!(notes[0]["id"], "018fbe0a-6c00-7000-8000-0000000007cf");
+    assert_eq!(notes[0]["body"], "# Note 1999\nrust streaming");
+    assert_eq!(notes[1_999]["id"], "018fbe0a-6c00-7000-8000-000000000000");
+}
+
+#[test]
+fn read_rejects_empty_invalid_and_duplicate_stdin_id_inputs() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+
+    let empty = run(home.path(), &["read", "id:-"], Some(""));
+    assert_eq!(empty.status.code(), Some(2));
+    assert_eq!(empty.stderr, b"error: invalid stdin IDs: empty\n");
+
+    let invalid = run(home.path(), &["read", "id:-"], Some("not-an-id\n"));
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(invalid.stderr, b"error: invalid note id: not-an-id\n");
+
+    let duplicate = run(home.path(), &["read", "id:-", "id:-"], Some(""));
+    assert_eq!(duplicate.status.code(), Some(2));
+    assert_eq!(duplicate.stderr, b"error: invalid filter: duplicate id:-\n");
+}
+
+#[test]
 fn complete_cli_workflow_matches_the_stable_contract() {
     let home = tempfile::tempdir().unwrap();
     assert_eq!(success(home.path(), &["init"], None), "initialized\n");

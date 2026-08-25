@@ -19,7 +19,7 @@ fn topic_text(key: &str) -> Result<&'static str> {
             "nt list [filter...]\nnt list tags\nnt list collections\n\nList complete fixed note summaries or current metadata values. links-to:<target> selects notes pointing to a target; linked-from:<source> selects notes pointed to by a source. Use limit:<n> for an explicit result bound.\n",
         ),
         "read" => Ok(
-            "nt read [filter...]\n\nStream complete notes selected by the same structured filters as nt list. Repeat full id:<id> expressions to batch arbitrary notes; duplicates and missing IDs are omitted, and canonical result ordering is preserved. Redirected output is JSONL. Use limit:<n> for an explicit result bound.\n",
+            "nt read [filter...]\n\nStream complete notes selected by the same structured filters as nt list. Repeat full id:<id> expressions to batch arbitrary notes, or use id:- with one full ID per stdin line for batches too large for command arguments. Duplicates and missing IDs are omitted, and canonical result ordering is preserved. Redirected output is JSONL. Use limit:<n> for an explicit result bound.\n",
         ),
         "changes" => Ok(
             "nt changes since:<revision>\n\nStream canonical note changes committed strictly after a global revision. Redirected output is JSONL.\n",

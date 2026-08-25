@@ -46,6 +46,12 @@ impl<'a> Input<'a> {
 
         (self.editor)(seed.map(str::to_string))
     }
+
+    pub fn read_stdin(&mut self) -> Result<String> {
+        let mut value = String::new();
+        self.stdin.read_to_string(&mut value)?;
+        Ok(value)
+    }
 }
 
 pub fn read_editor(
@@ -130,6 +136,15 @@ mod tests {
         let mut editor = |_| panic!("editor should not run");
         let mut input = Input::new(&mut stdin, false, &mut editor);
         assert!(matches!(input.read_body(&[], None), Err(NtError::Io(_))));
+    }
+
+    #[test]
+    fn raw_stdin_input_uses_the_supplied_reader() {
+        let mut stdin = Cursor::new("first\nsecond\n");
+        let mut editor = |_| panic!("editor should not run");
+        let mut input = Input::new(&mut stdin, false, &mut editor);
+
+        assert_eq!(input.read_stdin().unwrap(), "first\nsecond\n");
     }
 
     struct FailingReader;
