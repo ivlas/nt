@@ -3,6 +3,14 @@ use crate::storage::schema_engine::SchemaObject;
 pub(crate) const OBJECTS: &[SchemaObject] = &[
     SchemaObject {
         object_type: "table",
+        name: "global_revision",
+        sql: "CREATE TABLE global_revision (
+         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+         revision INTEGER NOT NULL CHECK (typeof(revision) = 'integer' AND revision >= 0)
+     ) WITHOUT ROWID",
+    },
+    SchemaObject {
+        object_type: "table",
         name: "notes",
         sql: "CREATE TABLE notes (
          pk INTEGER PRIMARY KEY,
@@ -13,6 +21,7 @@ pub(crate) const OBJECTS: &[SchemaObject] = &[
          created TEXT NOT NULL,
          updated TEXT NOT NULL,
          body_version INTEGER NOT NULL DEFAULT 1,
+         note_revision INTEGER NOT NULL,
          CHECK(length(id) = 36
                AND substr(id, 9, 1) = '-'
                AND substr(id, 14, 1) = '-'
@@ -33,7 +42,8 @@ pub(crate) const OBJECTS: &[SchemaObject] = &[
                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
          CHECK(updated GLOB
                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
-         CHECK(body_version > 0)
+         CHECK(body_version > 0),
+         CHECK(typeof(note_revision) = 'integer' AND note_revision > 0)
      )",
     },
     SchemaObject {
@@ -106,6 +116,11 @@ pub(crate) const OBJECTS: &[SchemaObject] = &[
         name: "notes_collection_updated_idx",
         sql: "CREATE INDEX notes_collection_updated_idx
          ON notes(collection, updated DESC, id DESC)",
+    },
+    SchemaObject {
+        object_type: "index",
+        name: "notes_revision_idx",
+        sql: "CREATE INDEX notes_revision_idx ON notes(note_revision, id)",
     },
     SchemaObject {
         object_type: "index",

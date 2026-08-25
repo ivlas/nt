@@ -58,14 +58,14 @@ fn schema_enforces_relationship_constraints_and_cascades() {
     let connection = initialized();
     connection
         .execute_batch(
-            "INSERT INTO notes(id, collection, body, title, created, updated)
+            "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  VALUES ('018fbe0a-6c00-7000-8000-000000000001',
                          'inbox', '# A', 'A', '2026-05-28T14:30:12Z',
-                         '2026-05-28T14:30:12Z');
-             INSERT INTO notes(id, collection, body, title, created, updated)
+                          '2026-05-28T14:30:12Z', 1);
+             INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  VALUES ('018fbe0a-6c00-7000-8000-000000000002',
                          'inbox', '# B', 'B', '2026-05-28T14:30:12Z',
-                         '2026-05-28T14:30:12Z');
+                          '2026-05-28T14:30:12Z', 1);
              INSERT INTO note_tags(note_pk, tag) VALUES (1, 'rust');
              INSERT INTO note_links(note_pk, target_note_pk) VALUES (1, 2);",
         )
@@ -95,13 +95,28 @@ fn schema_enforces_cheap_canonical_value_shapes() {
     let connection = initialized();
     let insert_note = |id: &str, collection: &str, created: &str, updated: &str| {
         connection.execute(
-            "INSERT INTO notes(id, collection, body, title, created, updated)
-             VALUES (?1, ?2, '# Valid', 'Valid', ?3, ?4)",
+            "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
+             VALUES (?1, ?2, '# Valid', 'Valid', ?3, ?4, 1)",
             (id, collection, created, updated),
         )
     };
     let valid_id = "018fbe0a-6c00-7000-8000-000000000001";
     let valid_timestamp = "2026-05-28T14:30:12Z";
+
+    assert!(
+        connection
+            .execute("UPDATE global_revision SET revision = -1", [])
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
+                 VALUES (?1, 'inbox', '# Valid', 'Valid', ?2, ?2, 0)",
+                (valid_id, valid_timestamp),
+            )
+            .is_err()
+    );
 
     for id in [
         "018fbe0a6c0070008000000000000001",
@@ -149,14 +164,38 @@ fn schema_enforces_cheap_canonical_value_shapes() {
 }
 
 #[test]
+fn validation_rejects_missing_or_malformed_global_revision_state() {
+    let connection = initialized();
+    connection
+        .execute("DELETE FROM global_revision", [])
+        .unwrap();
+    assert!(matches!(
+        validate_global_revision(&connection),
+        Err(NtError::NotNtDatabase)
+    ));
+
+    connection
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             INSERT INTO global_revision(singleton, revision) VALUES (1, -1);
+             PRAGMA ignore_check_constraints = OFF;",
+        )
+        .unwrap();
+    assert!(matches!(
+        validate_global_revision(&connection),
+        Err(NtError::NotNtDatabase)
+    ));
+}
+
+#[test]
 fn fts_triggers_follow_content_changes_only() {
     let connection = initialized();
     connection
         .execute_batch(
-            "INSERT INTO notes(id, collection, body, title, created, updated)
+            "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  VALUES ('018fbe0a-6c00-7000-8000-000000000001',
                          'inbox', '# Storage', 'Storage',
-                         '2026-05-28T14:30:12Z', '2026-05-28T14:30:12Z');",
+                          '2026-05-28T14:30:12Z', '2026-05-28T14:30:12Z', 1);",
         )
         .unwrap();
     let matches: i64 = connection
@@ -287,7 +326,7 @@ fn validation_rejects_changed_fts_definition() {
              )",
         )
         .unwrap();
-    for sql in &MANIFEST.steps()[5..8] {
+    for sql in &MANIFEST.steps()[6..9] {
         connection.execute_batch(sql).unwrap();
     }
 

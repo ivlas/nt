@@ -4,10 +4,10 @@ use std::process::Command;
 
 use rusqlite::Connection;
 
-const V4_SCHEMA: &str = include_str!("fixtures/v4_schema.sql");
+const V5_SCHEMA: &str = include_str!("fixtures/v5_schema.sql");
 
 #[test]
-fn initialized_schema_matches_the_independent_v4_fixture() {
+fn initialized_schema_matches_the_independent_v5_fixture() {
     let directory = tempfile::tempdir().unwrap();
     let fixture_home = directory.path().join("fixture-home");
     let initialized_home = directory.path().join("initialized-home");
@@ -17,7 +17,7 @@ fn initialized_schema_matches_the_independent_v4_fixture() {
     let initialized_path = initialized_home.join(".nt/nt.sqlite3");
 
     let fixture = Connection::open(&fixture_path).unwrap();
-    let fixture_schema = V4_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
+    let fixture_schema = V5_SCHEMA.replace("\r\n", "\n").replace('\r', "\n");
     fixture.execute_batch(&fixture_schema).unwrap();
     drop(fixture);
 
@@ -60,7 +60,7 @@ fn assert_database_identity(path: &Path) {
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(application_id, 0x4e54_4e54);
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
 }
 
 fn schema_entries(path: &Path) -> Vec<(String, String, Option<String>)> {

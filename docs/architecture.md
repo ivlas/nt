@@ -63,6 +63,10 @@ open while waiting for editor input.
 Each mutation performs one short repository transaction. The commit completes
 before its success line is written, so a later output failure cannot roll back
 the mutation. This boundary is surfaced explicitly by the CLI error contract.
+Writable transactions acquire SQLite's writer lock with `BEGIN IMMEDIATE`
+before incrementing the singleton global revision. The increment, canonical
+changes, affected live-note revision stamps, and derived FTS changes commit or
+roll back together.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables do not
@@ -74,7 +78,7 @@ holding only the current note and its relationships in memory.
 The application schema is a flat compile-time manifest in a fixed order:
 
 - `src/schema.rs` owns the application ID, schema version, and version table.
-- `src/note/schema.rs` owns note tables, note FTS, triggers, and indexes.
+- `src/note/schema.rs` owns revision state, note tables, note FTS, triggers, and indexes.
 - `src/storage/schema_engine.rs` initializes and validates the assembled
   manifest without knowing the note model.
 

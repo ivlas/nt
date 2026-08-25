@@ -6,6 +6,7 @@ mod lifecycle;
 mod mutations;
 mod queries;
 mod reads;
+mod revisions;
 mod stored_values;
 mod summaries;
 

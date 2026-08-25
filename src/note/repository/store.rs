@@ -7,7 +7,8 @@ use crate::error::{NtError, Result, StoredNoteContext};
 
 use super::Repository;
 use super::stored::{
-    decode_body_version, decode_collection, decode_id, decode_tag, decode_timestamp, stored_value,
+    decode_body_version, decode_collection, decode_id, decode_revision, decode_tag,
+    decode_timestamp, stored_value,
 };
 
 impl Repository {
@@ -18,15 +19,17 @@ impl Repository {
         let id = NoteId::generate()?;
         note.validate_links_for(&id)?;
         let now = timestamp_now()?;
+        let revision = next_revision(&transaction)?;
         transaction.execute(
-            "INSERT INTO notes(id, collection, body, title, created, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
             params![
                 id.to_string(),
                 note.collection().as_str(),
                 note.body(),
                 note.title(),
                 now.as_str(),
+                revision,
             ],
         )?;
         let source_pk = transaction.last_insert_rowid();
@@ -68,14 +71,19 @@ impl Repository {
         for id in ids {
             pks.push(note_pk(&transaction, id)?);
         }
+        if pks.is_empty() {
+            transaction.commit()?;
+            return Ok(());
+        }
+        let revision = next_revision(&transaction)?;
         let updated = timestamp_now()?;
         for pk in &pks {
             transaction.execute(
-                "UPDATE notes SET updated = ?1
-                 WHERE pk IN (
-                     SELECT note_pk FROM note_links WHERE target_note_pk = ?2
-                 )",
-                params![updated.as_str(), pk],
+                "UPDATE notes SET updated = ?1, note_revision = ?2
+                  WHERE pk IN (
+                      SELECT note_pk FROM note_links WHERE target_note_pk = ?3
+                  )",
+                params![updated.as_str(), revision, pk],
             )?;
         }
         for pk in pks {
@@ -93,15 +101,17 @@ impl Repository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let revision = next_revision(&transaction)?;
         let changed = transaction.execute(
             "UPDATE notes
-             SET body = ?1, title = ?2, updated = ?3, body_version = ?4
-             WHERE id = ?5 AND body_version = ?6",
+             SET body = ?1, title = ?2, updated = ?3, body_version = ?4, note_revision = ?5
+             WHERE id = ?6 AND body_version = ?7",
             params![
                 note.body(),
                 note.title(),
                 note.updated().as_str(),
                 body_version,
+                revision,
                 note.id().to_string(),
                 expected_version,
             ],
@@ -139,6 +149,13 @@ impl Repository {
              WHERE id = ?3 AND collection <> ?1",
             params![collection.as_str(), updated.as_str(), id.to_string()],
         )? != 0;
+        if changed {
+            let revision = next_revision(&transaction)?;
+            transaction.execute(
+                "UPDATE notes SET note_revision = ?1 WHERE id = ?2",
+                params![revision, id.to_string()],
+            )?;
+        }
         transaction.commit()?;
         Ok(changed)
     }
@@ -188,7 +205,7 @@ fn stored_body_version(connection: &rusqlite::Connection, id: &NoteId) -> Result
 pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<Note> {
     let stored = {
         let mut statement = transaction.prepare(
-            "SELECT pk, collection, body, title, created, updated, body_version
+            "SELECT pk, collection, body, title, created, updated, body_version, note_revision
              FROM notes WHERE id = ?1",
         )?;
         let mut rows = statement.query([id.to_string()])?;
@@ -206,6 +223,7 @@ pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<No
             stored_value::<String>(row, 4, &context, "created")?,
             stored_value::<String>(row, 5, &context, "updated")?,
             stored_value::<i64>(row, 6, &context, "body_version")?,
+            stored_value::<i64>(row, 7, &context, "note_revision")?,
         )
     };
     let tags = load_tags(transaction, stored.0, &stored.1)?;
@@ -220,10 +238,22 @@ pub(super) fn load_note(transaction: &Transaction<'_>, id: &NoteId) -> Result<No
             created: decode_timestamp(&stored.5, &stored.1, "created")?,
             updated: decode_timestamp(&stored.6, &stored.1, "updated")?,
             body_version,
+            revision: decode_revision(stored.8, &stored.1)?,
         },
         tags,
         links,
     )
+}
+
+pub(super) fn next_revision(transaction: &Transaction<'_>) -> Result<i64> {
+    transaction
+        .query_row(
+            "UPDATE global_revision SET revision = revision + 1
+             WHERE singleton = 1 RETURNING revision",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
 }
 
 fn load_tags(

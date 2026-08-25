@@ -49,7 +49,7 @@ for a valid existing database. The resolved home path must be non-empty and
 absolute.
 
 Ordinary commands never create or repair storage. They require application ID
-`0x4e544e54`, schema version `4`, and the expected schema definitions. This
+`0x4e544e54`, schema version `5`, and the expected schema definitions. This
 alpha version does not migrate older databases in place.
 
 ## Note Input
@@ -151,12 +151,13 @@ stdout is UTF-8 JSONL with one object per physical line and fields in this stabl
 order:
 
 ```json
-{"id":"<id>","created":"<created>","updated":"<updated>","collection":"<collection>","title":"<title>","tags":["<tag>"],"links":["<target-id>"],"body":"<canonical CommonMark>"}
+{"id":"<id>","created":"<created>","updated":"<updated>","revision":<revision>,"collection":"<collection>","title":"<title>","tags":["<tag>"],"links":["<target-id>"],"body":"<canonical CommonMark>"}
 ```
 
 `tags` and outgoing `links` are sorted lexically. JSON escaping preserves
 arbitrary body newlines and Unicode without splitting a record across physical
-lines. Empty results produce no bytes. TTY output presents labeled metadata
+lines. `revision` is the note's latest canonical mutation revision. Empty
+results produce no bytes. TTY output presents labeled metadata
 followed by the canonical body. `show` remains the exact-body primitive: unlike
 `read`, it adds no record framing or metadata.
 
@@ -182,6 +183,16 @@ stored succeeds as a no-op.
 `rm` rejects duplicate IDs and validates every ID before deleting any note.
 Deleting a target updates surviving source notes whose outgoing links are
 removed. Deleting a source does not update its targets.
+
+The database keeps one global integer revision, initialized to zero. Every real
+successful mutation increments it exactly once and stamps each affected
+surviving note with that revision. Multi-note deletion receives one revision.
+No-op, failed, and rolled-back mutations do not produce an observable revision.
+Revisions are allocated in the same immediate SQLite transaction as the change,
+so they are unique, strictly increasing, persistent across process restarts, and
+ordered by committed writer mutations rather than timestamps or UUIDs. A
+deletion always advances the global revision, but deleted IDs are not retained
+as tombstones.
 
 ## Errors And Operation
 

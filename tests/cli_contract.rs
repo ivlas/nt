@@ -47,15 +47,46 @@ fn add(home: &Path, body: &str, metadata: &[&str]) -> String {
         .to_string()
 }
 
+#[test]
+fn revisions_persist_across_cli_processes() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let first = add(home.path(), "# First", &[]);
+    let second = add(home.path(), "# Second", &[]);
+    success(home.path(), &["edit", &first, "--", "# First"], None);
+
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let current: i64 = connection
+        .query_row("SELECT revision FROM global_revision", [], |row| row.get(0))
+        .unwrap();
+    let revisions = connection
+        .prepare(
+            "SELECT id, note_revision FROM notes
+             WHERE id IN (?1, ?2) ORDER BY note_revision",
+        )
+        .unwrap()
+        .query_map(params![first, second], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+
+    assert_eq!(current, 2);
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(revisions[0].1, 1);
+    assert_eq!(revisions[1].1, 2);
+}
+
 fn seed_matching_notes(home: &Path, count: usize) {
     let mut connection = Connection::open(home.join(".nt/nt.sqlite3")).unwrap();
     let transaction = connection.transaction().unwrap();
     {
         let mut statement = transaction
             .prepare(
-                "INSERT INTO notes(id, collection, body, title, created, updated)
+                "INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
                  VALUES (?1, 'inbox', ?2, ?3, '2026-01-01T00:00:00Z',
-                         '2026-01-01T00:00:00Z')",
+                          '2026-01-01T00:00:00Z', 1)",
             )
             .unwrap();
         for index in 0..count {
@@ -501,9 +532,9 @@ fn find_exits_cleanly_when_a_pipe_consumer_closes_early() {
         .unwrap()
         .execute_batch(
             "PRAGMA ignore_check_constraints = ON;
-             INSERT INTO notes(id, collection, body, title, created, updated)
+             INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
              VALUES ('malformed', 'inbox', '# Invalid\nrust streaming', 'Invalid',
-                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+                      '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 1);
              PRAGMA ignore_check_constraints = OFF;",
         )
         .unwrap();
@@ -537,9 +568,9 @@ fn read_exits_cleanly_when_a_pipe_consumer_closes_early() {
         .unwrap()
         .execute_batch(
             "PRAGMA ignore_check_constraints = ON;
-             INSERT INTO notes(id, collection, body, title, created, updated)
+             INSERT INTO notes(id, collection, body, title, created, updated, note_revision)
              VALUES ('malformed', 'inbox', '# Invalid', 'Invalid',
-                     '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+                      '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 1);
              PRAGMA ignore_check_constraints = OFF;",
         )
         .unwrap();
