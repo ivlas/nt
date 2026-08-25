@@ -38,6 +38,8 @@ Notes provide editable durable knowledge with collections, tags, and
 directional links. Retrieval is deterministic and lexical, with complete
 results unless the caller supplies an explicit SQL-backed limit. `nt read`
 streams complete filtered notes as JSONL when stdout is redirected.
+Committed canonical mutations also receive durable, globally monotonic SQLite
+revisions; full-note records expose each live note's latest revision.
 
 External resources, bookmarks, imported documents, and generated reference
 summaries can be represented as ordinary CommonMark notes using collections,

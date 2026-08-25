@@ -21,7 +21,8 @@ ordinary notes.
 
 | Model | Canonical state | Derived state |
 | --- | --- | --- |
-| Notes | body, collection, tags, links, timestamps, body version | title, note FTS |
+| Notes | body, collection, tags, links, timestamps, body version, note revision | title, note FTS |
+| Database | global revision | none |
 
 ## Notes
 
@@ -39,6 +40,24 @@ Body edits use an expected body version so two editor sessions cannot silently
 overwrite each other. Metadata changes do not conflict with an open editor.
 No-op set changes preserve `updated`; real metadata changes update it. UTC
 timestamps have one-second resolution and are not a monotonic mutation order.
+
+The global revision starts at zero and is a durable, monotonically increasing
+SQLite integer. Every committed application mutation that changes canonical
+note state increments it exactly once in the same transaction. A multi-note
+mutation still receives one revision. No-op mutations do not increment it;
+failed and rolled-back allocations are never observable. Because mutations use
+`BEGIN IMMEDIATE`, SQLite serializes writers before allocation, so committed
+revision order is committed mutation order across threads and processes.
+
+Every live note stores the revision of the latest mutation that changed its
+canonical state. All surviving notes changed by one mutation receive the same
+revision. Deletion increments the global revision even when no note survives;
+surviving sources whose links are removed receive the deletion revision. There
+is an index for incremental live-note selection, but no deletion log or
+tombstone: a consumer using note revisions must perform a complete
+reconciliation when the global revision advances without a corresponding live
+note revision. Revisions are not derived from timestamps, UUIDs, or
+process-local state.
 
 Multi-note deletion is atomic. Deleting a target removes incoming edges and
 updates surviving sources because their outgoing-link sets changed. Deleting a
@@ -60,7 +79,7 @@ exact note bodies when evidence matters.
 ## Storage And Consistency
 
 Only `nt init` creates storage. The database uses application ID `0x4e544e54`
-(`NTNT`) and clean-sheet schema version `4`. This alpha policy rejects
+(`NTNT`) and clean-sheet schema version `5`. This alpha policy rejects
 incompatible databases instead of migrating them in place. Every mutation is
 transactional, including its relationship and full-text index changes.
 

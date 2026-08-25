@@ -59,8 +59,10 @@ the need.
 
 Primary relational state consists of notes, tags, and directional note links.
 The note row stores its collection path, canonical body, derived title,
-timestamps, and body version. Note FTS5 is derived state maintained
-transactionally.
+timestamps, body version, and latest mutation revision. A singleton SQLite
+counter assigns one commit-ordered global revision per real canonical mutation;
+no-ops and rolled-back mutations do not advance it. Note FTS5 is derived state
+maintained transactionally.
 
 The clean-sheet schema follows the current alpha compatibility policy rather
 than a general migration system. The database uses application ID `0x4e544e54`
@@ -99,7 +101,8 @@ Markdown exists at the interface boundary: trailing arguments, stdin,
 - Run `cargo run --locked -- help` for a command smoke test.
 - Add focused tests for database identity, schema constraints, transactions,
   UUIDv7 IDs, command routing, query syntax, body conflicts, link cleanup,
-  FTS synchronization, concurrent edits, and deterministic retrieval.
+  FTS synchronization, concurrent edits, monotonic revisions, and deterministic
+  retrieval.
 - Maintain ignored scale coverage for important note query plans.
 
 ## Design
