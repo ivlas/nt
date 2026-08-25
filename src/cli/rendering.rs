@@ -443,7 +443,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             full_redirected,
-            include_bytes!("../../tests/fixtures/read-redirected.jsonl")
+            include_bytes!("../../tests/fixtures/read-redirected.txt")
         );
 
         let mut full_tty = Vec::new();
