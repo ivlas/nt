@@ -47,7 +47,7 @@ cargo test --locked --release --test agentic_primitives_benchmark \
 
 Times are milliseconds and RSS is MiB. `SQLite` is the direct query time.
 
-| Notes | Operation | K | SQLite | First row | Total | RSS |
+| Notes | Operation | K | SQLite | First output | Total | RSS |
 |---:|---|---:|---:|---:|---:|---:|
 | 1,000 | collection read | 100 | 0.086 | 2.416 | 2.675 | 4.34 |
 | 1,000 | ID read | 32 | 0.047 | 2.172 | 2.364 | 4.16 |
@@ -77,8 +77,8 @@ Times are milliseconds and RSS is MiB. `SQLite` is the direct query time.
 | 1,000,022 | single edit | 1 | n/a | 2.504 | 2.604 | 4.22 |
 | 1,000,022 | batch move | 128 | n/a | 5.561 | 5.554 | 6.56 |
 
-First-row and total columns come from separate sample sets, so sub-millisecond
-noise can make a median first-row value slightly exceed the median total value
+First-output and total columns come from separate sample sets, so sub-millisecond
+noise can make a median first-output value slightly exceed the median total value
 for short operations.
 
 ## Findings

@@ -37,7 +37,7 @@ struct Measurement {
     operation: String,
     requested: usize,
     sqlite: Option<Duration>,
-    first_row: Duration,
+    first_output: Duration,
     total: Duration,
     peak_rss_bytes: Option<u64>,
 }
@@ -161,7 +161,7 @@ fn benchmark_generic_agentic_primitives() {
         ));
     }
 
-    println!("database_notes,operation,requested,sqlite_ms,first_row_ms,total_ms,peak_rss_mib");
+    println!("database_notes,operation,requested,sqlite_ms,first_output_ms,total_ms,peak_rss_mib");
     for measurement in measurements {
         let sqlite = measurement
             .sqlite
@@ -177,7 +177,7 @@ fn benchmark_generic_agentic_primitives() {
             measurement.operation,
             measurement.requested,
             sqlite,
-            milliseconds(measurement.first_row),
+            milliseconds(measurement.first_output),
             milliseconds(measurement.total),
             peak_rss,
         );
@@ -205,9 +205,9 @@ fn measure_read(
             })
             .collect(),
     );
-    let first_row = median_duration(
+    let first_output = median_duration(
         (0..SAMPLES)
-            .map(|_| time_to_first_row(home, invocation).0)
+            .map(|_| time_to_first_output(home, invocation).0)
             .collect(),
     );
     let total = median_duration((0..SAMPLES).map(|_| elapsed(home, invocation)).collect());
@@ -218,7 +218,7 @@ fn measure_read(
         operation: operation.to_string(),
         requested,
         sqlite: Some(sqlite),
-        first_row,
+        first_output,
         total,
         peak_rss_bytes,
     }
@@ -231,9 +231,9 @@ fn measure_mutation(
     requested: usize,
     invocation: impl Fn(usize) -> Invocation,
 ) -> Measurement {
-    let first_row = median_duration(
+    let first_output = median_duration(
         (0..SAMPLES)
-            .map(|sample| time_to_first_row(home, &invocation(sample)).0)
+            .map(|sample| time_to_first_output(home, &invocation(sample)).0)
             .collect(),
     );
     let total = median_duration(
@@ -247,7 +247,7 @@ fn measure_mutation(
         operation: operation.to_string(),
         requested,
         sqlite: None,
-        first_row,
+        first_output,
         total,
         peak_rss_bytes,
     }
@@ -426,18 +426,18 @@ fn elapsed(home: &Path, invocation: &Invocation) -> Duration {
     started.elapsed()
 }
 
-fn time_to_first_row(home: &Path, invocation: &Invocation) -> (Duration, Duration) {
+fn time_to_first_output(home: &Path, invocation: &Invocation) -> (Duration, Duration) {
     let started = Instant::now();
     let mut child = spawn(home, invocation, Stdio::piped(), Stdio::null());
     let mut output = BufReader::new(child.stdout.take().unwrap());
     let mut first = Vec::new();
     let bytes = output.read_until(b'\n', &mut first).unwrap();
-    let first_row = started.elapsed();
+    let first_output = started.elapsed();
     assert!(bytes > 0, "nt {:?} produced no row", invocation.arguments);
     std::io::copy(&mut output, &mut std::io::sink()).unwrap();
     let status = child.wait().unwrap();
     assert!(status.success(), "nt {:?} failed", invocation.arguments);
-    (first_row, started.elapsed())
+    (first_output, started.elapsed())
 }
 
 fn spawn(

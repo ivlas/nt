@@ -76,7 +76,7 @@ the audit names cover note ID-prefix query plans at representative scale.
 
 The ignored generic-primitives benchmark grows a representative database through
 1,000, 100,000, and 1,000,000 notes. It measures direct SQLite query time,
-process time to first row, total process time, and peak RSS for collection reads,
+process time to first output, total process time, and peak RSS for collection reads,
 32/64/96/128-ID reads, recent changes, and single or batch mutations:
 
 ```sh
