@@ -53,7 +53,9 @@ notes, including sorted relationship aggregates, without per-note queries.
 Arbitrary-ID reads pass the deduplicated set as one JSON value and join it
 inside that statement, avoiding both per-ID SQL and host-parameter limits.
 The `id:-` CLI form reads newline-delimited IDs from stdin before opening
-storage, allowing large batches to bypass platform command-line limits.
+storage, allowing large reads and homogeneous mutations to bypass platform
+command-line limits. Mutation commands reject empty, malformed, or duplicate
+input before opening a write connection.
 `changes` traverses the compact change table by its revision-and-ID primary key.
 Redirected note results stream rows; an intentionally closed downstream pipe
 ends those commands successfully.
@@ -72,6 +74,7 @@ the check and mutation one compare-and-swap operation: concurrent writers that
 observed the same revision serialize, and only the first can commit. The body
 version remains the editor-specific guard for unconditioned body edits; an
 explicit note revision additionally detects intervening metadata changes.
+Batch mutations do not accept a shared `if-rev:` precondition.
 
 Each mutation performs one short repository transaction. The commit completes
 before its success line is written, so a later output failure cannot roll back
@@ -80,6 +83,12 @@ Writable transactions acquire SQLite's writer lock with `BEGIN IMMEDIATE`
 before incrementing the singleton global revision. The increment, canonical
 changes, affected live-note revision stamps, change-feed rows, and derived FTS
 changes commit or roll back together.
+Batch tag, move, and remove operations validate the complete note set after
+`BEGIN IMMEDIATE`, then mutate it in one transaction. JSON-backed `json_each`
+sets avoid one host parameter or statement per ID. Tag and move derive the
+changed subset before allocating a revision, so all-no-op batches allocate
+nothing and mixed batches stamp only changed notes. Deletion uses the same ID
+set to deduplicate surviving backlink sources and removal feed rows.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables do not

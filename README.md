@@ -27,8 +27,11 @@ nt changes since:0
 printf '%s\n' '# Updated' '' 'Replacement body.' | nt edit <id>
 nt move <id> work/nt
 nt tag <id> +decision
+printf '%s\n' <first-id> <second-id> | nt tag id:- +decision
+printf '%s\n' <first-id> <second-id> | nt move id:- archive
 nt link <id> +<target-id>
 nt rm <id>
+printf '%s\n' <first-id> <second-id> | nt rm id:-
 ```
 
 SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
@@ -43,7 +46,8 @@ results unless the caller supplies an explicit SQL-backed limit. `nt read`
 streams complete filtered notes as JSONL when stdout is redirected and accepts
 repeated full `id:` expressions for set-oriented arbitrary-ID batches. Large
 batches can supply one full ID per stdin line with `id:-`, avoiding operating
-system command-line limits.
+system command-line limits. The same stdin ID convention lets `tag`, `move`,
+and `rm` mutate a homogeneous batch atomically in one process and transaction.
 Committed canonical mutations also receive durable, globally monotonic SQLite
 revisions; full-note records expose each live note's latest revision, and
 `nt changes` streams compact incremental invalidations including deletions.

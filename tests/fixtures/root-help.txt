@@ -13,9 +13,11 @@ Commands:
   read [filter...]                     stream complete notes
   changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
-  rm <id...>                           remove notes atomically
+  rm <id...>|id:-                      remove notes atomically
   edit <id> [if-rev:<n>] [-- body...]  replace one body
   move <id> <collection> [if-rev:<n>]  move one note
+  move id:- <collection>               move an stdin batch
   tag <id> <+tag|-tag> [if-rev:<n>]    change one tag
+  tag id:- <+tag|-tag>                 change one tag for an stdin batch
   link <id> <+id|-id> [if-rev:<n>]     change one directional link
   help [command...]                    show command help

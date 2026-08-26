@@ -27,15 +27,17 @@ fn topic_text(key: &str) -> Result<&'static str> {
         "find" => Ok(
             "nt find <term-or-filter...>\n\nFind complete note summaries using literal lexical terms and structured filters. links-to:<target> selects notes pointing to a target; linked-from:<source> selects notes pointed to by a source. Use limit:<n> for an explicit result bound.\n",
         ),
-        "rm" => Ok("nt rm <id...>\n\nRemove notes atomically.\n"),
+        "rm" => Ok(
+            "nt rm <id...>\nnt rm id:-\n\nRemove notes atomically. id:- reads one canonical ID per stdin line.\n",
+        ),
         "edit" => Ok(
             "nt edit <id> [if-rev:<revision>] [-- body...]\n\nReplace a complete note body. Use if-rev: to reject the edit if any newer mutation changed the note.\n",
         ),
         "move" => Ok(
-            "nt move <id> <collection> [if-rev:<revision>]\n\nMove a note to one collection. Use if-rev: to reject stale mutations.\n",
+            "nt move <id> <collection> [if-rev:<revision>]\nnt move id:- <collection>\n\nMove one note, or every canonical ID read from stdin, to one collection. Use if-rev: only for a single note.\n",
         ),
         "tag" => Ok(
-            "nt tag <id> <+tag|-tag> [if-rev:<revision>]\n\nAdd or remove one tag. Use if-rev: to reject stale mutations.\n",
+            "nt tag <id> <+tag|-tag> [if-rev:<revision>]\nnt tag id:- <+tag|-tag>\n\nApply one tag operation to one note or every canonical ID read from stdin. Use if-rev: only for a single note.\n",
         ),
         "link" => Ok(
             "nt link <id> <+id|-id> [if-rev:<revision>]\n\nAdd or remove one directional note link. Use if-rev: to reject stale mutations.\n",
@@ -60,10 +62,12 @@ Commands:
   read [filter...]                     stream complete notes
   changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
-  rm <id...>                           remove notes atomically
+  rm <id...>|id:-                      remove notes atomically
   edit <id> [if-rev:<n>] [-- body...]  replace one body
   move <id> <collection> [if-rev:<n>]  move one note
+  move id:- <collection>               move an stdin batch
   tag <id> <+tag|-tag> [if-rev:<n>]    change one tag
+  tag id:- <+tag|-tag>                 change one tag for an stdin batch
   link <id> <+id|-id> [if-rev:<n>]     change one directional link
   help [command...]                    show command help
 "#;
