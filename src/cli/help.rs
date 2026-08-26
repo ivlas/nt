@@ -28,10 +28,18 @@ fn topic_text(key: &str) -> Result<&'static str> {
             "nt find <term-or-filter...>\n\nFind complete note summaries using literal lexical terms and structured filters. links-to:<target> selects notes pointing to a target; linked-from:<source> selects notes pointed to by a source. Use limit:<n> for an explicit result bound.\n",
         ),
         "rm" => Ok("nt rm <id...>\n\nRemove notes atomically.\n"),
-        "edit" => Ok("nt edit <id> [-- body...]\n\nReplace a complete note body.\n"),
-        "move" => Ok("nt move <id> <collection>\n\nMove a note to one collection.\n"),
-        "tag" => Ok("nt tag <id> <+tag|-tag>\n\nAdd or remove one tag.\n"),
-        "link" => Ok("nt link <id> <+id|-id>\n\nAdd or remove one directional note link.\n"),
+        "edit" => Ok(
+            "nt edit <id> [if-rev:<revision>] [-- body...]\n\nReplace a complete note body. Use if-rev: to reject the edit if any newer mutation changed the note.\n",
+        ),
+        "move" => Ok(
+            "nt move <id> <collection> [if-rev:<revision>]\n\nMove a note to one collection. Use if-rev: to reject stale mutations.\n",
+        ),
+        "tag" => Ok(
+            "nt tag <id> <+tag|-tag> [if-rev:<revision>]\n\nAdd or remove one tag. Use if-rev: to reject stale mutations.\n",
+        ),
+        "link" => Ok(
+            "nt link <id> <+id|-id> [if-rev:<revision>]\n\nAdd or remove one directional note link. Use if-rev: to reject stale mutations.\n",
+        ),
         "help" => Ok("nt help [command...]\n\nShow command help.\n"),
         _ => Err(NtError::UnknownHelpTopic(key.to_string())),
     }
@@ -53,10 +61,10 @@ Commands:
   changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
-  edit <id> [-- body...]               replace one body
-  move <id> <collection>               move one note
-  tag <id> <+tag|-tag>                 change one tag
-  link <id> <+id|-id>                  change one directional link
+  edit <id> [if-rev:<n>] [-- body...]  replace one body
+  move <id> <collection> [if-rev:<n>]  move one note
+  tag <id> <+tag|-tag> [if-rev:<n>]    change one tag
+  link <id> <+id|-id> [if-rev:<n>]     change one directional link
   help [command...]                    show command help
 "#;
 

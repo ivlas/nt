@@ -117,7 +117,12 @@ impl Repository {
         Ok(())
     }
 
-    pub fn replace_body(&mut self, note: &Note, expected_version: u64) -> Result<()> {
+    pub fn replace_body(
+        &mut self,
+        note: &Note,
+        expected_version: u64,
+        if_revision: Option<u64>,
+    ) -> Result<()> {
         let expected_version = i64::try_from(expected_version)
             .map_err(|_| NtError::InvalidBodyVersion(expected_version))?;
         let body_version = i64::try_from(note.body_version())
@@ -125,6 +130,7 @@ impl Repository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_note_revision(&transaction, note.id(), if_revision)?;
         let revision = next_revision(&transaction)?;
         let changed = transaction.execute(
             "UPDATE notes
@@ -151,23 +157,39 @@ impl Repository {
         Ok(())
     }
 
-    pub fn verify_body_version(&self, id: &NoteId, expected_version: u64) -> Result<()> {
+    pub fn verify_body_version(
+        &mut self,
+        id: &NoteId,
+        expected_version: u64,
+        if_revision: Option<u64>,
+    ) -> Result<()> {
         if i64::try_from(expected_version).is_err() {
             return Err(NtError::InvalidBodyVersion(expected_version));
         }
-        let actual_version = stored_body_version(&self.connection, id)?
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_note_revision(&transaction, id, if_revision)?;
+        let actual_version = stored_body_version(&transaction, id)?
             .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
         if actual_version != expected_version {
             return Err(NtError::ConcurrentEdit(id.to_string()));
         }
+        transaction.commit()?;
         Ok(())
     }
 
-    pub fn move_note(&mut self, id: &NoteId, collection: &CollectionPath) -> Result<bool> {
+    pub fn move_note(
+        &mut self,
+        id: &NoteId,
+        collection: &CollectionPath,
+        if_revision: Option<u64>,
+    ) -> Result<bool> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         ensure_note_exists(&transaction, id)?;
+        ensure_note_revision(&transaction, id, if_revision)?;
         let updated = timestamp_now()?;
         let changed = transaction.execute(
             "UPDATE notes SET collection = ?1, updated = ?2
@@ -214,6 +236,34 @@ fn ensure_note_exists(transaction: &Transaction<'_>, id: &NoteId) -> Result<()> 
     } else {
         Err(NtError::NoteNotFound(id.to_string()))
     }
+}
+
+pub(super) fn ensure_note_revision(
+    transaction: &Transaction<'_>,
+    id: &NoteId,
+    expected: Option<u64>,
+) -> Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let (row_id, stored) = transaction
+        .query_row(
+            "SELECT pk, note_revision FROM notes WHERE id = ?1",
+            [id.to_string()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let context = StoredNoteContext::new(Some(id.to_string()), Some(row_id));
+    let actual = decode_revision(stored, &context)?;
+    if actual != expected {
+        return Err(NtError::RevisionConflict {
+            id: id.to_string(),
+            expected,
+            actual,
+        });
+    }
+    Ok(())
 }
 
 fn stored_body_version(connection: &rusqlite::Connection, id: &NoteId) -> Result<Option<u64>> {

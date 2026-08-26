@@ -105,6 +105,12 @@ pub enum NtError {
     EditorExit(std::process::ExitStatus),
     #[error("note changed while editing: {0}")]
     ConcurrentEdit(String),
+    #[error("note revision conflict: {id} (expected {expected}, found {actual}); retry")]
+    RevisionConflict {
+        id: String,
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl NtError {
@@ -164,7 +170,7 @@ impl NtError {
             | Self::EditorNotSet
             | Self::InvalidEditor => 2,
             Self::MissingDatabase | Self::NoteNotFound(_) => 3,
-            Self::DatabaseBusy | Self::ConcurrentEdit(_) => 4,
+            Self::DatabaseBusy | Self::ConcurrentEdit(_) | Self::RevisionConflict { .. } => 4,
             Self::Io(_)
             | Self::PathIo { .. }
             | Self::CommittedButOutputFailed(_)

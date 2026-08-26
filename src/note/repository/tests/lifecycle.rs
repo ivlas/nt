@@ -75,10 +75,10 @@ fn complete_note_load_uses_one_read_snapshot() {
         )
         .unwrap();
     writer
-        .change_tag(&source, AddOrRemove::Remove("old".parse().unwrap()))
+        .change_tag(&source, AddOrRemove::Remove("old".parse().unwrap()), None)
         .unwrap();
     writer
-        .change_tag(&source, AddOrRemove::Add("new".parse().unwrap()))
+        .change_tag(&source, AddOrRemove::Add("new".parse().unwrap()), None)
         .unwrap();
     writer.delete_notes(std::slice::from_ref(&target)).unwrap();
 

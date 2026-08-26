@@ -62,14 +62,14 @@ fn invalid_persisted_body_versions_are_stored_note_errors() {
         })
     ));
     assert!(matches!(
-        repository.verify_body_version(&id, 1),
+        repository.verify_body_version(&id, 1, None),
         Err(NtError::InvalidStoredNote {
             field: "body_version",
             ..
         })
     ));
     assert!(matches!(
-        repository.replace_body(&changed_note, expected_version),
+        repository.replace_body(&changed_note, expected_version, None),
         Err(NtError::InvalidStoredNote {
             field: "body_version",
             ..
