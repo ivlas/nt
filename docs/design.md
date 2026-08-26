@@ -63,6 +63,14 @@ Multi-note deletion is atomic. Deleting a target removes incoming edges and
 updates surviving sources because their outgoing-link sets changed. Deleting a
 source does not update its targets.
 
+Homogeneous tag, move, and removal batches accept a validated set of canonical
+IDs from newline-delimited stdin. One command is one transaction and at most one
+revision. Every note is confirmed to exist before mutation; invalid, duplicate,
+or missing IDs roll back the complete batch. Tag and move allocate a revision
+only when at least one requested note changes, and stamp only that changed
+subset. Batch revision preconditions are intentionally unsupported because note
+revisions differ.
+
 ## Retrieval
 
 Retrieval is deterministic and lexical. User text is tokenized into literal

@@ -221,6 +221,9 @@ nt move <id> <collection> [if-rev:<revision>]    -> moved <id> <collection>
 nt tag <id> <+tag|-tag> [if-rev:<revision>]      -> tagged <id> <operation>
 nt link <id> <+id|-id> [if-rev:<revision>]       -> linked <id> <operation>
 nt rm <id...>                                      -> removed <count>
+nt move id:- <collection>                          -> moved <count> <collection>
+nt tag id:- <+tag|-tag>                            -> tagged <count> <operation>
+nt rm id:-                                         -> removed <count>
 ```
 
 These changes are transactional. Adding an existing set value or removing a
@@ -229,7 +232,7 @@ self-links are errors, and a real link change updates only its source note. Link
 addition requires an existing target. Removing a valid target ID that is not
 stored succeeds as a no-op.
 
-`edit`, `move`, `tag`, and `link` accept an optional positive
+Single-note `edit`, `move`, `tag`, and `link` accept an optional positive
 `if-rev:<revision>` precondition. The revision is the whole-note `revision`
 returned by `read`, not a timestamp or change-feed cursor guess. The mutation
 proceeds only when the live note still has exactly that revision. The check and
@@ -239,9 +242,27 @@ with a matching revision remains a no-op; a stale request conflicts even when
 its requested state already matches. A note deleted before the check is a
 normal missing-note error.
 
+`id:-` cannot be combined with `if-rev:` because one precondition cannot guard
+notes with different revisions. Per-note conditional batches are not supported.
+
 `rm` rejects duplicate IDs and validates every ID before deleting any note.
 Deleting a target updates surviving source notes whose outgoing links are
 removed. Deleting a source does not update its targets.
+
+For `move`, `tag`, and `rm`, `id:-` replaces the positional note ID or complete
+`rm` ID list and reads one canonical note ID per stdin line. Line endings may be
+LF or CRLF. Empty stdin, blank lines, malformed IDs, duplicate IDs, and missing
+notes are errors. Input is completely read and syntactically validated before a
+write transaction is opened; every referenced note is then validated before
+any canonical mutation. A failure changes nothing.
+
+One batch applies one collection, one tag operation, or removal to the complete
+input set in one SQLite transaction. Tag and move notes already satisfying the
+request remain untouched. If other notes change, only those notes receive the
+batch revision and `metadata` rows. An all-no-op tag or move batch allocates no
+revision. Removal emits `remove` for each deleted note and one deduplicated
+`metadata` row for every surviving source whose outgoing links changed, all at
+the deletion revision. Batch success counts report requested IDs.
 
 The database keeps one global integer revision, initialized to zero. Every real
 successful mutation increments it exactly once and stamps each affected

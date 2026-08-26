@@ -103,6 +103,8 @@ printf '%s\n' '# Updated title' '' 'Replacement body.' | nt edit "$NOTE_ID"
 nt move "$NOTE_ID" work/project_a
 nt tag "$NOTE_ID" +storage
 nt tag "$NOTE_ID" -storage
+printf '%s\n' "$FIRST_ID" "$SECOND_ID" | nt tag id:- +storage
+printf '%s\n' "$FIRST_ID" "$SECOND_ID" | nt move id:- archive
 nt link "$NOTE_ID" +"$TARGET_ID"
 nt link "$NOTE_ID" -"$TARGET_ID"
 ```
@@ -117,9 +119,16 @@ Remove one or more notes atomically:
 ```sh
 nt rm "$NOTE_ID"
 nt rm "$FIRST_ID" "$SECOND_ID"
+printf '%s\n' "$FIRST_ID" "$SECOND_ID" | nt rm id:-
 ```
 
 If any ID is invalid, missing, or repeated, no requested note is removed.
+The `id:-` forms read one canonical ID per LF or CRLF line before opening the
+write transaction. Empty input and blank lines are also errors. Each command
+validates the complete set and commits it atomically with one shared revision;
+tag and move notes that are already in the requested state are left untouched.
+`if-rev:` remains available for single-note mutations but is rejected with
+`id:-`.
 
 ## Shell Use
 
