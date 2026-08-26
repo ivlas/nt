@@ -63,6 +63,7 @@ metadata, or hidden semantics.
 - [CLI reference](docs/cli-reference.md)
 - [Architecture](docs/architecture.md)
 - [Design](docs/design.md)
+- [Generic agentic primitives benchmark](docs/agentic-primitives-benchmark.md)
 
 ## Development
 
@@ -73,19 +74,19 @@ Ignored query-plan tests are manual release-mode audits. Run them with
 `cargo test --locked --release <audit-name> -- --ignored --exact --nocapture`;
 the audit names cover note ID-prefix query plans at representative scale.
 
-The ignored process-level batch benchmark compares 100 separate `show`
-processes with one 100-ID `read` process:
+The ignored generic-primitives benchmark grows a representative database through
+1,000, 100,000, and 1,000,000 notes. It measures direct SQLite query time,
+process time to first output, total process time, and peak RSS for collection reads,
+32/64/96/128-ID reads, recent changes, and single or batch mutations:
 
 ```sh
-cargo test --locked --release --test batch_read_benchmark \
-  compare_one_hundred_show_processes_with_one_batch_read -- \
+cargo test --locked --release --test agentic_primitives_benchmark \
+  benchmark_generic_agentic_primitives -- \
   --ignored --exact --nocapture
 ```
-
-On 2026-08-25 on the development arm64 macOS host, the three-run medians were
-228.4 ms for `100 x nt show` and 11.8 ms for one batch `nt read`, a 19.3x
-speedup. Timing is environment-dependent; the benchmark output is authoritative
-for the current host.
+Timing is environment-dependent; the benchmark output is authoritative for the
+current host. The 96-ID sample is an external comparison point, not an `nt`
+limit or architectural constant.
 
 ## License
 
