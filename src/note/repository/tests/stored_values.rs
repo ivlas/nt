@@ -1,5 +1,5 @@
 use super::super::super::{CollectionPath, NewNote, NoteId, NoteQuery, timestamp_now};
-use super::super::Repository;
+use super::super::{AddOrRemove, Repository};
 use super::repository;
 use crate::error::NtError;
 
@@ -121,6 +121,64 @@ fn invalid_persisted_storage_classes_include_safe_field_context() {
         format!("stored note is invalid (id: {id}, row: 1, field: collection)")
     );
     assert!(!error.to_string().contains("secret"));
+}
+
+#[test]
+fn conditional_mutations_classify_invalid_revision_storage_classes() {
+    let mut repository = repository();
+    let id = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Corrupt revision").unwrap())
+        .unwrap();
+    let target = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+        .unwrap();
+    let mut changed_note = repository.get_note(&id).unwrap();
+    let expected_version = changed_note.body_version();
+    changed_note
+        .replace_body("# Changed", timestamp_now().unwrap())
+        .unwrap();
+    repository
+        .connection
+        .execute_batch("PRAGMA ignore_check_constraints = ON")
+        .unwrap();
+    repository
+        .connection
+        .execute(
+            "UPDATE notes SET note_revision = X'736563726574' WHERE id = ?1",
+            [id.to_string()],
+        )
+        .unwrap();
+    repository
+        .connection
+        .execute_batch("PRAGMA ignore_check_constraints = OFF")
+        .unwrap();
+
+    let errors = [
+        repository
+            .replace_body(&changed_note, expected_version, Some(1))
+            .unwrap_err(),
+        repository
+            .move_note(&id, &"work".parse().unwrap(), Some(1))
+            .unwrap_err(),
+        repository
+            .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()), Some(1))
+            .unwrap_err(),
+        repository
+            .change_link(&id, AddOrRemove::Add(target), Some(1))
+            .unwrap_err(),
+    ];
+    let id_text = id.to_string();
+    for error in errors {
+        assert!(matches!(
+            error,
+            NtError::InvalidStoredNote {
+                context,
+                field: "note_revision",
+                source: Some(_),
+            } if context.note_id.as_deref() == Some(id_text.as_str())
+                && context.row_id == Some(1)
+        ));
+    }
 }
 
 #[test]

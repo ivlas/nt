@@ -132,6 +132,37 @@ fn rolled_back_allocations_are_not_observable() {
 }
 
 #[test]
+fn stale_preconditions_do_not_advance_revision_or_append_changes() {
+    let mut repository = repository();
+    let id = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Guarded").unwrap())
+        .unwrap();
+    repository
+        .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()), None)
+        .unwrap();
+    let changes_before: i64 = repository
+        .connection
+        .query_row("SELECT COUNT(*) FROM note_changes", [], |row| row.get(0))
+        .unwrap();
+
+    assert!(matches!(
+        repository.move_note(&id, &"work".parse().unwrap(), Some(1)),
+        Err(NtError::RevisionConflict {
+            expected: 1,
+            actual: 2,
+            ..
+        })
+    ));
+
+    let changes_after: i64 = repository
+        .connection
+        .query_row("SELECT COUNT(*) FROM note_changes", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(current(&repository), 2);
+    assert_eq!(changes_after, changes_before);
+}
+
+#[test]
 fn concurrent_writers_assign_unique_commit_ordered_revisions_that_survive_reopen() {
     const WRITERS: usize = 8;
     let directory = tempfile::tempdir().unwrap();

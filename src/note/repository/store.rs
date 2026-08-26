@@ -246,15 +246,14 @@ pub(super) fn ensure_note_revision(
     let Some(expected) = expected else {
         return Ok(());
     };
-    let (row_id, stored) = transaction
-        .query_row(
-            "SELECT pk, note_revision FROM notes WHERE id = ?1",
-            [id.to_string()],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?
-        .ok_or_else(|| NtError::NoteNotFound(id.to_string()))?;
+    let mut statement = transaction.prepare("SELECT pk, note_revision FROM notes WHERE id = ?1")?;
+    let mut rows = statement.query([id.to_string()])?;
+    let Some(row) = rows.next()? else {
+        return Err(NtError::NoteNotFound(id.to_string()));
+    };
+    let row_id = row.get::<_, i64>(0)?;
     let context = StoredNoteContext::new(Some(id.to_string()), Some(row_id));
+    let stored = stored_value::<i64>(row, 1, &context, "note_revision")?;
     let actual = decode_revision(stored, &context)?;
     if actual != expected {
         return Err(NtError::RevisionConflict {
