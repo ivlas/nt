@@ -63,18 +63,19 @@ fn benchmark_generic_agentic_primitives() {
     let mut measurements = Vec::new();
     let mut populated = 0;
     for checkpoint in CHECKPOINTS {
-        populate(&mut connection, populated, checkpoint);
+        let global_revision = populate(&mut connection, populated, checkpoint);
         populated = checkpoint;
         connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
             .unwrap();
-        assert!(note_count(&connection) >= checkpoint);
+        let database_notes = note_count(&connection);
+        assert!(database_notes >= checkpoint);
 
         let collection = Invocation::new(["read", "collection:bench/target", "limit:100"]);
         measurements.push(measure_read(
             home.path(),
             &connection,
-            checkpoint,
+            database_notes,
             "read_collection_limit_100",
             100,
             &collection,
@@ -88,7 +89,7 @@ fn benchmark_generic_agentic_primitives() {
             measurements.push(measure_read(
                 home.path(),
                 &connection,
-                checkpoint,
+                database_notes,
                 "read_ids",
                 batch_size,
                 &invocation,
@@ -96,12 +97,12 @@ fn benchmark_generic_agentic_primitives() {
             ));
         }
 
-        let recent_revision = checkpoint.saturating_sub(10);
+        let recent_revision = usize::try_from(global_revision).unwrap().saturating_sub(10);
         let changes = Invocation::new(["changes", &format!("since:{recent_revision}")]);
         measurements.push(measure_read(
             home.path(),
             &connection,
-            checkpoint,
+            database_notes,
             "changes_recent",
             10,
             &changes,
@@ -111,7 +112,7 @@ fn benchmark_generic_agentic_primitives() {
         let add = Invocation::new(["add", "collection:bench/mutations", "--", "# Added", "body"]);
         measurements.push(measure_mutation(
             home.path(),
-            checkpoint,
+            database_notes,
             "single_add",
             1,
             |_| add.clone(),
@@ -120,7 +121,7 @@ fn benchmark_generic_agentic_primitives() {
         let edited_id = fixture_id(checkpoint / 2);
         measurements.push(measure_mutation(
             home.path(),
-            checkpoint,
+            database_notes,
             "single_edit",
             1,
             |sample| {
@@ -138,7 +139,7 @@ fn benchmark_generic_agentic_primitives() {
         let batch_input = batch_ids.join("\n") + "\n";
         measurements.push(measure_mutation(
             home.path(),
-            checkpoint,
+            database_notes,
             "batch_move",
             batch_ids.len(),
             |sample| {
@@ -244,9 +245,16 @@ fn measure_mutation(
     }
 }
 
-fn populate(connection: &mut Connection, start: usize, end: usize) {
+fn populate(connection: &mut Connection, start: usize, end: usize) -> i64 {
     let started = Instant::now();
     let transaction = connection.transaction().unwrap();
+    let mut revision: i64 = transaction
+        .query_row(
+            "SELECT revision FROM global_revision WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     {
         let mut insert_note = transaction
             .prepare(
@@ -271,7 +279,7 @@ fn populate(connection: &mut Connection, start: usize, end: usize) {
                 "bench/corpus"
             };
             let timestamp = fixture_timestamp(index);
-            let revision = i64::try_from(index + 1).unwrap();
+            revision += 1;
             insert_note
                 .execute(params![
                     id,
@@ -294,7 +302,7 @@ fn populate(connection: &mut Connection, start: usize, end: usize) {
     transaction
         .execute(
             "UPDATE global_revision SET revision = ?1 WHERE singleton = 1",
-            [i64::try_from(end).unwrap()],
+            [revision],
         )
         .unwrap();
     transaction.commit().unwrap();
@@ -302,6 +310,7 @@ fn populate(connection: &mut Connection, start: usize, end: usize) {
         "populated {start}..{end} in {:.3}s",
         started.elapsed().as_secs_f64()
     );
+    revision
 }
 
 fn sqlite_collection_read(connection: &Connection) {

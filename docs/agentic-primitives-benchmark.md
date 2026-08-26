@@ -10,8 +10,10 @@ The ignored release-mode integration benchmark in
 `tests/agentic_primitives_benchmark.rs` grows one database through 1,000,
 100,000, and 1,000,000 canonical notes. Each note has an approximately 203-byte
 CommonMark body, a change-feed row, an FTS entry maintained by the production
-trigger, one of two collections, and a tag on every fourth note. The resulting
-SQLite database is 1,068,471,816 bytes.
+trigger, one of two collections, and a tag on every fourth note. Real add
+samples remain in the database, so the measured checkpoint counts are 1,000,
+100,011, and 1,000,022 notes. The resulting SQLite database is 1,068,475,912
+bytes.
 
 At every checkpoint the benchmark takes five samples and reports medians. Read
 operations are warmed once. Direct SQLite timings prepare and consume the same
@@ -19,6 +21,9 @@ shape of statement used by `nt`, without process startup, domain decoding, JSON
 encoding, or output. Process timings invoke the release binary with redirected
 output. Peak RSS is sampled separately with `/usr/bin/time`. Arbitrary IDs are
 spread deterministically through the corpus and supplied through `id:-`.
+Each population phase allocates synthetic revisions above the current stored
+global revision, including revisions consumed by earlier measured mutations.
+The recent-change cursor is derived from that resulting global revision.
 
 Single add and edit timings perform real mutations. The 128-note batch mutation
 alternates between two collections so every sample changes all requested notes
@@ -40,33 +45,33 @@ Times are milliseconds and RSS is MiB. `SQLite` is the direct query time.
 
 | Notes | Operation | K | SQLite | First row | Total | RSS |
 |---:|---|---:|---:|---:|---:|---:|
-| 1,000 | collection read | 100 | 0.089 | 2.572 | 2.746 | 4.33 |
-| 1,000 | ID read | 32 | 0.053 | 2.275 | 2.405 | 4.12 |
-| 1,000 | ID read | 64 | 0.074 | 2.180 | 2.403 | 4.30 |
-| 1,000 | ID read | 96 | 0.110 | 2.126 | 2.512 | 4.42 |
-| 1,000 | ID read | 128 | 0.132 | 2.234 | 2.594 | 4.52 |
-| 1,000 | recent changes | 10 | 0.004 | 2.111 | 2.070 | 3.61 |
-| 1,000 | single add | 1 | n/a | 2.636 | 2.430 | 4.14 |
-| 1,000 | single edit | 1 | n/a | 2.582 | 2.827 | 4.14 |
-| 1,000 | batch move | 128 | n/a | 3.881 | 4.168 | 4.64 |
-| 100,000 | collection read | 100 | 0.082 | 2.157 | 2.489 | 4.36 |
-| 100,000 | ID read | 32 | 0.055 | 2.049 | 2.461 | 4.58 |
-| 100,000 | ID read | 64 | 0.088 | 2.412 | 2.555 | 5.17 |
-| 100,000 | ID read | 96 | 0.133 | 2.495 | 2.831 | 5.70 |
-| 100,000 | ID read | 128 | 0.182 | 2.821 | 2.985 | 6.20 |
-| 100,000 | recent changes | 10 | 0.003 | 2.072 | 1.970 | 3.61 |
-| 100,000 | single add | 1 | n/a | 2.122 | 2.425 | 4.28 |
-| 100,000 | single edit | 1 | n/a | 2.635 | 2.644 | 4.20 |
-| 100,000 | batch move | 128 | n/a | 4.637 | 4.893 | 5.80 |
-| 1,000,000 | collection read | 100 | 0.088 | 2.344 | 2.614 | 4.41 |
-| 1,000,000 | ID read | 32 | 0.053 | 2.268 | 2.339 | 4.75 |
-| 1,000,000 | ID read | 64 | 0.100 | 2.235 | 2.759 | 5.69 |
-| 1,000,000 | ID read | 96 | 0.345 | 2.747 | 2.954 | 6.44 |
-| 1,000,000 | ID read | 128 | 0.462 | 2.980 | 3.322 | 6.50 |
-| 1,000,000 | recent changes | 10 | 0.003 | 2.035 | 1.969 | 3.62 |
-| 1,000,000 | single add | 1 | n/a | 2.290 | 2.573 | 4.27 |
-| 1,000,000 | single edit | 1 | n/a | 2.604 | 2.670 | 4.22 |
-| 1,000,000 | batch move | 128 | n/a | 5.391 | 5.599 | 6.58 |
+| 1,000 | collection read | 100 | 0.087 | 2.678 | 2.870 | 4.33 |
+| 1,000 | ID read | 32 | 0.048 | 2.252 | 2.648 | 4.16 |
+| 1,000 | ID read | 64 | 0.075 | 2.234 | 2.519 | 4.31 |
+| 1,000 | ID read | 96 | 0.124 | 2.271 | 2.434 | 4.44 |
+| 1,000 | ID read | 128 | 0.134 | 2.234 | 2.638 | 4.52 |
+| 1,000 | recent changes | 10 | 0.003 | 1.983 | 2.058 | 3.61 |
+| 1,000 | single add | 1 | n/a | 2.326 | 2.436 | 4.14 |
+| 1,000 | single edit | 1 | n/a | 2.579 | 2.870 | 4.14 |
+| 1,000 | batch move | 128 | n/a | 3.698 | 3.667 | 4.64 |
+| 100,011 | collection read | 100 | 0.081 | 2.374 | 2.796 | 4.38 |
+| 100,011 | ID read | 32 | 0.051 | 2.287 | 2.613 | 4.58 |
+| 100,011 | ID read | 64 | 0.094 | 2.371 | 2.593 | 5.17 |
+| 100,011 | ID read | 96 | 0.125 | 2.436 | 2.801 | 5.72 |
+| 100,011 | ID read | 128 | 0.171 | 2.582 | 2.917 | 6.16 |
+| 100,011 | recent changes | 10 | 0.003 | 1.922 | 2.066 | 3.62 |
+| 100,011 | single add | 1 | n/a | 2.295 | 2.496 | 4.27 |
+| 100,011 | single edit | 1 | n/a | 2.522 | 2.624 | 4.22 |
+| 100,011 | batch move | 128 | n/a | 4.767 | 4.839 | 5.81 |
+| 1,000,022 | collection read | 100 | 0.096 | 2.231 | 2.509 | 4.41 |
+| 1,000,022 | ID read | 32 | 0.054 | 2.189 | 2.471 | 4.75 |
+| 1,000,022 | ID read | 64 | 0.109 | 2.483 | 2.720 | 5.69 |
+| 1,000,022 | ID read | 96 | 0.361 | 2.697 | 2.813 | 6.44 |
+| 1,000,022 | ID read | 128 | 0.441 | 2.918 | 3.153 | 6.53 |
+| 1,000,022 | recent changes | 10 | 0.003 | 1.808 | 2.079 | 3.61 |
+| 1,000,022 | single add | 1 | n/a | 2.620 | 2.412 | 4.25 |
+| 1,000,022 | single edit | 1 | n/a | 2.578 | 2.792 | 4.20 |
+| 1,000,022 | batch move | 128 | n/a | 5.751 | 5.691 | 6.59 |
 
 First-row and total columns come from separate sample sets, so sub-millisecond
 noise can make a median first-row value slightly exceed the median total value
@@ -75,21 +80,21 @@ for short operations.
 ## Findings
 
 Process startup and database validation dominate bounded reads. Direct SQLite
-cost is 0.003-0.462 ms, while complete process time is 1.969-3.322 ms.
+cost is 0.003-0.441 ms, while complete process time is 2.058-3.153 ms.
 
 Collection reads and recent change reads remain flat as the database grows by
 three orders of magnitude. Their indexes bound work by the requested range and
 result count.
 
 Exact-ID reads scale with K and point-lookup depth, not linearly with total
-database contents. At K=128, increasing the database from 1,000 to 1,000,000
-notes adds 0.330 ms of SQLite time and 0.728 ms of total process time. At one
-million notes, increasing K from 32 to 128 adds 0.409 ms of SQLite time, 0.983
-ms total, and 1.75 MiB RSS.
+database contents. At K=128, increasing the database from 1,000 to 1,000,022
+notes adds 0.307 ms of SQLite time and 0.515 ms of total process time. At about
+one million notes, increasing K from 32 to 128 adds 0.387 ms of SQLite time,
+0.682 ms total, and 1.78 MiB RSS.
 
 Single mutations remain flat with database size. A real 128-note batch move at
-one million notes takes 5.599 ms and 6.58 MiB RSS, preserving one-process and
-one-transaction semantics.
+about one million notes takes 5.691 ms and 6.59 MiB RSS, preserving one-process
+and one-transaction semantics.
 
 The measurements support the intended architecture:
 
