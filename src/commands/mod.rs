@@ -18,6 +18,7 @@ mod move_note;
 mod read;
 mod rm;
 mod show;
+mod stdin_ids;
 mod tag;
 
 fn parse_add_or_remove<T>(value: &str, field: &'static str) -> Result<AddOrRemove<T>>

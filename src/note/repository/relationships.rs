@@ -4,7 +4,10 @@ use super::super::{NoteId, Tag, timestamp_now};
 use crate::error::{NtError, Result};
 
 use super::changes::{ChangeOperation, record_change};
-use super::store::{ensure_note_revision, next_revision, note_pk};
+use super::store::{
+    encode_ids, ensure_note_revision, ensure_notes_exist, ensure_unique, insert_changes,
+    next_revision, note_pk, select_ids_with_value,
+};
 use super::{AddOrRemove, Repository};
 
 impl Repository {
@@ -32,6 +35,73 @@ impl Repository {
         touch_if_changed(&transaction, id, changed)?;
         transaction.commit()?;
         Ok(changed)
+    }
+
+    pub fn change_tags(&mut self, ids: &[NoteId], operation: AddOrRemove<Tag>) -> Result<usize> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_unique(ids)?;
+        let encoded_ids = encode_ids(ids);
+        ensure_notes_exist(&transaction, ids, &encoded_ids)?;
+        let (tag, query) = match &operation {
+            AddOrRemove::Add(tag) => (
+                tag,
+                "SELECT notes.id
+                 FROM notes
+                 JOIN json_each(?1) requested ON requested.value = notes.id
+                 LEFT JOIN note_tags tags ON tags.note_pk = notes.pk AND tags.tag = ?2
+                 WHERE tags.note_pk IS NULL
+                 ORDER BY notes.id",
+            ),
+            AddOrRemove::Remove(tag) => (
+                tag,
+                "SELECT notes.id
+                 FROM notes
+                 JOIN json_each(?1) requested ON requested.value = notes.id
+                 JOIN note_tags tags ON tags.note_pk = notes.pk AND tags.tag = ?2
+                 ORDER BY notes.id",
+            ),
+        };
+        let changed_ids = select_ids_with_value(&transaction, query, &encoded_ids, tag.as_str())?;
+        if changed_ids.is_empty() {
+            transaction.commit()?;
+            return Ok(0);
+        }
+        let encoded_changed = encode_ids(&changed_ids);
+        match operation {
+            AddOrRemove::Add(tag) => transaction.execute(
+                "INSERT INTO note_tags(note_pk, tag)
+                 SELECT notes.pk, ?1
+                 FROM notes
+                 JOIN json_each(?2) changed ON changed.value = notes.id",
+                params![tag.as_str(), encoded_changed],
+            )?,
+            AddOrRemove::Remove(tag) => transaction.execute(
+                "DELETE FROM note_tags
+                 WHERE tag = ?1 AND note_pk IN (
+                     SELECT notes.pk
+                     FROM notes
+                     JOIN json_each(?2) changed ON changed.value = notes.id
+                 )",
+                params![tag.as_str(), encoded_changed],
+            )?,
+        };
+        let revision = next_revision(&transaction)?;
+        let updated = timestamp_now()?;
+        transaction.execute(
+            "UPDATE notes SET updated = ?1, note_revision = ?2
+             WHERE id IN (SELECT value FROM json_each(?3))",
+            params![updated.as_str(), revision, encoded_changed],
+        )?;
+        insert_changes(
+            &transaction,
+            revision,
+            &encoded_changed,
+            ChangeOperation::Metadata,
+        )?;
+        transaction.commit()?;
+        Ok(changed_ids.len())
     }
 
     pub fn change_link(

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -63,56 +63,50 @@ impl Repository {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut pks = Vec::with_capacity(ids.len());
-        let mut unique = BTreeSet::new();
-        for id in ids {
-            if !unique.insert(id) {
-                return Err(NtError::DuplicateNoteId(id.to_string()));
-            }
-        }
-        for id in ids {
-            pks.push(note_pk(&transaction, id)?);
-        }
-        if pks.is_empty() {
+        ensure_unique(ids)?;
+        if ids.is_empty() {
             transaction.commit()?;
             return Ok(());
         }
+        let encoded_ids = encode_ids(ids);
+        ensure_notes_exist(&transaction, ids, &encoded_ids)?;
+        let affected_sources = select_ids(
+            &transaction,
+            "SELECT DISTINCT source.id
+             FROM note_links links
+             JOIN notes source ON source.pk = links.note_pk
+             JOIN notes target ON target.pk = links.target_note_pk
+             JOIN json_each(?1) requested ON requested.value = target.id
+             WHERE source.id NOT IN (SELECT value FROM json_each(?1))
+             ORDER BY source.id",
+            &encoded_ids,
+        )?;
         let revision = next_revision(&transaction)?;
         let updated = timestamp_now()?;
-        let deleted_pks = pks.iter().copied().collect::<BTreeSet<_>>();
-        let mut affected_sources = BTreeMap::new();
-        for pk in &pks {
-            let mut statement = transaction.prepare(
-                "SELECT source.pk, source.id
-                 FROM note_links links
-                 JOIN notes source ON source.pk = links.note_pk
-                 WHERE links.target_note_pk = ?1
-                 ORDER BY source.id",
-            )?;
-            let sources = statement
-                .query_map([pk], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            for (source_pk, source_id) in sources {
-                if !deleted_pks.contains(&source_pk) {
-                    affected_sources.insert(source_pk, source_id.parse()?);
-                }
-            }
-        }
-        for (source_pk, source_id) in &affected_sources {
+        if !affected_sources.is_empty() {
+            let encoded_sources = encode_ids(&affected_sources);
             transaction.execute(
-                "UPDATE notes SET updated = ?1, note_revision = ?2 WHERE pk = ?3",
-                params![updated.as_str(), revision, source_pk],
+                "UPDATE notes SET updated = ?1, note_revision = ?2
+                 WHERE id IN (SELECT value FROM json_each(?3))",
+                params![updated.as_str(), revision, encoded_sources],
             )?;
-            record_change(&transaction, revision, source_id, ChangeOperation::Metadata)?;
+            insert_changes(
+                &transaction,
+                revision,
+                &encoded_sources,
+                ChangeOperation::Metadata,
+            )?;
         }
-        for id in ids {
-            record_change(&transaction, revision, id, ChangeOperation::Remove)?;
-        }
-        for pk in pks {
-            transaction.execute("DELETE FROM notes WHERE pk = ?1", [pk])?;
-        }
+        insert_changes(
+            &transaction,
+            revision,
+            &encoded_ids,
+            ChangeOperation::Remove,
+        )?;
+        transaction.execute(
+            "DELETE FROM notes WHERE id IN (SELECT value FROM json_each(?1))",
+            [&encoded_ids],
+        )?;
         transaction.commit()?;
         Ok(())
     }
@@ -207,6 +201,127 @@ impl Repository {
         transaction.commit()?;
         Ok(changed)
     }
+
+    pub fn move_notes(&mut self, ids: &[NoteId], collection: &CollectionPath) -> Result<usize> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_unique(ids)?;
+        let encoded_ids = encode_ids(ids);
+        ensure_notes_exist(&transaction, ids, &encoded_ids)?;
+        let changed_ids = select_ids_with_value(
+            &transaction,
+            "SELECT notes.id
+             FROM notes
+             JOIN json_each(?1) requested ON requested.value = notes.id
+             WHERE notes.collection <> ?2
+             ORDER BY notes.id",
+            &encoded_ids,
+            collection.as_str(),
+        )?;
+        if changed_ids.is_empty() {
+            transaction.commit()?;
+            return Ok(0);
+        }
+        let encoded_changed = encode_ids(&changed_ids);
+        let revision = next_revision(&transaction)?;
+        let updated = timestamp_now()?;
+        transaction.execute(
+            "UPDATE notes SET collection = ?1, updated = ?2, note_revision = ?3
+             WHERE id IN (SELECT value FROM json_each(?4))",
+            params![
+                collection.as_str(),
+                updated.as_str(),
+                revision,
+                encoded_changed
+            ],
+        )?;
+        insert_changes(
+            &transaction,
+            revision,
+            &encoded_changed,
+            ChangeOperation::Metadata,
+        )?;
+        transaction.commit()?;
+        Ok(changed_ids.len())
+    }
+}
+
+pub(super) fn encode_ids(ids: &[NoteId]) -> String {
+    serde_json::to_string(&ids.iter().map(ToString::to_string).collect::<Vec<String>>())
+        .expect("note IDs serialize as JSON")
+}
+
+pub(super) fn ensure_unique(ids: &[NoteId]) -> Result<()> {
+    let mut unique = BTreeSet::new();
+    for id in ids {
+        if !unique.insert(id) {
+            return Err(NtError::DuplicateNoteId(id.to_string()));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_notes_exist(
+    transaction: &Transaction<'_>,
+    ids: &[NoteId],
+    encoded_ids: &str,
+) -> Result<()> {
+    let existing = select_ids(
+        transaction,
+        "SELECT notes.id
+         FROM notes
+         JOIN json_each(?1) requested ON requested.value = notes.id
+         ORDER BY notes.id",
+        encoded_ids,
+    )?
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    for id in ids {
+        if !existing.contains(id) {
+            return Err(NtError::NoteNotFound(id.to_string()));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn select_ids(
+    transaction: &Transaction<'_>,
+    sql: &str,
+    encoded_ids: &str,
+) -> Result<Vec<NoteId>> {
+    let mut statement = transaction.prepare(sql)?;
+    let values = statement
+        .query_map([encoded_ids], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    values.into_iter().map(|value| value.parse()).collect()
+}
+
+pub(super) fn select_ids_with_value(
+    transaction: &Transaction<'_>,
+    sql: &str,
+    encoded_ids: &str,
+    value: &str,
+) -> Result<Vec<NoteId>> {
+    let mut statement = transaction.prepare(sql)?;
+    let values = statement
+        .query_map(params![encoded_ids, value], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    values.into_iter().map(|value| value.parse()).collect()
+}
+
+pub(super) fn insert_changes(
+    transaction: &Transaction<'_>,
+    revision: i64,
+    encoded_ids: &str,
+    operation: ChangeOperation,
+) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO note_changes(revision, note_id, operation)
+         SELECT ?1, value, ?2 FROM json_each(?3)",
+        params![revision, operation.as_str(), encoded_ids],
+    )?;
+    Ok(())
 }
 
 pub(super) fn note_pk(transaction: &Transaction<'_>, id: &NoteId) -> Result<i64> {
