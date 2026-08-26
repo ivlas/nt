@@ -47,10 +47,10 @@ The canonical command contract is `docs/cli-reference.md`:
 - `nt changes since:<revision>`
 - `nt find <term-or-filter...>`
 - `nt rm <id...>`
-- `nt edit <id> [-- body...]`
-- `nt move <id> <collection>`
-- `nt tag <id> <+tag|-tag>`
-- `nt link <id> <+id|-id>`
+- `nt edit <id> [if-rev:<revision>] [-- body...]`
+- `nt move <id> <collection> [if-rev:<revision>]`
+- `nt tag <id> <+tag|-tag> [if-rev:<revision>]`
+- `nt link <id> <+id|-id> [if-rev:<revision>]`
 - `nt help [command...]`
 
 Avoid broader commands or hidden runtime management until concrete usage proves

@@ -65,6 +65,14 @@ version, closes storage while the editor runs, then reopens storage and commits
 only if the body version still matches. No transaction or connection remains
 open while waiting for editor input.
 
+Single-note mutations may also carry an `if-rev:` whole-note precondition. The
+repository checks the stored note revision after `BEGIN IMMEDIATE` and before
+no-op detection, canonical writes, or global revision allocation. This makes
+the check and mutation one compare-and-swap operation: concurrent writers that
+observed the same revision serialize, and only the first can commit. The body
+version remains the editor-specific guard for unconditioned body edits; an
+explicit note revision additionally detects intervening metadata changes.
+
 Each mutation performs one short repository transaction. The commit completes
 before its success line is written, so a later output failure cannot roll back
 the mutation. This boundary is surfaced explicitly by the CLI error contract.

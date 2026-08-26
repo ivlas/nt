@@ -4,15 +4,21 @@ use super::super::{NoteId, Tag, timestamp_now};
 use crate::error::{NtError, Result};
 
 use super::changes::{ChangeOperation, record_change};
-use super::store::{next_revision, note_pk};
+use super::store::{ensure_note_revision, next_revision, note_pk};
 use super::{AddOrRemove, Repository};
 
 impl Repository {
-    pub fn change_tag(&mut self, id: &NoteId, operation: AddOrRemove<Tag>) -> Result<bool> {
+    pub fn change_tag(
+        &mut self,
+        id: &NoteId,
+        operation: AddOrRemove<Tag>,
+        if_revision: Option<u64>,
+    ) -> Result<bool> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let pk = note_pk(&transaction, id)?;
+        ensure_note_revision(&transaction, id, if_revision)?;
         let changed = match operation {
             AddOrRemove::Add(tag) => transaction.execute(
                 "INSERT OR IGNORE INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
@@ -28,11 +34,17 @@ impl Repository {
         Ok(changed)
     }
 
-    pub fn change_link(&mut self, id: &NoteId, operation: AddOrRemove<NoteId>) -> Result<bool> {
+    pub fn change_link(
+        &mut self,
+        id: &NoteId,
+        operation: AddOrRemove<NoteId>,
+        if_revision: Option<u64>,
+    ) -> Result<bool> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let source_pk = note_pk(&transaction, id)?;
+        ensure_note_revision(&transaction, id, if_revision)?;
         let target = match &operation {
             AddOrRemove::Add(target) | AddOrRemove::Remove(target) => target,
         };

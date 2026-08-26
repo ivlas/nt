@@ -32,35 +32,35 @@ fn feed_records_canonical_operations_deletions_and_exact_cursor_boundaries() {
     edited
         .replace_body("# Edited", timestamp_now().unwrap())
         .unwrap();
-    repository.replace_body(&edited, 1).unwrap();
+    repository.replace_body(&edited, 1, None).unwrap();
     repository
-        .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()))
+        .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()), None)
         .unwrap();
     repository
-        .change_link(&source, AddOrRemove::Add(first_target.clone()))
+        .change_link(&source, AddOrRemove::Add(first_target.clone()), None)
         .unwrap();
     repository
-        .move_note(&source, &"work/nt".parse().unwrap())
+        .move_note(&source, &"work/nt".parse().unwrap(), None)
         .unwrap();
 
     assert!(
         !repository
-            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()))
+            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()), None)
             .unwrap()
     );
     assert!(
         !repository
-            .change_link(&source, AddOrRemove::Add(first_target.clone()))
+            .change_link(&source, AddOrRemove::Add(first_target.clone()), None)
             .unwrap()
     );
     assert!(
         !repository
-            .move_note(&source, &"work/nt".parse().unwrap())
+            .move_note(&source, &"work/nt".parse().unwrap(), None)
             .unwrap()
     );
 
     repository
-        .change_link(&source, AddOrRemove::Add(second_target.clone()))
+        .change_link(&source, AddOrRemove::Add(second_target.clone()), None)
         .unwrap();
     repository
         .delete_notes(&[first_target.clone(), second_target.clone()])

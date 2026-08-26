@@ -6,6 +6,7 @@ use super::super::super::{CollectionPath, NewNote, NoteId};
 use super::super::store::next_revision;
 use super::super::{AddOrRemove, Repository};
 use super::repository;
+use crate::error::NtError;
 use crate::schema;
 
 fn current(repository: &Repository) -> i64 {
@@ -37,7 +38,7 @@ fn real_mutations_are_strictly_monotonic_and_noops_and_failures_do_not_advance()
 
     assert!(
         repository
-            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()))
+            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()), None)
             .unwrap()
     );
     assert_eq!(
@@ -49,22 +50,22 @@ fn real_mutations_are_strictly_monotonic_and_noops_and_failures_do_not_advance()
     );
     assert!(
         !repository
-            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()))
+            .change_tag(&source, AddOrRemove::Add("rust".parse().unwrap()), None)
             .unwrap()
     );
     assert!(
         !repository
-            .move_note(&source, &CollectionPath::inbox())
+            .move_note(&source, &CollectionPath::inbox(), None)
             .unwrap()
     );
-    repository.verify_body_version(&source, 1).unwrap();
+    repository.verify_body_version(&source, 1, None).unwrap();
     assert_eq!(current(&repository), 2);
 
     let mut edited = repository.get_note(&source).unwrap();
     edited
         .replace_body("# Edited", "2026-08-25T12:00:00Z".parse().unwrap())
         .unwrap();
-    repository.replace_body(&edited, 1).unwrap();
+    repository.replace_body(&edited, 1, None).unwrap();
     assert_eq!(
         (
             current(&repository),
@@ -72,7 +73,7 @@ fn real_mutations_are_strictly_monotonic_and_noops_and_failures_do_not_advance()
         ),
         (3, 3)
     );
-    assert!(repository.replace_body(&edited, 1).is_err());
+    assert!(repository.replace_body(&edited, 1, None).is_err());
     assert_eq!(current(&repository), 3);
 
     let missing: NoteId = "018fbe0a-6c00-7000-8000-000000000099".parse().unwrap();
@@ -89,7 +90,7 @@ fn real_mutations_are_strictly_monotonic_and_noops_and_failures_do_not_advance()
     assert_eq!(current(&repository), 4);
     assert!(
         repository
-            .change_link(&source, AddOrRemove::Add(target.clone()))
+            .change_link(&source, AddOrRemove::Add(target.clone()), None)
             .unwrap()
     );
     assert_eq!(current(&repository), 5);
@@ -128,6 +129,37 @@ fn rolled_back_allocations_are_not_observable() {
         ),
         (1, 1)
     );
+}
+
+#[test]
+fn stale_preconditions_do_not_advance_revision_or_append_changes() {
+    let mut repository = repository();
+    let id = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Guarded").unwrap())
+        .unwrap();
+    repository
+        .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()), None)
+        .unwrap();
+    let changes_before: i64 = repository
+        .connection
+        .query_row("SELECT COUNT(*) FROM note_changes", [], |row| row.get(0))
+        .unwrap();
+
+    assert!(matches!(
+        repository.move_note(&id, &"work".parse().unwrap(), Some(1)),
+        Err(NtError::RevisionConflict {
+            expected: 1,
+            actual: 2,
+            ..
+        })
+    ));
+
+    let changes_after: i64 = repository
+        .connection
+        .query_row("SELECT COUNT(*) FROM note_changes", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(current(&repository), 2);
+    assert_eq!(changes_after, changes_before);
 }
 
 #[test]
@@ -189,4 +221,48 @@ fn concurrent_writers_assign_unique_commit_ordered_revisions_that_survive_reopen
             .unwrap(),
         WRITERS as i64
     );
+}
+
+#[test]
+fn simultaneous_conditional_writers_allow_exactly_one_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nt.sqlite3");
+    schema::initialize_at(&path).unwrap();
+    let mut repository = Repository::from_connection(schema::open_read_write(&path).unwrap());
+    let id = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Shared").unwrap())
+        .unwrap();
+    let observed = repository.get_note(&id).unwrap().revision();
+    drop(repository);
+
+    let barrier = Arc::new(Barrier::new(2));
+    let mut threads = Vec::new();
+    for tag in ["first", "second"] {
+        let path = path.clone();
+        let id = id.clone();
+        let barrier = Arc::clone(&barrier);
+        threads.push(std::thread::spawn(move || {
+            let mut repository =
+                Repository::from_connection(schema::open_read_write(&path).unwrap());
+            barrier.wait();
+            repository.change_tag(&id, AddOrRemove::Add(tag.parse().unwrap()), Some(observed))
+        }));
+    }
+    let results = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(NtError::RevisionConflict { .. })))
+            .count(),
+        1
+    );
+
+    let repository = Repository::from_connection(schema::open_read_only(&path).unwrap());
+    let note = repository.get_note(&id).unwrap();
+    assert_eq!(note.tags().len(), 1);
+    assert_eq!(note.revision(), observed + 1);
 }
