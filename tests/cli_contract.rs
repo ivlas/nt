@@ -378,6 +378,229 @@ fn read_rejects_empty_invalid_and_duplicate_stdin_id_inputs() {
 }
 
 #[test]
+fn batch_mutations_accept_crlf_and_reject_invalid_stdin_before_storage() {
+    let home = tempfile::tempdir().unwrap();
+    let missing = "018fbe0a-6c00-7000-8000-000000000099";
+
+    for input in ["", "\n", "not-an-id\n", &format!("{missing}\n{missing}\n")] {
+        let output = run(home.path(), &["tag", "id:-", "+rust"], Some(input));
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!home.path().join(".nt").exists());
+    }
+
+    success(home.path(), &["init"], None);
+    let first = add(home.path(), "# First", &[]);
+    let second = add(home.path(), "# Second", &[]);
+    assert_eq!(
+        success(
+            home.path(),
+            &["move", "id:-", "archive"],
+            Some(&format!("{first}\n")),
+        ),
+        "moved 1 archive\n"
+    );
+    let input = format!("{first}\r\n{second}\r\n");
+    assert_eq!(
+        success(home.path(), &["tag", "id:-", "+rust"], Some(&input)),
+        "tagged 2 +rust\n"
+    );
+    let guarded = run(
+        home.path(),
+        &["move", "id:-", "archive", "if-rev:1"],
+        Some(&input),
+    );
+    assert_eq!(guarded.status.code(), Some(2));
+    assert_eq!(
+        guarded.stderr,
+        b"error: invalid revision precondition: if-rev:1 with id:-\n"
+    );
+}
+
+#[test]
+fn batch_tag_and_move_use_one_revision_for_only_changed_notes() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let first = add(home.path(), "# First", &["tag:rust"]);
+    let second = add(home.path(), "# Second", &[]);
+    let third = add(home.path(), "# Third", &[]);
+    success(home.path(), &["move", &third, "archive"], None);
+    let input = format!("{first}\n{second}\n{third}\n");
+
+    assert_eq!(
+        success(home.path(), &["tag", "id:-", "+rust"], Some(&input)),
+        "tagged 3 +rust\n"
+    );
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let tag_revision: i64 = connection
+        .query_row("SELECT revision FROM global_revision", [], |row| row.get(0))
+        .unwrap();
+    let tagged = connection
+        .prepare(
+            "SELECT id, note_revision FROM notes
+             WHERE id IN (?1, ?2, ?3) ORDER BY id",
+        )
+        .unwrap()
+        .query_map(params![first, second, third], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        tagged
+            .iter()
+            .filter(|(_, revision)| *revision == tag_revision)
+            .count(),
+        2
+    );
+    let tag_changes: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM note_changes
+             WHERE revision = ?1 AND operation = 'metadata'",
+            [tag_revision],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tag_changes, 2);
+    drop(connection);
+
+    success(home.path(), &["tag", "id:-", "+rust"], Some(&input));
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT revision FROM global_revision", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        tag_revision
+    );
+    drop(connection);
+
+    assert_eq!(
+        success(home.path(), &["move", "id:-", "archive"], Some(&input)),
+        "moved 3 archive\n"
+    );
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let move_revision: i64 = connection
+        .query_row("SELECT revision FROM global_revision", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(move_revision, tag_revision + 1);
+    let moved_at_revision: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM notes WHERE note_revision = ?1",
+            [move_revision],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(moved_at_revision, 2);
+}
+
+#[test]
+fn batch_mutations_handle_thousands_and_roll_back_missing_ids() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    seed_matching_notes(home.path(), 1_001);
+    let input = (0..1_001)
+        .map(|index| format!("018fbe0a-6c00-7000-8000-{index:012x}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(
+        success(home.path(), &["tag", "id:-", "+bulk"], Some(&input)),
+        "tagged 1001 +bulk\n"
+    );
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let tagged: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM note_tags WHERE tag = 'bulk'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let revisions: i64 = connection
+        .query_row(
+            "SELECT COUNT(DISTINCT note_revision) FROM notes",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!((tagged, revisions), (1_001, 1));
+    drop(connection);
+
+    let missing = "018fbe0a-6c00-7000-8000-ffffffffffff";
+    let failed_input = format!("018fbe0a-6c00-7000-8000-000000000000\n{missing}\n");
+    let failed = run(
+        home.path(),
+        &["move", "id:-", "should-not-apply"],
+        Some(&failed_input),
+    );
+    assert_eq!(failed.status.code(), Some(3));
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let moved: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM notes WHERE collection = 'should-not-apply'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(moved, 0);
+}
+
+#[test]
+fn batch_remove_cleans_backlinks_with_one_deduplicated_revision() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let first = add(home.path(), "# First target", &[]);
+    let second = add(home.path(), "# Second target", &[]);
+    let source = add(
+        home.path(),
+        "# Source",
+        &[&format!("link:{first},{second}")],
+    );
+    let input = format!("{first}\n{second}\n");
+
+    assert_eq!(
+        success(home.path(), &["rm", "id:-"], Some(&input)),
+        "removed 2\n"
+    );
+    let connection = Connection::open(home.path().join(".nt/nt.sqlite3")).unwrap();
+    let revision: i64 = connection
+        .query_row("SELECT revision FROM global_revision", [], |row| row.get(0))
+        .unwrap();
+    let changes = connection
+        .prepare(
+            "SELECT note_id, operation FROM note_changes
+             WHERE revision = ?1 ORDER BY note_id",
+        )
+        .unwrap()
+        .query_map([revision], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(changes.len(), 3);
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|(id, operation)| id == &source && operation == "metadata")
+            .count(),
+        1
+    );
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|(_, operation)| operation == "remove")
+            .count(),
+        2
+    );
+    let links: i64 = connection
+        .query_row("SELECT COUNT(*) FROM note_links", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(links, 0);
+}
+
+#[test]
 fn complete_cli_workflow_matches_the_stable_contract() {
     let home = tempfile::tempdir().unwrap();
     assert_eq!(success(home.path(), &["init"], None), "initialized\n");

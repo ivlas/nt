@@ -266,3 +266,54 @@ fn simultaneous_conditional_writers_allow_exactly_one_mutation() {
     assert_eq!(note.tags().len(), 1);
     assert_eq!(note.revision(), observed + 1);
 }
+
+#[test]
+fn concurrent_batches_each_commit_one_shared_revision() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nt.sqlite3");
+    schema::initialize_at(&path).unwrap();
+    let mut repository = Repository::from_connection(schema::open_read_write(&path).unwrap());
+    let first = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# First").unwrap())
+        .unwrap();
+    let second = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Second").unwrap())
+        .unwrap();
+    drop(repository);
+
+    let barrier = Arc::new(Barrier::new(2));
+    let mut threads = Vec::new();
+    for tag in ["first", "second"] {
+        let path = path.clone();
+        let ids = [first.clone(), second.clone()];
+        let barrier = Arc::clone(&barrier);
+        threads.push(std::thread::spawn(move || {
+            let mut repository =
+                Repository::from_connection(schema::open_read_write(&path).unwrap());
+            barrier.wait();
+            repository.change_tags(&ids, AddOrRemove::Add(tag.parse().unwrap()))
+        }));
+    }
+    for thread in threads {
+        assert_eq!(thread.join().unwrap().unwrap(), 2);
+    }
+
+    let repository = Repository::from_connection(schema::open_read_only(&path).unwrap());
+    let first_note = repository.get_note(&first).unwrap();
+    let second_note = repository.get_note(&second).unwrap();
+    assert_eq!(first_note.tags().len(), 2);
+    assert_eq!(second_note.tags().len(), 2);
+    assert_eq!(first_note.revision(), second_note.revision());
+    let revisions = repository
+        .connection
+        .prepare(
+            "SELECT revision, COUNT(*) FROM note_changes
+             WHERE revision > 2 GROUP BY revision ORDER BY revision",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(revisions, [(3, 2), (4, 2)]);
+}
