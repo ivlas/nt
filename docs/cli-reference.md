@@ -28,10 +28,10 @@ nt read [filter...]
 nt changes since:<revision>
 nt find <term-or-filter...>
 nt rm <id...>
-nt edit <id> [-- body...]
-nt move <id> <collection>
-nt tag <id> <+tag|-tag>
-nt link <id> <+id|-id>
+nt edit <id> [if-rev:<revision>] [-- body...]
+nt move <id> <collection> [if-rev:<revision>]
+nt tag <id> <+tag|-tag> [if-rev:<revision>]
+nt link <id> <+id|-id> [if-rev:<revision>]
 nt help [command...]
 ```
 
@@ -80,8 +80,10 @@ followed by non-whitespace title text, with no leading blank line. Other content
 is preserved. Success prints `saved <id>`.
 
 `edit <id>` replaces the complete body using the same sources and body rules.
-An editor update is rejected if another body edit commits first. Success prints
-`updated <id>`.
+An editor update is rejected if another body edit commits first. Supplying
+`if-rev:<revision>` additionally rejects the edit if any canonical mutation
+changed the note since that revision was observed. Success prints `updated
+<id>`.
 
 ## Note Queries
 
@@ -215,10 +217,10 @@ revision.
 ## Note Mutations
 
 ```text
-nt move <id> <collection>    -> moved <id> <collection>
-nt tag <id> <+tag|-tag>      -> tagged <id> <operation>
-nt link <id> <+id|-id>       -> linked <id> <operation>
-nt rm <id...>                -> removed <count>
+nt move <id> <collection> [if-rev:<revision>]    -> moved <id> <collection>
+nt tag <id> <+tag|-tag> [if-rev:<revision>]      -> tagged <id> <operation>
+nt link <id> <+id|-id> [if-rev:<revision>]       -> linked <id> <operation>
+nt rm <id...>                                      -> removed <count>
 ```
 
 These changes are transactional. Adding an existing set value or removing a
@@ -226,6 +228,16 @@ missing one succeeds without changing `updated`. Links are directional;
 self-links are errors, and a real link change updates only its source note. Link
 addition requires an existing target. Removing a valid target ID that is not
 stored succeeds as a no-op.
+
+`edit`, `move`, `tag`, and `link` accept an optional positive
+`if-rev:<revision>` precondition. The revision is the whole-note `revision`
+returned by `read`, not a timestamp or change-feed cursor guess. The mutation
+proceeds only when the live note still has exactly that revision. The check and
+mutation share one immediate transaction: a stale mutation cannot partially
+apply, is never silently retried, and exits with retryable status `4`. A no-op
+with a matching revision remains a no-op; a stale request conflicts even when
+its requested state already matches. A note deleted before the check is a
+normal missing-note error.
 
 `rm` rejects duplicate IDs and validates every ID before deleting any note.
 Deleting a target updates surviving source notes whose outgoing links are
@@ -256,11 +268,12 @@ any future optional diagnostics must not change normal stdout or stderr.
 | `1` | Other operational failure |
 | `2` | Invalid command syntax, query, or value |
 | `3` | Missing storage or note |
-| `4` | Retryable database contention or edit conflict |
+| `4` | Retryable database contention or mutation conflict |
 
 Common stable messages include `run nt init first`, `database is not an nt
 database`, `database is corrupt`, `database is busy; retry`, `note not found:
-<id>`, and `note changed while editing: <id>`. Clap owns command-grammar
+<id>`, `note changed while editing: <id>`, and `note revision conflict: <id>
+(expected <revision>, found <revision>); retry`. Clap owns command-grammar
 diagnostics.
 
 Database commits and success-output writes cannot be atomic. If output fails
