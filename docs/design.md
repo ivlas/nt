@@ -38,6 +38,11 @@ directional, and cannot target the source note itself.
 
 Body edits use an expected body version so two editor sessions cannot silently
 overwrite each other. Metadata changes do not conflict with an open editor.
+Edit, move, tag, and link may additionally require the note's latest revision;
+this unified precondition detects intervening body or metadata changes. It is
+checked in the mutation transaction, including for no-ops, and a mismatch is a
+retryable conflict rather than an automatic retry. Missing notes remain missing
+note errors. Preconditions never compare timestamps.
 No-op set changes preserve `updated`; real metadata changes update it. UTC
 timestamps have one-second resolution and are not a monotonic mutation order.
 

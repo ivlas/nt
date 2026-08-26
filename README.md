@@ -31,6 +31,9 @@ nt link <id> +<target-id>
 nt rm <id>
 ```
 
+`edit`, `move`, `tag`, and `link` accept `if-rev:<revision>` after their required
+arguments to reject stale mutations against a note changed since it was read.
+
 SQLite at `$HOME/.nt/nt.sqlite3` is canonical. There are no filesystem vaults,
 configuration files, daemons, background workers, embeddings, model calls in
 retrieval, or hidden agent-only commands.

@@ -63,7 +63,9 @@ snapshot. Input-taking mutations collect and validate their body outside a
 database connection where possible. Note editing reads the current body and
 version, closes storage while the editor runs, then reopens storage and commits
 only if the body version still matches. No transaction or connection remains
-open while waiting for editor input.
+open while waiting for editor input. An explicit `if-rev:` precondition adds a
+unified note-revision check, so metadata as well as body changes can invalidate
+the edit while preserving the body-only behavior of unguarded editor sessions.
 
 Each mutation performs one short repository transaction. The commit completes
 before its success line is written, so a later output failure cannot roll back
@@ -72,6 +74,11 @@ Writable transactions acquire SQLite's writer lock with `BEGIN IMMEDIATE`
 before incrementing the singleton global revision. The increment, canonical
 changes, affected live-note revision stamps, change-feed rows, and derived FTS
 changes commit or roll back together.
+Optional mutation revision preconditions are read and compared after that
+writer lock is acquired and before any canonical change. This also applies to
+no-op requests, preventing a stale writer from reporting success merely because
+the requested state already exists. Conflicts roll back without allocating a
+revision and are returned to the caller without an automatic retry.
 
 TTY note tables need full-column widths, so rendering spools encoded rows to an
 unnamed temporary file before replaying them. Redirected note tables do not

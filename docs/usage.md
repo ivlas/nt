@@ -112,6 +112,17 @@ current body in the configured editor. The update fails if another body edit
 commits first. Adding an existing tag or link, or removing a missing one,
 succeeds without changing the note. Self-links are rejected.
 
+Use the `revision` from redirected `nt read` output to prevent overwriting any
+newer body or metadata change:
+
+```sh
+nt tag "$NOTE_ID" +storage "if-rev:$OBSERVED_REVISION"
+printf '%s\n' '# Updated title' | nt edit "$NOTE_ID" "if-rev:$OBSERVED_REVISION"
+```
+
+A stale precondition exits with retryable status `4`; reread the note and decide
+whether to retry. `nt` does not retry stale mutations automatically.
+
 Remove one or more notes atomically:
 
 ```sh
