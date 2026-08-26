@@ -39,7 +39,7 @@ struct Measurement {
     sqlite: Option<Duration>,
     first_row: Duration,
     total: Duration,
-    peak_rss_bytes: u64,
+    peak_rss_bytes: Option<u64>,
 }
 
 #[test]
@@ -49,6 +49,10 @@ fn benchmark_generic_agentic_primitives() {
     run(home.path(), &Invocation::new(["init"]));
     let database = home.path().join(".nt/nt.sqlite3");
     let mut connection = Connection::open(&database).unwrap();
+    connection.busy_timeout(Duration::from_secs(5)).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON")
+        .unwrap();
 
     println!("sqlite={}", rusqlite::version());
     println!("samples={SAMPLES}");
@@ -163,15 +167,19 @@ fn benchmark_generic_agentic_primitives() {
             .sqlite
             .map(|value| format!("{:.3}", milliseconds(value)))
             .unwrap_or_default();
+        let peak_rss = measurement
+            .peak_rss_bytes
+            .map(|value| format!("{:.2}", value as f64 / 1_048_576.0))
+            .unwrap_or_default();
         println!(
-            "{},{},{},{},{:.3},{:.3},{:.2}",
+            "{},{},{},{},{:.3},{:.3},{}",
             measurement.database_notes,
             measurement.operation,
             measurement.requested,
             sqlite,
             milliseconds(measurement.first_row),
             milliseconds(measurement.total),
-            measurement.peak_rss_bytes as f64 / 1_048_576.0,
+            peak_rss,
         );
     }
     println!("database_bytes={}", database_bytes(&database));
@@ -461,7 +469,8 @@ fn spawn(
     child
 }
 
-fn peak_rss(home: &Path, invocation: &Invocation) -> u64 {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn peak_rss(home: &Path, invocation: &Invocation) -> Option<u64> {
     let stderr_path = home.join("time.stderr");
     let stderr = fs::File::create(&stderr_path).unwrap();
     let mut command = Command::new("/usr/bin/time");
@@ -492,7 +501,13 @@ fn peak_rss(home: &Path, invocation: &Invocation) -> u64 {
     }
     assert!(child.wait().unwrap().success());
     let output = fs::read_to_string(stderr_path).unwrap();
-    parse_peak_rss(&output)
+    Some(parse_peak_rss(&output))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn peak_rss(home: &Path, invocation: &Invocation) -> Option<u64> {
+    run(home, invocation);
+    None
 }
 
 #[cfg(target_os = "macos")]
@@ -516,11 +531,6 @@ fn parse_peak_rss(output: &str) -> u64 {
         .parse::<u64>()
         .unwrap()
         * 1024
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn parse_peak_rss(_output: &str) -> u64 {
-    0
 }
 
 fn median_duration(mut values: Vec<Duration>) -> Duration {
