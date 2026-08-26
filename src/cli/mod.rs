@@ -53,22 +53,26 @@ pub enum Command {
     },
     Edit {
         id: String,
+        precondition: Option<String>,
         #[arg(last = true, allow_hyphen_values = true)]
         body: Vec<String>,
     },
     Move {
         id: String,
         collection: String,
+        precondition: Option<String>,
     },
     Tag {
         id: String,
         #[arg(allow_hyphen_values = true)]
         operation: String,
+        precondition: Option<String>,
     },
     Link {
         id: String,
         #[arg(allow_hyphen_values = true)]
         operation: String,
+        precondition: Option<String>,
     },
     Help {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -105,9 +109,19 @@ mod tests {
             &["nt", "find", "sqlite", "tag:rust"],
             &["nt", "rm", ID],
             &["nt", "edit", ID, "--", "# Updated"],
+            &["nt", "edit", ID, "if-rev:1", "--", "# Updated"],
             &["nt", "move", ID, "work/nt"],
+            &["nt", "move", ID, "work/nt", "if-rev:1"],
             &["nt", "tag", ID, "+rust"],
+            &["nt", "tag", ID, "+rust", "if-rev:1"],
             &["nt", "link", ID, "+018fbe0a-6c00-7000-8000-000000000002"],
+            &[
+                "nt",
+                "link",
+                ID,
+                "+018fbe0a-6c00-7000-8000-000000000002",
+                "if-rev:1",
+            ],
             &["nt", "help", "find"],
         ];
         for case in cases {

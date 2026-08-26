@@ -44,6 +44,130 @@ fn body_updates_detect_conflicts_but_metadata_does_not_create_them() {
 }
 
 #[test]
+fn revision_preconditions_guard_edits_metadata_noops_and_deleted_notes() {
+    let mut repository = repository();
+    let target = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Target").unwrap())
+        .unwrap();
+    let id = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Original").unwrap())
+        .unwrap();
+    let mut observed = repository.get_note(&id).unwrap();
+    let observed_revision = observed.revision();
+    let observed_body_version = observed.body_version();
+    observed
+        .replace_body("# Edited", "2026-05-28T15:00:00Z".parse().unwrap())
+        .unwrap();
+
+    repository
+        .replace_body_if_revision(&observed, observed_body_version, Some(observed_revision))
+        .unwrap();
+    let edited = repository.get_note(&id).unwrap();
+    let edited_revision = edited.revision();
+    assert_eq!(edited.body(), "# Edited");
+
+    for result in [
+        repository.change_tag_if_revision(
+            &id,
+            AddOrRemove::Add("rust".parse().unwrap()),
+            Some(observed_revision),
+        ),
+        repository.move_note_if_revision(&id, &"work/nt".parse().unwrap(), Some(observed_revision)),
+        repository.change_link_if_revision(
+            &id,
+            AddOrRemove::Add(target.clone()),
+            Some(observed_revision),
+        ),
+    ] {
+        assert!(matches!(result, Err(NtError::RevisionConflict(_))));
+    }
+    let unchanged = repository.get_note(&id).unwrap();
+    assert_eq!(unchanged.collection(), &CollectionPath::inbox());
+    assert!(unchanged.tags().is_empty());
+    assert!(unchanged.links().is_empty());
+    assert_eq!(unchanged.revision(), edited_revision);
+
+    repository
+        .verify_body_version_if_revision(&id, unchanged.body_version(), Some(edited_revision))
+        .unwrap();
+    assert!(
+        !repository
+            .move_note_if_revision(&id, &CollectionPath::inbox(), Some(edited_revision))
+            .unwrap()
+    );
+    assert_eq!(
+        repository.get_note(&id).unwrap().revision(),
+        edited_revision
+    );
+
+    let mut before_metadata = repository.get_note(&id).unwrap();
+    repository
+        .change_tag(&id, AddOrRemove::Add("rust".parse().unwrap()))
+        .unwrap();
+    let expected_version = before_metadata.body_version();
+    let expected_revision = before_metadata.revision();
+    before_metadata
+        .replace_body(
+            "# Stale after metadata",
+            "2026-05-28T16:00:00Z".parse().unwrap(),
+        )
+        .unwrap();
+    assert!(matches!(
+        repository.replace_body_if_revision(
+            &before_metadata,
+            expected_version,
+            Some(expected_revision),
+        ),
+        Err(NtError::RevisionConflict(_))
+    ));
+
+    let before_body = repository.get_note(&id).unwrap();
+    let mut stale_edit = before_body.clone();
+    let mut concurrent = before_body.clone();
+    concurrent
+        .replace_body("# Concurrent body", "2026-05-28T17:00:00Z".parse().unwrap())
+        .unwrap();
+    repository
+        .replace_body(&concurrent, before_body.body_version())
+        .unwrap();
+    stale_edit
+        .replace_body("# Stale body", "2026-05-28T18:00:00Z".parse().unwrap())
+        .unwrap();
+    assert!(matches!(
+        repository.replace_body_if_revision(
+            &stale_edit,
+            before_body.body_version(),
+            Some(before_body.revision()),
+        ),
+        Err(NtError::RevisionConflict(_))
+    ));
+    assert!(matches!(
+        repository.change_tag_if_revision(
+            &id,
+            AddOrRemove::Add("stale".parse().unwrap()),
+            Some(before_body.revision()),
+        ),
+        Err(NtError::RevisionConflict(_))
+    ));
+
+    let deleted = repository
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Deleted").unwrap())
+        .unwrap();
+    let deleted_revision = repository.get_note(&deleted).unwrap().revision();
+    repository
+        .delete_notes(std::slice::from_ref(&deleted))
+        .unwrap();
+    assert!(matches!(
+        repository.move_note_if_revision(
+            &deleted,
+            &"archive".parse().unwrap(),
+            Some(deleted_revision),
+        ),
+        Err(NtError::NoteNotFound(_))
+    ));
+}
+
+#[test]
 fn metadata_changes_are_idempotent_and_touch_only_real_changes() {
     let mut repository = repository();
     let target = repository

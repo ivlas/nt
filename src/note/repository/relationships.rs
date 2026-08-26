@@ -4,15 +4,25 @@ use super::super::{NoteId, Tag, timestamp_now};
 use crate::error::{NtError, Result};
 
 use super::changes::{ChangeOperation, record_change};
-use super::store::{next_revision, note_pk};
+use super::store::{next_revision, note_pk_if_revision};
 use super::{AddOrRemove, Repository};
 
 impl Repository {
+    #[cfg(test)]
     pub fn change_tag(&mut self, id: &NoteId, operation: AddOrRemove<Tag>) -> Result<bool> {
+        self.change_tag_if_revision(id, operation, None)
+    }
+
+    pub fn change_tag_if_revision(
+        &mut self,
+        id: &NoteId,
+        operation: AddOrRemove<Tag>,
+        expected_revision: Option<u64>,
+    ) -> Result<bool> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let pk = note_pk(&transaction, id)?;
+        let pk = note_pk_if_revision(&transaction, id, expected_revision)?;
         let changed = match operation {
             AddOrRemove::Add(tag) => transaction.execute(
                 "INSERT OR IGNORE INTO note_tags(note_pk, tag) VALUES (?1, ?2)",
@@ -28,11 +38,21 @@ impl Repository {
         Ok(changed)
     }
 
+    #[cfg(test)]
     pub fn change_link(&mut self, id: &NoteId, operation: AddOrRemove<NoteId>) -> Result<bool> {
+        self.change_link_if_revision(id, operation, None)
+    }
+
+    pub fn change_link_if_revision(
+        &mut self,
+        id: &NoteId,
+        operation: AddOrRemove<NoteId>,
+        expected_revision: Option<u64>,
+    ) -> Result<bool> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let source_pk = note_pk(&transaction, id)?;
+        let source_pk = note_pk_if_revision(&transaction, id, expected_revision)?;
         let target = match &operation {
             AddOrRemove::Add(target) | AddOrRemove::Remove(target) => target,
         };
@@ -41,7 +61,7 @@ impl Repository {
         }
         let changed = match operation {
             AddOrRemove::Add(target) => {
-                let target_pk = note_pk(&transaction, &target)?;
+                let target_pk = note_pk_if_revision(&transaction, &target, None)?;
                 transaction.execute(
                     "INSERT OR IGNORE INTO note_links(note_pk, target_note_pk) VALUES (?1, ?2)",
                     params![source_pk, target_pk],

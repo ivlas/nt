@@ -6,6 +6,7 @@ use super::super::super::{CollectionPath, NewNote, NoteId};
 use super::super::store::next_revision;
 use super::super::{AddOrRemove, Repository};
 use super::repository;
+use crate::error::NtError;
 use crate::schema;
 
 fn current(repository: &Repository) -> i64 {
@@ -189,4 +190,46 @@ fn concurrent_writers_assign_unique_commit_ordered_revisions_that_survive_reopen
             .unwrap(),
         WRITERS as i64
     );
+}
+
+#[test]
+fn simultaneous_conditional_writers_allow_exactly_one_observed_revision() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nt.sqlite3");
+    schema::initialize_at(&path).unwrap();
+    let id = Repository::from_connection(schema::open_read_write(&path).unwrap())
+        .create_note(NewNote::new(CollectionPath::inbox(), "# Source").unwrap())
+        .unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+    let mut threads = Vec::new();
+
+    for tag in ["first", "second"] {
+        let path = path.clone();
+        let id = id.clone();
+        let barrier = Arc::clone(&barrier);
+        threads.push(std::thread::spawn(move || {
+            let mut repository =
+                Repository::from_connection(schema::open_read_write(&path).unwrap());
+            barrier.wait();
+            repository.change_tag_if_revision(&id, AddOrRemove::Add(tag.parse().unwrap()), Some(1))
+        }));
+    }
+
+    let results = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(NtError::RevisionConflict(_))))
+            .count(),
+        1
+    );
+    let repository = Repository::from_connection(schema::open_read_only(&path).unwrap());
+    let note = repository.get_note(&id).unwrap();
+    assert_eq!(note.revision(), 2);
+    assert_eq!(note.tags().len(), 1);
+    assert_eq!(current(&repository), 2);
 }

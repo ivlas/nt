@@ -79,6 +79,37 @@ fn revisions_persist_across_cli_processes() {
 }
 
 #[test]
+fn conditional_mutations_report_retryable_revision_conflicts() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"], None);
+    let id = add(home.path(), "# Original", &[]);
+
+    assert_eq!(
+        success(
+            home.path(),
+            &["edit", &id, "if-rev:1", "--", "# Edited"],
+            None,
+        ),
+        format!("updated {id}\n")
+    );
+    let stale = run(home.path(), &["tag", &id, "+rust", "if-rev:1"], None);
+    assert_eq!(stale.status.code(), Some(4));
+    assert!(stale.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(stale.stderr).unwrap(),
+        format!("error: note revision conflict: {id}; retry with the latest revision\n")
+    );
+
+    let invalid = run(home.path(), &["move", &id, "work", "if-rev:-1"], None);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    assert_eq!(
+        invalid.stderr,
+        b"error: invalid revision precondition: if-rev:-1\n"
+    );
+}
+
+#[test]
 fn changes_stream_stable_jsonl_strictly_after_the_cursor() {
     let home = tempfile::tempdir().unwrap();
     success(home.path(), &["init"], None);

@@ -14,8 +14,12 @@ Commands:
   changes since:<revision>             stream canonical changes
   find <term-or-filter...>             search note summaries
   rm <id...>                           remove notes atomically
-  edit <id> [-- body...]               replace one body
-  move <id> <collection>               move one note
-  tag <id> <+tag|-tag>                 change one tag
-  link <id> <+id|-id>                  change one directional link
+  edit <id> [if-rev:<revision>] [-- body...]
+                                       replace one body
+  move <id> <collection> [if-rev:<revision>]
+                                       move one note
+  tag <id> <+tag|-tag> [if-rev:<revision>]
+                                       change one tag
+  link <id> <+id|-id> [if-rev:<revision>]
+                                       change one directional link
   help [command...]                    show command help

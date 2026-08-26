@@ -36,6 +36,33 @@ where
     })
 }
 
+fn parse_revision_precondition(precondition: Option<&str>) -> Result<Option<u64>> {
+    let Some(precondition) = precondition else {
+        return Ok(None);
+    };
+    let Some(value) = precondition.strip_prefix("if-rev:") else {
+        return invalid_revision_precondition(precondition);
+    };
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return invalid_revision_precondition(precondition);
+    }
+    let revision = value.parse::<u64>().map_err(|_| NtError::InvalidValue {
+        field: "revision precondition",
+        value: precondition.to_string(),
+    })?;
+    if i64::try_from(revision).is_err() {
+        return invalid_revision_precondition(precondition);
+    }
+    Ok(Some(revision))
+}
+
+fn invalid_revision_precondition<T>(precondition: &str) -> Result<T> {
+    Err(NtError::InvalidValue {
+        field: "revision precondition",
+        value: precondition.to_string(),
+    })
+}
+
 fn write_commit_output(output: &mut dyn Write, arguments: fmt::Arguments<'_>) -> Result<()> {
     output
         .write_fmt(arguments)
@@ -54,10 +81,26 @@ pub fn run(cli: Cli, app: &mut App<'_>) -> Result<()> {
         Some(Command::Changes { cursor }) => changes::changes(app, &cursor),
         Some(Command::Find { expressions }) => find::find(app, &expressions),
         Some(Command::Rm { ids }) => rm::rm(app, &ids),
-        Some(Command::Edit { id, body }) => edit::edit(app, &id, &body),
-        Some(Command::Move { id, collection }) => move_note::move_note(app, &id, &collection),
-        Some(Command::Tag { id, operation }) => tag::tag(app, &id, &operation),
-        Some(Command::Link { id, operation }) => link::link(app, &id, &operation),
+        Some(Command::Edit {
+            id,
+            precondition,
+            body,
+        }) => edit::edit(app, &id, precondition.as_deref(), &body),
+        Some(Command::Move {
+            id,
+            collection,
+            precondition,
+        }) => move_note::move_note(app, &id, &collection, precondition.as_deref()),
+        Some(Command::Tag {
+            id,
+            operation,
+            precondition,
+        }) => tag::tag(app, &id, &operation, precondition.as_deref()),
+        Some(Command::Link {
+            id,
+            operation,
+            precondition,
+        }) => link::link(app, &id, &operation, precondition.as_deref()),
         Some(Command::Help { topic }) => crate::cli::help::print(&topic, app.output),
     }
 }
@@ -70,7 +113,7 @@ mod tests {
     use clap::Parser;
     use rusqlite::Connection;
 
-    use super::{App, run};
+    use super::{App, parse_revision_precondition, run};
     use crate::cli::Cli;
     use crate::cli::input::Input;
     use crate::error::{NtError, Result};
@@ -79,6 +122,25 @@ mod tests {
 
     fn open_repository(path: &Path) -> Result<Repository> {
         schema::open_read_write(path).map(Repository::from_connection)
+    }
+
+    #[test]
+    fn revision_preconditions_are_exact_nonnegative_revisions() {
+        assert_eq!(parse_revision_precondition(None).unwrap(), None);
+        assert_eq!(
+            parse_revision_precondition(Some("if-rev:0")).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            parse_revision_precondition(Some("if-rev:42")).unwrap(),
+            Some(42)
+        );
+        for invalid in ["1", "if-rev:", "if-rev:-1", "if-rev:+1", "if-revision:1"] {
+            assert!(
+                parse_revision_precondition(Some(invalid)).is_err(),
+                "{invalid}"
+            );
+        }
     }
 
     #[test]
